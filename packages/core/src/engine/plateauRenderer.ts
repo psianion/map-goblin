@@ -93,7 +93,7 @@ import type { PlateauChild } from '../shared/types';
 import { isGroundPiece, pieceRings } from '../shared/pieces';
 import type { WorldBounds } from '../shared/mapBounds';
 import { baseGroundFrame } from './mapFrame';
-import { BAND_DRAWN_WIDTH, bandSize, isColoredSet, type CatalogEntry } from '../assets/packCatalog';
+import { bandSize, isColoredSet, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { fittedFloor, layBandChain, layBandRing, placeBand, withConnectors, type FloorFit } from './caveBandRenderer';
@@ -103,7 +103,7 @@ import { layerDrawStyle } from './levelLook';
 import { cliffArt, cliffChoice, cliffPieces, isPaintedBorder, ledgeEndPieces, paintedBorderTexture } from './plateauKit';
 import { paintSoftTiled, SOFT_EDGE_STEPS, softEdgeLayers, type SoftLayer } from './softEdge';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
-import { jointsOf, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
+import { bandPiecesFor, jointsOf, kitRockWidth, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
 type Vec = [number, number];
 
@@ -366,7 +366,7 @@ function cliffWalls(layer: DungeonLayer): CliffWalls {
   const back = new Map<RockLine, number>();
   for (const line of saved) {
     const cave = caves.find((c) => c.rings.some((r) => laidFor(line, r)));
-    if (cave) back.set(line, (BAND_DRAWN_WIDTH / 2) * bandSize(cave.material, cave.width ?? layerDrawStyle(layer).wallWidth));
+    if (cave) back.set(line, (kitRockWidth(bandPiecesFor(cave.material)) / 2) * bandSize(cave.material, cave.width ?? layerDrawStyle(layer).wallWidth));
   }
   const rings = [...caves.flatMap((c) => c.rings), ...(layer.mergedFloor ?? [])].filter((r) => r.length >= 3 && !saved.some((l) => laidFor(l, r)));
   return { lines: [...saved, ...rings.map((r): RockLine => ({ edge: r, closed: true, runs: [[...r, r[0]]] }))], back, openings: layer.caveOpenings ?? [] };

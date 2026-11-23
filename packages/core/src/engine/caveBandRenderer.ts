@@ -10,8 +10,8 @@
 import { Graphics, Sprite, type Container, type Texture } from 'pixi.js';
 import { layerFloorFallback } from './levelLook';
 import { resolveTexture } from '../assets/textureLoader';
-import { BAND_DRAWN_WIDTH, GRID_CELL_PX, bandSetArt, hasLiveTexture, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
-import { bandPiecesFor, caveBandPieces, jointsOf, kitConnectors, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
+import { GRID_CELL_PX, bandSetArt, hasLiveTexture, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
+import { bandPiecesFor, caveBandPieces, jointsOf, kitConnectors, kitRockWidth, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '../store/types';
@@ -21,6 +21,7 @@ import {
   kitOut,
   kitOverlap,
   layCorners,
+  MEASURED_SCALE,
   offsetCurve,
   placePiece,
   resampleClosed,
@@ -412,6 +413,9 @@ function layWallRuns(line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], closed
     if (n < 2) return [];
     const t0 = norm(sub(run[1], run[0]));
     const t1 = norm(sub(run[n - 1], run[n - 2]));
+    // A stretch of straight sides is laid corner by corner, its art ending at the wall ends itself.
+    const exact = layExactRun(run as Polygon, set);
+    if (exact) return exact;
     const carried: Vec[] = [...(open0 ? [sub(run[0], mul(t0, half))] : []), ...run, ...(open1 ? [add(run[n - 1], mul(t1, half))] : [])];
     return layChain(carried, [], set, opts);
   });
@@ -575,9 +579,101 @@ export function layBandRing(
   size = 1,
 ): WalkPlacement[] {
   return keptLaying('ring', poly, gaps, set, size, () => {
-    if (size !== 1) return laidAtSize(size, poly, gaps, (p, g) => layBandRing(p, g, set));
-    return pushBends(layRing(poly, gaps, set), set);
+    const least = narrowSize(poly, gaps, set, size);
+    if (least !== null) return layRingAt(poly, gaps, set, least).map((pl) => ({ ...pl, size: least }));
+    return layRingAt(poly, gaps, set, size);
   });
+}
+
+/** {@link layBandRing} at `size` as it stands, narrow passages or not. */
+function layRingAt(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], size: number): WalkPlacement[] {
+  if (size !== 1) return laidAtSize(size, poly, gaps, (p, g) => layRingAt(p, g, set, 1));
+  return pushBends(layRing(poly, gaps, set), set);
+}
+
+/* ── Narrow passages ──────────────────────────────────────────────────
+ *
+ * Where a ring's edge faces itself across the floor closer than its rock needs (the two rock
+ * bodies reaching in from either side plus a clear cell; half a cell where the passage is a cell
+ * wide or less), the rock there is laid smaller: the largest size, down to NARROW_LEAST of the
+ * ring's, that keeps that much clear. Laid stretch by stretch, a run ending at a passage's neck on
+ * either side of a lobe left the lobe bare, so the whole ring is laid at the size its narrowest
+ * passage asks for, each piece marked with it.
+ */
+
+/** The smallest share of a ring's size a narrow passage's rock is laid at. */
+const NARROW_LEAST = 0.5;
+/** How far apart along the edge a passage's width is read, cells. */
+const NARROW_STEP = 0.2;
+
+/**
+ * How far a kit's rock reaches in over the floor past the drawn edge, cells at its drawn size:
+ * half its width less how far its line sits out in the void (the joints' shove, less how far
+ * the straights' rock runs floorward of their joints where they carry it, else SEAT_IN).
+ */
+function rockReachIn(set: CaveKitPiece[]): number {
+  const offsets: number[] = [];
+  for (const p of set) {
+    if (p.turnDeg !== 0 || !p.spine) continue;
+    const [J0, J1] = p.jointsCells;
+    const v = sub(J1, J0);
+    const L = Math.hypot(v[0], v[1]);
+    if (L < 1e-9) continue;
+    for (const q of p.spine) offsets.push(cross(v, sub(q, J0)) / L);
+  }
+  const seat = offsets.length > 0 ? offsets.reduce((a, b) => a + b, 0) / offsets.length : SEAT_IN;
+  return kitRockWidth(set) / 2 - (2 * kitOut(set) - seat);
+}
+
+/**
+ * The size a measured kit laid at `size` round `poly` (wound void-left) lays its narrowest passage
+ * at; null when none narrows or the kit is not measured. The sides of a door or mouth (`gaps`)
+ * facing each other across it are no passage.
+ */
+function narrowSize(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], size: number): number | null {
+  if (!set.some((p) => p.exact) || poly.length < 3) return null;
+  const reachIn = rockReachIn(set);
+  if (reachIn <= 0) return null;
+  const pts: Vec[] = poly.map(([x, y]) => [x, y]);
+  pts.push(pts[0]);
+  const cum = arcLengths(pts);
+  const total = cum[cum.length - 1];
+  const samples = Math.max(8, Math.ceil(total / NARROW_STEP));
+  // The size each sample of the edge asks for, from the floor's width straight across from it.
+  const want: number[] = [];
+  for (let k = 0; k < samples; k++) {
+    const s = (k * total) / samples;
+    const e = pointAtArc(pts, cum, s);
+    if (gaps.some((g) => dist(e, g.position) <= g.width / 2 + 1)) {
+      want.push(size);
+      continue;
+    }
+    let seg = 0;
+    while (seg + 1 < cum.length - 1 && cum[seg + 1] <= s) seg++;
+    const t = norm(sub(pts[seg + 1], pts[seg]));
+    const n: Vec = [-t[1], t[0]];
+    // The first edge straight across the floor, and whether it faces back: only then is it a passage.
+    let hit = Infinity;
+    let facing = false;
+    for (let j = 0; j + 1 < pts.length; j++) {
+      if (j === seg) continue;
+      const f = sub(pts[j + 1], pts[j]);
+      const den = cross(n, f);
+      if (Math.abs(den) < 1e-12) continue;
+      const w = sub(pts[j], e);
+      const r = cross(w, f) / den;
+      const q = cross(w, n) / den;
+      if (r <= 1e-6 || q < 0 || q > 1 || r >= hit) continue;
+      hit = r;
+      facing = dot(norm([-f[1], f[0]]), n) < -0.5;
+    }
+    const across = facing && !gaps.some((g) => dist(add(e, mul(n, hit)), g.position) <= g.width / 2 + 1) ? hit : Infinity;
+    const clear = across <= 1 ? 0.5 : 1;
+    const fits = (across - clear) / (2 * reachIn);
+    want.push(across === Infinity || fits >= size ? size : Math.max(NARROW_LEAST * size, fits));
+  }
+  const least = Math.min(...want);
+  return least < size ? least : null;
 }
 
 /** The most layings kept per kit before the oldest are dropped. */
@@ -873,6 +969,163 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
 }
 
 /**
+ * A measured kit along an open run of straight sides (a wall run between openings, a cliff's
+ * stretch off the walls, a drawn wall), laid as {@link layExactRing} lays a ring: on each corner
+ * a bend chosen for the room either side, at its drawn size, its joints on the joint lines of the
+ * sides it joins; each stretch between bends filled with straights scaled alike (see
+ * {@link fillStretch}); the first piece's art starting exactly at the run's start and the last
+ * one's ending exactly at its end. A bend that would reach past either end of the run is made
+ * smaller, or left out with the two sides crossing at the corner as a ring's are. Null when the
+ * run has a curve in it (a vertex turning between SIDE_TURN_DEG and EXACT_CORNER_DEG).
+ */
+function layExactRun(line: Polygon, set: CaveKitPiece[]): WalkPlacement[] | null {
+  const pts: Vec[] = [];
+  for (const p of line) {
+    const last = pts[pts.length - 1];
+    if (!last || dist(last, p as Vec) > 1e-6) pts.push([p[0], p[1]]);
+  }
+  if (pts.length < 2) return null;
+  // The run's ends and its corners, in order.
+  const verts: Vec[] = [pts[0]];
+  const turns: number[] = [];
+  for (let k = 1; k + 1 < pts.length; k++) {
+    const a = norm(sub(pts[k], verts[verts.length - 1]));
+    const b = norm(sub(pts[k + 1], pts[k]));
+    const turn = (Math.atan2(cross(a, b), dot(a, b)) * 180) / Math.PI;
+    if (Math.abs(turn) < SIDE_TURN_DEG) continue;
+    if (Math.abs(turn) < EXACT_CORNER_DEG) return null;
+    verts.push(pts[k]);
+    turns.push(turn);
+  }
+  verts.push(pts[pts.length - 1]);
+  const m = turns.length;
+  const half = kitOverlap(set) / 2;
+  const out = kitOut(set);
+  const sides = verts.slice(0, -1).map((V, k) => {
+    const u = norm(sub(verts[k + 1], V));
+    return { V, u, len: dist(V, verts[k + 1]), origin: add(V, mul([u[1], -u[0]], out)) };
+  });
+  const along = (k: number, p: Vec): number => dot(sub(p, sides[k].V), sides[k].u);
+  // Corner c lies between side c and side c + 1, at verts[c + 1].
+  const reach = (c: number): number => 2 * out * Math.tan((turns[c] * Math.PI) / 360);
+  const bendAt = (c: number, piece: CaveKitPiece): WalkPlacement => {
+    const uIn = sides[c].u;
+    const uOut = sides[c + 1].u;
+    const meet = add(add(verts[c + 1], mul([uIn[1], -uIn[0]], 2 * out)), mul(uIn, reach(c)));
+    const [J0, J1] = piece.jointsCells;
+    const span = sub(J1, J0);
+    const h = (piece.turnDeg * Math.PI) / 360;
+    const chord = Math.atan2(span[1], span[0]);
+    const eIn: Vec = [Math.cos(chord - h), Math.sin(chord - h)];
+    const eOut: Vec = [Math.cos(chord + h), Math.sin(chord + h)];
+    const a = cross(span, eOut) / cross(eIn, eOut);
+    const b = cross(span, eIn) / cross(eOut, eIn);
+    const spread = Math.hypot(span[0], span[1]) / (Math.hypot(...add(mul(uIn, a), mul(uOut, b))) || 1);
+    const j0 = sub(meet, mul(uIn, a * spread));
+    const j1 = add(meet, mul(uOut, b * spread));
+    const d = norm(sub(j1, j0));
+    const right: Vec = [-d[1], d[0]];
+    const P = add(j0, mul(right, out));
+    const Q = add(j1, mul(right, out));
+    return { piece, P, Q, i: 0, nudge: 0, branch: 'corner', at: placePiece(piece, P, Q, out, 0, 0) };
+  };
+  // Each corner's bends that suit it, largest first, twins together: [size][twin].
+  const choices = turns.map((turn, c): WalkPlacement[][] => {
+    const [prev, V, next] = [verts[c], verts[c + 1], verts[c + 2]];
+    const suits = set
+      .filter((p) => p.turnDeg !== 0 && !p.flipY && Math.sign(p.turnDeg) === Math.sign(turn) && Math.abs(p.turnDeg - turn) / 2 <= EXACT_TURN_TOL)
+      .map((p) => bendAt(c, p))
+      .filter((pl) => {
+        const rock = seatLine([pl]) as Vec[];
+        const hug = Math.min(...rock.map((q, i) => (i > 0 ? segmentDist(V, rock[i - 1], q) : dist(V, q))));
+        const stray = Math.max(...rock.map((q) => Math.min(segmentDist(q, prev, V), segmentDist(q, V, next))));
+        return hug <= BEND_HUG && stray <= BEND_STRAY;
+      })
+      .sort((p, q) => q.piece.chordCells - p.piece.chordCells);
+    const sizes: WalkPlacement[][] = [];
+    for (const pl of suits) {
+      const last = sizes[sizes.length - 1];
+      if (last && Math.abs(last[0].piece.chordCells - pl.piece.chordCells) < 0.05) last.push(pl);
+      else sizes.push([pl]);
+    }
+    return sizes;
+  });
+  const size = choices.map(() => 0);
+  const bendOf = (c: number): WalkPlacement | null => {
+    const twins = choices[c][size[c]];
+    if (!twins) return null;
+    const [x, y] = verts[c + 1];
+    return twins[((Math.imul(Math.round(x * 100), 7919) ^ Math.round(y * 100)) >>> 0) % twins.length];
+  };
+  // Where the straights beside corner c's bend start (on side c + 1) and end (on side c), as a ring's do.
+  const besideBend = (c: number, end: boolean): number => {
+    const pl = bendOf(c)!;
+    const side = end ? c + 1 : c;
+    const turn = ((end ? 1 : -1) * pl.piece.turnDeg * Math.PI) / 360;
+    const chord = Math.atan2(pl.Q[1] - pl.P[1], pl.Q[0] - pl.P[0]) + turn;
+    const cos = Math.max(0.5, dot([Math.cos(chord), Math.sin(chord)], sides[side].u));
+    const back = half * pl.at.scale * (2 / cos - 1);
+    return along(side, jointsOf(pl.piece, pl.at)[end ? 1 : 0]) + (end ? -back : back);
+  };
+  const startOf = (c: number): number => besideBend(c, true);
+  const endOf = (c: number): number => besideBend(c, false);
+  // A bend reaching past either end of the run.
+  const blocked = (c: number): boolean => (c === 0 && endOf(c) < -WALL_END_JOIN) || (c === m - 1 && startOf(c) > sides[m].len + WALL_END_JOIN);
+  for (let c = 0; c < m; c++) {
+    while (choices[c][size[c]] && blocked(c)) size[c]++;
+  }
+  // Two bends lapping on a side beyond a joint's lap: the larger is made smaller, while either can be.
+  for (let pass = 0; pass < 4 * m; pass++) {
+    let changed = false;
+    for (let c = 0; c + 1 < m; c++) {
+      const d = c + 1;
+      if (!bendOf(c) || !bendOf(d) || endOf(d) - startOf(c) >= -WALL_END_JOIN) continue;
+      const smaller = (x: number): boolean => size[x] + 1 < choices[x].length;
+      const pick = [c, d].filter(smaller).sort((p, q) => bendOf(q)!.piece.chordCells - bendOf(p)!.piece.chordCells)[0];
+      if (pick === undefined) continue;
+      size[pick]++;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  const bends = turns.map((_, c) => bendOf(c));
+  const runOn = (c: number): number => {
+    const cos = Math.cos((turns[c] * Math.PI) / 180);
+    const lap = choices[c].length === 0 ? half * (2 / (1 + Math.max(0, cos)) - 1) : 0;
+    return (turns[c] > 0 ? Math.min(reach(c), 2 * out) : reach(c)) + lap;
+  };
+  const straights = set.filter((p) => p.turnDeg === 0);
+  let mirror = 0;
+  /** A stretch from t0 to t1 along side k, its art held to whichever ends are the run's own. */
+  const fill = (k: number, t0: number, t1: number, wall0: boolean, wall1: boolean): WalkPlacement[] => {
+    const L = t1 - t0;
+    if (L < EXACT_SLIVER) return [];
+    const { origin, u } = sides[k];
+    const start = add(origin, mul(u, t0));
+    const { pieces, f } = fillStretch(L, straights, 2 * half, Math.round(start[0] * 100) * 7919 + Math.round(start[1] * 100));
+    const left = L - pieces.reduce((sum, p) => sum + p.chordCells - 2 * half, 0) * f;
+    let s = t0 + (wall0 === wall1 ? left / 2 : wall1 ? left : 0);
+    return pieces.map((kind) => {
+      const same = straights.filter((p) => p.key === kind.key);
+      const piece = same[mirror++ % same.length];
+      const P = add(origin, mul(u, s - half * f));
+      s += (piece.chordCells - 2 * half) * f;
+      const Q = add(origin, mul(u, s + half * f));
+      return { piece, P, Q, i: 0, nudge: 0, branch: 'side', at: placePiece(piece, P, Q, out, 0, 0) };
+    });
+  };
+  const seq: WalkPlacement[] = [];
+  sides.forEach((side, k) => {
+    const before = k - 1;
+    if (k > 0 && bends[before]) seq.push(bends[before]!);
+    const t0 = k === 0 ? 0 : bends[before] ? startOf(before) : -runOn(before);
+    const t1 = k === m ? side.len : bends[k] ? endOf(k) : side.len + runOn(k);
+    seq.push(...fill(k, t0, t1, k === 0, k === m));
+  });
+  return seq;
+}
+
+/**
  * The straights a stretch whose art runs `L` cells is filled with, and the one scale they all
  * take: the fewest pieces, longest first, whose scale lies in the first of FILL_BANDS any
  * choice fits; else, its scale held inside EXACT_REACH, the drawn length that leaves no hole and
@@ -1004,8 +1257,8 @@ function jointLap(a: WalkPlacement, b: WalkPlacement, overlap: number): { t: Vec
 
 /** A joint lapping more than this over what it wants, cells, has a straight pulled back. */
 const TRIM_OVER = 0.3;
-/** The least share of its drawn size a straight is pulled back to before another is swapped in. */
-const TRIM_LEAST = 0.8;
+/** The least share of its drawn size a straight is pulled back to before another is swapped in: the least any measured piece is laid at. */
+const TRIM_LEAST = MEASURED_SCALE[0];
 
 /**
  * One laid run of a measured kit with no straight running on past the piece it meets. Putting
@@ -1075,7 +1328,8 @@ export function meetNeighbours(placed: WalkPlacement[], set: CaveKitPiece[], rin
   const overlap = kitOverlap(set);
   const out = kitOut(set);
   const run = [...placed];
-  const limit = run.map((pl) => dist(pl.P, pl.Q) * MEET_STRETCH);
+  // No further than its walk's chord allows, nor past the size every measured piece is held to.
+  const limit = run.map((pl) => Math.min(dist(pl.P, pl.Q) * MEET_STRETCH, dist(...pl.piece.jointsCells) * MEASURED_SCALE[1]));
   for (let k = 0; k < run.length - (ring ? 0 : 1); k++) {
     const j = (k + 1) % run.length;
     const a = run[k];
@@ -1102,11 +1356,10 @@ export function meetNeighbours(placed: WalkPlacement[], set: CaveKitPiece[], rin
  *
  * A measured kit's pieces end square, so where two of them meet at an angle a wedge
  * opens on the outside of the turn, (rock width / 2) × tan(turn / 2) across at the
- * rock's face, and the floor fitted up to the rock's line shows through it; where two
- * pieces' rock lines pass beside each other rather than cross, the step between them opens
- * a notch the same way. A kit that ships connectors (round lumps of its rock) gets one laid
- * over each such joint; a kit with none has the two pieces run on a little further over
- * each other where they bend.
+ * rock's face, and the floor fitted up to the rock's line shows through it. The two
+ * pieces are run on a little further over each other where they bend, whatever the kit;
+ * a kit that ships connectors (round lumps of its rock) gets one laid over a joint the
+ * pieces could not close that way.
  */
 
 /** A wedge narrower than this across, cells at size 1, is left. */
@@ -1118,7 +1371,7 @@ const BEND_PUSH_SCALE = 1.2;
 /** The sizes a connector is laid between, as shares of its drawn size. */
 const CONNECTOR_SCALE: [number, number] = [0.6, 1];
 /** The widest a connector's body is laid, as a share of the rock's width. */
-const CONNECTOR_SPAN = 1.4;
+const CONNECTOR_SPAN = 1.1;
 
 /** One joint between two pieces laid in a row: `a` then `b`, at index `k` and the next. */
 interface BentJoint {
@@ -1126,20 +1379,20 @@ interface BentJoint {
   j: number;
   /** How wide the wedge on the outside of the turn opens at the rock's face, cells. */
   wedge: number;
-  /** Where the two rock lines join (they cross there, or pass `step` apart), and that step. */
+  /** Where the two rock lines join: where they cross, or the middle of the step between them. */
   at: Vec;
-  step: number;
 }
 
 /**
  * The joints of a laid run (in walk order, the last onto the first where they meet) that
- * bend enough to open a wedge, or whose rock lines step apart enough to open a notch: two
- * pieces short of each other or apart sideways (an opening: a door, a mouth, a run's end)
- * are no joint. At `size`, the rock is BAND_DRAWN_WIDTH times that wide.
+ * bend enough to open a wedge: two pieces short of each other or apart sideways (an opening:
+ * a door, a mouth, a run's end) are no joint. At `size`, the rock is the kit's rock width
+ * (`kitRockWidth`) times that wide.
  */
 function bentJoints(placed: WalkPlacement[], set: CaveKitPiece[], size: number): BentJoint[] {
   if (placed.length < 2) return [];
   const overlap = kitOverlap(set);
+  const width = kitRockWidth(set);
   const out: BentJoint[] = [];
   for (let k = 0; k < placed.length; k++) {
     const j = (k + 1) % placed.length;
@@ -1151,26 +1404,28 @@ function bentJoints(placed: WalkPlacement[], set: CaveKitPiece[], size: number):
     const turn = Math.abs(Math.atan2(Math.sin(entry - Math.atan2(t[1], t[0])), Math.cos(entry - Math.atan2(t[1], t[0]))));
     // Pieces that already run on past each other further than the joint asks (two straights
     // crossing at a corner no bend suits) cover that much of it.
-    const wedge = ((BAND_DRAWN_WIDTH * size) / 2) * Math.tan(Math.min(turn, (SHARP_TURN_DEG * Math.PI) / 180) / 2) - Math.max(0, lap - want);
+    const wedge = ((width * size) / 2) * Math.tan(Math.min(turn, (SHARP_TURN_DEG * Math.PI) / 180) / 2) - Math.max(0, lap - want);
+    if (wedge <= WEDGE_LEAST * size) continue;
     // Where the two rock lines join, as the rock line itself joins them: where they cross, or
     // the middle of the step between them where they pass.
     const [sa, sb] = [pieceSeat(a), pieceSeat(b)];
     joinSeats(sa, sb, SEAT_LAP_REACH * a.at.scale);
     const [pa, pb] = sa.length > 0 && sb.length > 0 ? [sa[sa.length - 1], sb[0]] : [jointsOf(a.piece, a.at)[1], jointsOf(b.piece, b.at)[0]];
-    const step = dist(pa, pb);
-    if (Math.max(wedge, step) > WEDGE_LEAST * size) out.push({ k, j, wedge, at: mul(add(pa, pb), 0.5), step });
+    out.push({ k, j, wedge, at: mul(add(pa, pb), 0.5) });
   }
   return out;
 }
 
 /**
- * The connectors a laid run of `set` (at `size`) takes: over each joint that bends (see
- * {@link bentJoints}), centred on the joint on the rock's line, the smallest connector whose
+ * The connectors a laid run of `set` (at `size`) takes: over each joint that still opens a
+ * wedge once its pieces have been run on over each other (see {@link bentJoints} and
+ * {@link pushBends}), centred on the joint on the rock's line, the smallest connector whose
  * body reaches the rock's face from there, laid between CONNECTOR_SCALE of its drawn size and
- * no wider than CONNECTOR_SPAN times the rock; where none reaches, the largest. Turned by an
- * angle seeded from where it lies, so a redraw lays the same. They change no rock line, no
- * blocking and no floor fit: they are drawn over the pieces and nothing else reads them.
- * Empty for a kit with no connectors.
+ * no wider than CONNECTOR_SPAN times the kit's rock; where none reaches, the largest. A
+ * connector that would have to be laid below CONNECTOR_SCALE to keep that width is never
+ * used. Turned by an angle seeded from where it lies, so a redraw lays the same. They change
+ * no rock line, no blocking and no floor fit: they are drawn over the pieces and nothing else
+ * reads them. Empty for a kit with no connectors.
  */
 export function bandConnectors(placed: WalkPlacement[], set: CaveKitPiece[], size = 1): WalkPlacement[] {
   const connectors = kitConnectors(set);
@@ -1186,13 +1441,17 @@ export function bandConnectors(placed: WalkPlacement[], set: CaveKitPiece[], siz
 const keptConnectors = new WeakMap<WalkPlacement[], { size: number; value: WalkPlacement[] }>();
 
 function layConnectors(placed: WalkPlacement[], set: CaveKitPiece[], size: number, connectors: CaveKitPiece[]): WalkPlacement[] {
-  const reach = (BAND_DRAWN_WIDTH * size) / 2;
-  const widest = (CONNECTOR_SPAN * BAND_DRAWN_WIDTH * size) / 2;
-  return bentJoints(placed, set, size).map(({ at: centre, step }) => {
-    const need = reach + step / 2;
-    const piece = connectors.find((c) => c.radius! * CONNECTOR_SCALE[1] * size >= need) ?? connectors[connectors.length - 1];
+  const width = kitRockWidth(set);
+  const reach = (width * size) / 2;
+  const widest = (CONNECTOR_SPAN * width * size) / 2;
+  // The largest share of its size each connector may be laid at and stay that narrow.
+  const usable = connectors.filter((c) => Math.min(CONNECTOR_SCALE[1], widest / (c.radius! * size)) >= CONNECTOR_SCALE[0]);
+  if (usable.length === 0) return [];
+  const most = (c: CaveKitPiece): number => c.radius! * size * Math.min(CONNECTOR_SCALE[1], widest / (c.radius! * size));
+  return bentJoints(placed, set, size).map(({ at: centre }) => {
+    const piece = usable.find((c) => most(c) >= reach) ?? usable[usable.length - 1];
     const r = piece.radius! * size;
-    const scale = size * Math.min(CONNECTOR_SCALE[1], widest / r, Math.max(CONNECTOR_SCALE[0], need / r));
+    const scale = size * Math.min(CONNECTOR_SCALE[1], widest / r, Math.max(CONNECTOR_SCALE[0], reach / r));
     const h = (Math.imul(Math.round(centre[0] * 100), 7919) ^ Math.imul(Math.round(centre[1] * 100), 104729)) >>> 0;
     const rotation = (h / 4294967296) * 2 * Math.PI;
     const [cx, cy] = piece.jointsCells[0];
@@ -1208,16 +1467,16 @@ export function withConnectors(placed: WalkPlacement[], set: CaveKitPiece[], siz
 }
 
 /**
- * A laid run of a measured kit with no connectors, each joint that bends (see
- * {@link bentJoints}) closed by running its two pieces on over each other along their own
- * chords, half the wedge each, no more than BEND_PUSH and no piece past BEND_PUSH_SCALE of its
- * drawn size; what is left past that is left. A bend keeps its drawn size, as it was laid to
- * its corner: the straight beside it takes the whole wedge. Only the art moves: the chord the
- * walk gave each piece (`P`, `Q`) stays, so the runs the rock is read as stay too. Laid at
- * size 1. Any other kit is returned untouched.
+ * A laid run of a measured kit, each joint that bends (see {@link bentJoints}) closed by
+ * running its two pieces on over each other along their own chords, half the wedge each, no
+ * more than BEND_PUSH and no piece past BEND_PUSH_SCALE of its drawn size; what is left past
+ * that is left, to a connector where the kit has one. A bend keeps its drawn size, as it was
+ * laid to its corner: the straight beside it takes the whole wedge. Only the art moves: the
+ * chord the walk gave each piece (`P`, `Q`) stays, so the runs the rock is read as stay too.
+ * Laid at size 1. Any other kit is returned untouched.
  */
 function pushBends(placed: WalkPlacement[], set: CaveKitPiece[]): WalkPlacement[] {
-  if (!set.some((p) => p.exact) || kitConnectors(set).length > 0) return placed;
+  if (!set.some((p) => p.exact)) return placed;
   const joints = bentJoints(placed, set, 1);
   if (joints.length === 0) return placed;
   // A piece's art stops half the kit's overlap (at its scale) in from each joint, so it grows
@@ -1413,6 +1672,9 @@ function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: Wal
   const measured = set.some((p) => p.exact);
   const runs = measured && gaps.length > 0 ? layWallRuns(points as Polygon, gaps, set, false, opts) : null;
   if (runs) return runs;
+  // A measured kit's run of straight sides is laid corner by corner; a curved one is walked.
+  const exact = measured ? layExactRun(points as Polygon, set) : null;
+  if (exact) return exact;
   const cuts = measured ? [] : gaps;
   const base = resampleOpen(points, CURVE_STEP);
   if (base.length < 8) return [];
@@ -2060,7 +2322,7 @@ function disc(c: Vec, r: number): Polygon {
 /**
  * Where the floor of `ring` (wound void-left, see {@link orientRings}) must be painted
  * off and on to meet the rock laid round it. Kept within FIT_REACH (times `size`) of
- * the authored edge, and clear of each door opening on the ring by FIT_DOOR_PAD.
+ * the authored edge, and clear of each door opening on the ring by FIT_DOOR_PAD (times `size`).
  */
 export function bandFloorFit(ring: Polygon, placed: WalkPlacement[], doors: DoorGap[] = [], size = 1): FloorFit {
   const seat = ring.length < 3 ? [] : bandSeat(placed);
@@ -2070,7 +2332,8 @@ export function bandFloorFit(ring: Polygon, placed: WalkPlacement[], doors: Door
   const outside = clipper2Engine.difference([ring], seat);
   const inside = clipper2Engine.difference(seat, [ring]);
   const near = clipper2Engine.inflateOpen([[...ring, ring[0]]], FIT_REACH * size);
-  const open = doors.map((g) => disc(g.position, g.width / 2 + FIT_DOOR_PAD));
+  // The rock's ends beside an opening are as far in as the rock is laid large.
+  const open = doors.map((g) => disc(g.position, g.width / 2 + FIT_DOOR_PAD * size));
   const guard = (r: Polygon[]): Polygon[] => {
     const kept = r.length > 0 ? clipper2Engine.intersection(r, near) : r;
     return open.length > 0 && kept.length > 0 ? clipper2Engine.difference(kept, open) : kept;

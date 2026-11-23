@@ -49,6 +49,8 @@ export interface BandMeasure {
   connector?: boolean
   /** A connector's solid body: its radius in cells. */
   radius?: number
+  /** How wide the kit's rock is across, in cells, as measured across its straights. */
+  rockWidth?: number
   /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
   spine?: [number, number][]
 }

@@ -47,4 +47,13 @@ describe('PackManifestSchema: band measurements', () => {
     expect(spine([[0, 1], [0, 'a']])).toBe(false);
     expect(spine([[0, 1], [0, Infinity]])).toBe(false);
   });
+
+  it('keeps a band’s rock width, and rejects one that is not a positive number', () => {
+    const band = { joints: [[1, 0.36], [-1, 0.36]], turnDeg: 0, rockWidth: 0.86 };
+    expect(PackManifestSchema.parse(manifest(band)).entries.run_2x4_object_A?.band).toEqual(band);
+    const width = (w: unknown) => PackManifestSchema.safeParse(manifest({ joints: [[1, 0], [-1, 0]], turnDeg: 0, rockWidth: w })).success;
+    expect(width(0)).toBe(false);
+    expect(width(-1)).toBe(false);
+    expect(width('wide')).toBe(false);
+  });
 });

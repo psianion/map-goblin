@@ -5,8 +5,7 @@
 // line bowed as a bend's arc and moved SEAT_IN to the floor side, both cut to where the
 // art ends (half the kit's overlap in from each joint).
 
-import { jointsOf } from '../assets/caveWallKit';
-import { BAND_DRAWN_WIDTH } from '../assets/packCatalog';
+import { jointsOf, kitRockWidth } from '../assets/caveWallKit';
 import { SEAT_IN, seatLine } from '../engine/caveBandRenderer';
 import type { WalkPlacement } from '../engine/caveWalk';
 import { ledgeRuns } from '../engine/plateauRenderer';
@@ -29,7 +28,7 @@ export const BAND_RULES = {
   spikeTurn: 120,
   /** How far past an opening's pad the floor's step from the drawn edge over to the rock is left alone. */
   padStep: 0.25,
-  /** 6: every piece between these shares of its drawn size. */
+  /** 6: every piece between these shares of its drawn size, at the size its stretch was laid at. */
   scale: [0.85, 1.25] as [number, number],
   /** 7: the rock line moved this share of the rock's width to the void side lies under rock everywhere. */
   rim: 0.4,
@@ -398,9 +397,9 @@ export function checkBand(input: BandCheckInput): BandCheck {
     }
   }
 
-  // 7: no wedge at a joint. The rock is BAND_DRAWN_WIDTH wide at its size, each piece's body
+  // 7: no wedge at a joint. The rock is the kit's rock width wide at its size, each piece's body
   // its rock line widened by half that, cut square where its art ends.
-  const width = BAND_DRAWN_WIDTH * size;
+  const width = kitRockWidth(placed.map((pl) => pl.piece)) * size;
   const discs = (input.connectors ?? []).map((pl) => ({ c: jointsOf(pl.piece, pl.at)[0] as V, r: (pl.piece.radius ?? 0) * pl.at.scale }));
   let bareRim = 0;
   let bareRimAt: V | null = null;
@@ -413,7 +412,8 @@ export function checkBand(input: BandCheckInput): BandCheck {
     bareRimAt ??= r.at;
   }
 
-  const scales = placed.map((pl) => pl.at.scale / size);
+  // A piece of a narrow passage is held to the size its stretch was laid at.
+  const scales = placed.map((pl) => pl.at.scale / (pl.size ?? size));
   return {
     bare,
     worstBare,

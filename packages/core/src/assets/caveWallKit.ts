@@ -20,7 +20,7 @@
 // never laid on these numbers (see bandSetArt in packCatalog.ts).
 
 import kit from './caveWallKit.json';
-import { getBandSet, getCatalogEntry, isMeasuredBandSet, type CatalogEntry } from './packCatalog';
+import { BAND_DRAWN_WIDTH, getBandSet, getCatalogEntry, isMeasuredBandSet, type CatalogEntry } from './packCatalog';
 
 /** One measured kit piece. Lengths are in grid cells, angles in degrees. */
 export interface CaveKitPiece {
@@ -123,10 +123,12 @@ interface MeasuredKit {
   pool: CaveKitPiece[];
   ends: CaveKitPiece[];
   connectors: CaveKitPiece[];
+  /** How wide the kit's rock is across, cells at its drawn size. */
+  rockWidth: number;
 }
 
-/** Each measured kit's connectors, by every piece of the pool it lays with: the walk is handed the pieces alone. */
-const pieceConnectors = new WeakMap<CaveKitPiece, CaveKitPiece[]>();
+/** Each measured kit, by every piece of the pool it lays with: the walk is handed the pieces alone. */
+const pieceKits = new WeakMap<CaveKitPiece, MeasuredKit>();
 
 /**
  * A measured kit's pieces, keyed on the catalog's own entry list for the set: that list
@@ -139,7 +141,7 @@ function measuredKit(setId: string): MeasuredKit {
   const entries = getBandSet(setId);
   let kit = measuredKits.get(entries);
   if (kit) return kit;
-  const byKey = new Map<string, { piece: CaveKitPiece; end: boolean; connector: boolean }>();
+  const byKey = new Map<string, { piece: CaveKitPiece; end: boolean; connector: boolean; rockWidth?: number }>();
   for (const e of entries) {
     if (!e.band) continue;
     const key = `${e.material}_${e.gridSize}`;
@@ -166,10 +168,17 @@ function measuredKit(setId: string): MeasuredKit {
       },
       end: !!e.band.end,
       connector: !!e.band.connector,
+      rockWidth: e.band.rockWidth,
     });
   }
   const measuredPieces = [...byKey.values()];
   const base = measuredPieces.filter((m) => !m.end && !m.connector).map((m) => m.piece);
+  // The rock's width as the straights measure it, the middle one where they differ; a kit that
+  // carries none is taken to be as wide as the built-in kit's rock.
+  const widths = measuredPieces
+    .filter((m) => !m.end && !m.connector && m.piece.turnDeg === 0 && (m.rockWidth ?? 0) > 0)
+    .map((m) => m.rockWidth!)
+    .sort((a, b) => a - b);
   kit = {
     pool: [...base, ...base.filter((p) => p.turnDeg === 0).map(mirrorPiece)],
     ends: measuredPieces.filter((m) => m.end).map((m) => m.piece),
@@ -178,19 +187,29 @@ function measuredKit(setId: string): MeasuredKit {
       .filter((m) => m.connector && (m.piece.radius ?? 0) > 0)
       .map((m) => m.piece)
       .sort((a, b) => a.radius! - b.radius!),
+    rockWidth: widths.length > 0 ? widths[(widths.length - 1) >> 1] : BAND_DRAWN_WIDTH,
   };
-  for (const p of kit.pool) pieceConnectors.set(p, kit.connectors);
+  for (const p of kit.pool) pieceKits.set(p, kit);
   measuredKits.set(entries, kit);
   return kit;
 }
 
 /** The connectors of the measured kit `set`'s pieces come from, smallest first. Empty for any other set. */
 export function kitConnectors(set: readonly CaveKitPiece[]): CaveKitPiece[] {
+  return kitOf(set)?.connectors ?? [];
+}
+
+/** How wide the rock of the kit `set`'s pieces come from is across, cells at its drawn size: the built-in kit's for any other set. */
+export function kitRockWidth(set: readonly CaveKitPiece[]): number {
+  return kitOf(set)?.rockWidth ?? BAND_DRAWN_WIDTH;
+}
+
+function kitOf(set: readonly CaveKitPiece[]): MeasuredKit | undefined {
   for (const p of set) {
-    const found = pieceConnectors.get(p);
+    const found = pieceKits.get(p);
     if (found) return found;
   }
-  return [];
+  return undefined;
 }
 
 /** The pieces a band set is laid with: its own measurements when its entries carry them, else the built-in cave kit. */

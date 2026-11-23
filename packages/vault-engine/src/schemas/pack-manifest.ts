@@ -31,6 +31,8 @@ const BandSchema = z.object({
   connector: z.boolean().optional(),
   /** A connector's solid body: its radius in cells. */
   radius: z.number().positive().finite().optional(),
+  /** How wide the kit's rock is across, in cells, as measured across its straights. */
+  rockWidth: z.number().positive().finite().optional(),
   /** The middle of the rock's solid body, joint 0 end to joint 1 end, in the joints' frame. */
   spine: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(64).optional(),
 });
