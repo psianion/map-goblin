@@ -55,6 +55,8 @@ const BandSchema = z.object({
   transition: z.enum(['straight', 'corner']).optional(),
   /** Which of a transition's joints lies on the wall's centre line. */
   wallJoint: z.union([z.literal(0), z.literal(1)]).optional(),
+  /** The side the art's face looks at: a cliff's at its void side (default), a cave wall's at its floor side. */
+  faces: z.enum(['void', 'floor']).optional(),
 });
 
 /** A prop's footprint for blocking: a disc about its centre, radius in cells. */

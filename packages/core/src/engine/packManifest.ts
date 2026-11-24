@@ -75,6 +75,11 @@ export interface BandMeasure {
   transition?: 'straight' | 'corner'
   /** Which of a transition's joints lies on the wall's centre line. */
   wallJoint?: 0 | 1
+  /**
+   * The side the art's face looks at, as the kit was measured: a cliff's at its void side (the
+   * low ground, the default), a cave wall's at its floor side (the rock mass behind it is its void).
+   */
+  faces?: 'void' | 'floor'
 }
 
 export interface PackManifest {

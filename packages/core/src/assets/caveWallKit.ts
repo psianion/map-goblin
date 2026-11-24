@@ -154,6 +154,8 @@ interface MeasuredKit {
   steps: CaveKitPiece[];
   entrances: CaveKitPiece[];
   transitions: CaveKitPiece[];
+  /** Measured as cave walls: the face looks at the floor side, the rock mass is the void side. */
+  facesFloor: boolean;
   connectors: CaveKitPiece[];
   /** How wide the kit's rock is across, cells at its drawn size. */
   rockWidth: number;
@@ -240,6 +242,7 @@ function measuredKit(setId: string): MeasuredKit {
     steps: [...steps, ...steps.map(mirrorPiece)],
     entrances: measuredPieces.filter((m) => m.band.entrance).map((m) => m.piece),
     transitions: measuredPieces.filter((m) => m.band.transition).map((m) => m.piece),
+    facesFloor: inRun.some((m) => m.band.faces === 'floor'),
     // Smallest first: a joint takes the smallest that covers it.
     connectors: measuredPieces
       .filter((m) => m.connector && (m.piece.radius ?? 0) > 0)
@@ -287,6 +290,11 @@ export function kitEnds(set: readonly CaveKitPiece[]): CaveKitPiece[] {
 /** The dead ends (caps turning 180 degrees) of the measured kit `set`'s pieces come from. Empty for any other set. */
 export function kitDeadEnds(set: readonly CaveKitPiece[]): CaveKitPiece[] {
   return kitOf(set)?.deadEnds ?? [];
+}
+
+/** True when the measured kit `set`'s pieces come from was measured as cave walls: its face looks at its floor side. */
+export function kitFacesFloor(set: readonly CaveKitPiece[]): boolean {
+  return kitOf(set)?.facesFloor ?? false;
 }
 
 /** The step pieces of the measured kit `set`'s pieces come from, mirrors included. Empty for any other set. */

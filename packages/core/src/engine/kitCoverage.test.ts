@@ -9,6 +9,8 @@ import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import { layBandChain, layBandRing, orientRings } from './caveBandRenderer';
 import { endTangents } from './bandBend';
 import { cliffChoice } from './plateauKit';
+import { walkCliff } from './plateauRenderer';
+import type { EdgeRun } from '../shared/plateaus';
 import type { BandMeasure, ManifestEntry } from './packManifest';
 import type { Polygon } from '../types/geometry';
 
@@ -98,6 +100,36 @@ describe('pieces laid only in their own place', () => {
     const merged = layBandChain([[0, 0], [10, 0]], [], bandPiecesFor(SET), 1, true, [false, true]);
     expect(merged[0].branch).toBe('ending');
     expect(merged[merged.length - 1].branch).not.toBe('ending');
+  });
+});
+
+describe('a cave wall kit as cliff art', () => {
+  /** Which way each laid piece's void side (the left of its chord) looks, from the plateau's middle at (4, 4): out is +1, in -1. */
+  const voidSides = (faces?: 'floor'): number[] => {
+    const entries: Record<string, ManifestEntry> = {};
+    for (const L of [2, 4]) {
+      const end = L / 2 + 0.15;
+      entries[`run_${L}x2_A`] = entry('run', `${L}x2`, { joints: [[end, 0.36], [-end, 0.36]], turnDeg: 0, ...(faces && { faces }) });
+    }
+    entries.turn_in_2x2_A = entry('turn_in', '2x2', { joints: [[-0.36, -1.15], [-1.15, -0.36]], turnDeg: 90, ...(faces && { faces }) });
+    entries.turn_out_2x2_A = entry('turn_out', '2x2', { joints: [[-1.15, -0.64], [-0.64, -1.15]], turnDeg: -90, ...(faces && { faces }) });
+    seedPack('test-pack', entries);
+    const sides = (drop: number): number[] =>
+      walkCliff({ points: [[0, 0], [8, 0], [8, 8], [0, 8]], closed: true, drop, owner: { edgeArt: SET } } as unknown as EdgeRun).map((pl) => {
+        const d = [pl.Q[0] - pl.P[0], pl.Q[1] - pl.P[1]];
+        const mid = [(pl.P[0] + pl.Q[0]) / 2 - 4, (pl.P[1] + pl.Q[1]) / 2 - 4];
+        return Math.sign(d[1] * mid[0] - d[0] * mid[1]);
+      });
+    return [...new Set([...sides(1), ...sides(-1).map((s) => -s)])];
+  };
+
+  it('lays a cliff kit with its void side on the low ground', () => {
+    // Out from a plateau; in toward a pit's floor (read flipped, so both read +1).
+    expect(voidSides()).toEqual([1]);
+  });
+
+  it('lays a kit measured as cave walls with its floor side on the low ground', () => {
+    expect(voidSides('floor')).toEqual([-1]);
   });
 });
 

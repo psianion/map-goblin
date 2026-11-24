@@ -8,7 +8,7 @@ import { useStore } from '../store/store';
 import { caveEdges } from '../shared/caveFloor';
 import { laidFor } from '../shared/rockLines';
 import { seatLine } from './caveBandRenderer';
-import { cliffKey, laidRuns, ledgeRuns, walkCliff, type CliffWalks } from './plateauRenderer';
+import { cliffKey, laidRuns, ledgeRuns, walkCliff, walksForward, type CliffWalks } from './plateauRenderer';
 import { cliffChoice } from './plateauKit';
 import { isBandSet, isMeasuredBandSet } from '../assets/packCatalog';
 import { hasPlateaus, layerPlateaus, type EdgeRun } from '../shared/plateaus';
@@ -32,10 +32,16 @@ export function rockLineOf(edge: Polygon, placed: WalkPlacement[], closed = true
   return runs.length === 0 ? null : { edge: edge.map(round), closed, runs };
 }
 
-/** The line a plateau's cliff run was laid on with its own measured kit: `edge` the run as drawn. */
-export function cliffLineOf(run: Pick<EdgeRun, 'points' | 'closed'>, placed: WalkPlacement[]): RockLine | null {
+/**
+ * The line a plateau's cliff run was laid on with its own measured kit: `edge` the run as drawn,
+ * its runs with the low ground on their left. A kit measured as cave walls is walked with the low
+ * ground on its right (see walksForward), so its runs are turned round.
+ */
+export function cliffLineOf(run: Pick<EdgeRun, 'points' | 'closed' | 'drop' | 'owner'>, placed: WalkPlacement[]): RockLine | null {
   const line = rockLineOf(run.points, placed, run.closed);
-  return line && { kind: 'cliff', ...line };
+  if (!line) return null;
+  const lowLeft = walksForward(run) === run.drop > 0;
+  return { kind: 'cliff', ...line, ...(!lowLeft && { runs: line.runs.map((r) => [...r].reverse()).reverse() }) };
 }
 
 /**

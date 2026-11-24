@@ -102,7 +102,7 @@ import { paintRamp, rampMaskSprite } from './softPiece';
 import { ease } from './softMask';
 import { distanceToLines, fallOff, fieldOf, keptRamp, rampGrid, unit, type Ramp, type RampField } from './rampMask';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
-import { bandPiecesFor, jointsOf, kitRockWidth, mirrorPiece, pieceSkew, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
+import { bandPiecesFor, jointsOf, kitFacesFloor, kitRockWidth, mirrorPiece, pieceSkew, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
 type Vec = [number, number];
 
@@ -1495,11 +1495,22 @@ const lowNormal = (pl: WalkPlacement): Vec => {
 export function walkCliff(run: EdgeRun, merged: [boolean, boolean] = [false, false]): WalkPlacement[] {
   const pieces = cliffPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt);
   if (pieces.length === 0) return [];
-  // The walk lays rock with the void on its left; band rings run with the outside on the
-  // left, which is the low side of a plateau. A pit's low side is inside: walk it backwards.
-  const pts = run.drop > 0 ? run.points : [...run.points].reverse();
-  const ends: [boolean, boolean] = run.drop > 0 ? merged : [merged[1], merged[0]];
+  const forward = walksForward(run);
+  const pts = forward ? run.points : [...run.points].reverse();
+  const ends: [boolean, boolean] = forward ? merged : [merged[1], merged[0]];
   return run.closed ? layBandRing(pts, [], pieces, 1, true) : layBandChain(pts, [], pieces, 1, true, ends);
+}
+
+/**
+ * Whether a cliff run is walked the way it is drawn. The walk lays rock with the void on its left;
+ * band rings run with the outside on the left, which is the low side of a plateau, and a pit's low
+ * side is inside, so a pit is walked backwards. A kit measured as cave walls faces its floor side
+ * (its void is the rock mass behind the wall), so it is walked the other way: its face looks at the
+ * low ground and its rock sits on the high side.
+ */
+export function walksForward(run: Pick<EdgeRun, 'drop' | 'owner'>): boolean {
+  const facesFloor = kitFacesFloor(cliffPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt));
+  return run.drop > 0 !== facesFloor;
 }
 
 /**
@@ -1511,8 +1522,8 @@ export function cliffLedge(stretch: CliffRun, placed: WalkPlacement[]): WalkPlac
   const art = cliffArt(run.owner?.edgeArt);
   const walked = drawnPlacements(placed, art);
   const runs = ledgeRuns(walked, run.closed).filter((r) => r.open);
-  // The walk goes a pit's way round backwards: its head is the stretch's tail.
-  const [head, tail] = run.drop > 0 ? stretch.merged : [stretch.merged[1], stretch.merged[0]];
+  // A run walked backwards (see walksForward): its head is the stretch's tail.
+  const [head, tail] = walksForward(run) ? stretch.merged : [stretch.merged[1], stretch.merged[0]];
   // A measured kit's painted endings are laid by its walk, inside the run (see layExactRun).
   const ends = isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId) ? [] : ledgeEndPieces(art, run.owner?.edgeArt);
   const tips = runs.flatMap((r, k) => runEnds(r.run, ends, !(head && k === 0), !(tail && k === runs.length - 1)));
@@ -1534,7 +1545,8 @@ export function cliffFreeTips(stretch: CliffRun, drawn: WalkPlacement[]): ((end:
     drawn.filter((pl) => pl.branch !== 'end'),
     run.closed,
   ).filter((r) => r.open);
-  const walkWay = <T,>(pair: [T, T]): [T, T] => (run.drop > 0 ? pair : [pair[1], pair[0]]);
+  const forward = walksForward(run);
+  const walkWay = <T,>(pair: [T, T]): [T, T] => (forward ? pair : [pair[1], pair[0]]);
   const [head, tail] = walkWay(stretch.merged);
   const [buttHead, buttTail] = walkWay(stretch.butts);
   // A free tip narrows unless it ends on a painted ending (a measured kit's, laid by its walk).

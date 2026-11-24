@@ -12,7 +12,7 @@ import { layerDrawStyle, layerLevelLook } from '../engine/levelLook';
 import { laidCaves } from '../engine/material/materialRenderer';
 import { computeMergedFloor } from '../engine/mergedFloor';
 import { cliffChoice } from '../engine/plateauKit';
-import { bandShades, fittedAlongWalls, laidRuns, layerSlopes, walkCliff } from '../engine/plateauRenderer';
+import { bandShades, fittedAlongWalls, laidRuns, layerSlopes, walkCliff, walksForward } from '../engine/plateauRenderer';
 import type { RampField } from '../engine/rampMask';
 import { cliffLineOf, cliffRockLines, rockLineOf } from '../engine/rockLines';
 import { renderNodeWalls, type DoorGap } from '../engine/wallNodeRenderer';
@@ -106,7 +106,7 @@ export function layLayer(input: DungeonLayer): LaidLayer {
     for (const { run, cliffs } of laidRuns(layer, band)) {
       if (!cliffs || !isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId)) continue;
       for (const c of cliffs) {
-        const pts = c.run.drop > 0 ? c.run.points : [...c.run.points].reverse();
+        const pts = walksForward(c.run) ? c.run.points : [...c.run.points].reverse();
         add('cliff', pts, walkCliff(c.run, c.merged), [], 1, false, c.run.closed);
       }
     }
