@@ -2,7 +2,9 @@
 // dead ends at a narrow passage's end and a rock spur's tip, painted endings at a cliff's free
 // ends. And a set a pack has renamed, still drawn under its old id.
 import { afterEach, describe, expect, it } from 'vitest';
-import { bandEndPiecesFor, bandPiecesFor, kitDeadEnds, kitSteps } from '../assets/caveWallKit';
+import { bandEndPiecesFor, bandPiecesFor, jointsOf, kitDeadEnds, kitSteps } from '../assets/caveWallKit';
+import type { WalkPlacement } from './caveWalk';
+import type { DoorGap } from './wallNodeRenderer';
 import { canonicalSetId, getBandSetIds, isMeasuredBandSet } from '../assets/packCatalog';
 import { getAssetPackManager } from './assetPackInstance';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
@@ -100,6 +102,62 @@ describe('pieces laid only in their own place', () => {
     const merged = layBandChain([[0, 0], [10, 0]], [], bandPiecesFor(SET), 1, true, [false, true]);
     expect(merged[0].branch).toBe('ending');
     expect(merged[merged.length - 1].branch).not.toBe('ending');
+  });
+});
+
+describe('caps at an erased mouth', () => {
+  /** Mouth gaps along the edge a → b, no wider than half a cell each, as the eraser hands them. */
+  const mouth = (a: [number, number], b: [number, number], door = false): DoorGap[] => {
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const n = Math.ceil(len / 0.5);
+    return Array.from({ length: n }, (_, k) => ({ wallId: 'w', position: [a[0] + ((b[0] - a[0]) * (k + 0.5)) / n, a[1] + ((b[1] - a[1]) * (k + 0.5)) / n] as [number, number], width: len / n, ...(door ? {} : { mouth: true }) }));
+  };
+  /** Where a laid cap's floor line turns round its tip: the middle of its joints carried its reach on, square to them, toward `to`. */
+  const tipOf = (pl: WalkPlacement, to: [number, number]): [number, number] => {
+    const [J0, J1] = jointsOf(pl.piece, pl.at);
+    const M: [number, number] = [(J0[0] + J1[0]) / 2, (J0[1] + J1[1]) / 2];
+    const L = Math.hypot(J1[0] - J0[0], J1[1] - J0[1]);
+    let n: [number, number] = [-(J1[1] - J0[1]) / L, (J1[0] - J0[0]) / L];
+    if ((to[0] - M[0]) * n[0] + (to[1] - M[1]) * n[1] < 0) n = [-n[0], -n[1]];
+    return [M[0] + n[0] * pl.piece.reach!, M[1] + n[1] * pl.piece.reach!];
+  };
+  const room = ring([[0, 0], [12, 0], [12, 10], [0, 10]]);
+
+  it('caps both ends of the rock at a mouth in a straight wall, keeping its width', () => {
+    seedKit();
+    const placed = layBandRing(room, mouth([5, 0], [7, 0]), bandPiecesFor(SET), 1);
+    const caps = placed.filter((p) => p.branch === 'mouth');
+    expect(caps.map((p) => p.piece.key)).toEqual(['spur_3x1', 'spur_3x1']);
+    // Each tip on its own edge of the opening, along the wall.
+    const tips = caps.map((p) => tipOf(p, [6, 0])[0]).sort((a, b) => a - b);
+    expect(tips[0]).toBeCloseTo(5, 2);
+    expect(tips[1]).toBeCloseTo(7, 2);
+    // No rock laid across the opening.
+    for (const pl of placed) for (const J of jointsOf(pl.piece, pl.at)) expect(J[0] > 5.01 && J[0] < 6.99 && Math.abs(J[1]) < 1.5).toBe(false);
+  });
+
+  it('caps the rock where a mouth takes a corner, and a narrow and a wide mouth', () => {
+    seedKit();
+    const corner = [...mouth([0, 2], [0, 0]), ...mouth([0, 0], [2, 0])];
+    expect(layBandRing(room, corner, bandPiecesFor(SET), 1).filter((p) => p.branch === 'mouth')).toHaveLength(2);
+    expect(layBandRing(room, mouth([5, 0], [6, 0]), bandPiecesFor(SET), 1).filter((p) => p.branch === 'mouth')).toHaveLength(2);
+    expect(layBandRing(room, mouth([4, 0], [8, 0]), bandPiecesFor(SET), 1).filter((p) => p.branch === 'mouth')).toHaveLength(2);
+  });
+
+  it('caps the rock at a mouth in a curved wall', () => {
+    seedKit();
+    const circle = ring(Array.from({ length: 48 }, (_, k): [number, number] => [8 + 6 * Math.cos((2 * Math.PI * k) / 48), 8 + 6 * Math.sin((2 * Math.PI * k) / 48)]));
+    const a = circle[0];
+    const b = circle[2];
+    expect(layBandRing(circle, [...mouth(a as [number, number], b as [number, number])], bandPiecesFor(SET), 1).filter((p) => p.branch === 'mouth')).toHaveLength(2);
+  });
+
+  it('keeps a door its jambs, and a stretch too short for a cap its taper', () => {
+    seedKit();
+    expect(branches(layBandRing(room, mouth([5, 0], [6, 0], true), bandPiecesFor(SET), 1))).not.toContain('mouth');
+    // Two mouths a cell apart: the rock between them is too short for a cap.
+    const placed = layBandRing(room, [...mouth([3, 0], [5, 0]), ...mouth([5.6, 0], [8, 0])], bandPiecesFor(SET), 1);
+    expect(placed.filter((p) => p.branch === 'mouth').every((p) => Math.min(p.P[0], p.Q[0]) < 3 || Math.max(p.P[0], p.Q[0]) > 8)).toBe(true);
   });
 });
 
