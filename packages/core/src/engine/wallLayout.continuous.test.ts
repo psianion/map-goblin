@@ -1,11 +1,11 @@
 // A continuous wall set (one outlined band, not a row of stones): a turn no authored
 // corner fits is mitred, both runs carried past the vertex to the outer mitre point
-// and cut along the bisector; a turn sharper than 135 degrees is carried by its cover
-// stone alone, over straights that run right up to the vertex. A set without the
-// trait lays exactly as before.
+// and cut along the bisector; a turn sharper than 135 degrees (a hairpin) is rounded off into
+// turns of 60 degrees or less, mitred alike, and an opening with no jambs of its own is closed
+// by the set's end piece either side. A set without the trait lays exactly as before.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { layoutWall, pieceWorldLength, type WallNode, type WallPieceSpec } from './wallLayout';
-import { buildPieceSpecs } from './wallNodeRenderer';
+import { layoutWall, pieceWorldLength, roundHairpins, type WallNode, type WallPieceSpec } from './wallLayout';
+import { buildPieceSpecs, gapEndings } from './wallNodeRenderer';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import type { ManifestEntry } from './packManifest';
 
@@ -144,14 +144,27 @@ describe('layoutWall: continuous sets', () => {
     expect(found).toBe(straights.length);
   });
 
-  it('still caps a turn sharper than 135 degrees, over straights that run to the vertex', () => {
+  it('rounds a hairpin sharper than 135 degrees off into turns of 60 degrees or less, each mitred', () => {
     const pts = bend(150);
     const nodes = layoutWall(pts, false, specs, { wallWidth: WIDTH, seed: 3, continuous: true });
-    const fans = nodes.filter((n) => n.kind === 'fan');
-    expect(fans).toHaveLength(1);
-    expect(near(fans[0], pts[1])).toBe(true);
-    expect(nodes.some((n) => n.clips)).toBe(false);
-    expect(Math.max(...spansOn(nodes, pts[0], pts[1]).map((s) => s.hi))).toBeCloseTo(6, 2);
+    expect(nodes.filter((n) => n.kind === 'fan')).toEqual([]);
+    expect(nodes.some((n) => n.clips)).toBe(true);
+    const rounded = roundHairpins(pts.map(([x, y]) => ({ x, y })), false, pieceWorldLength(specs.find((p) => p.role === 'straight' && p.lengthPx === 200)!, WIDTH));
+    expect(rounded).toHaveLength(pts.length + 2);
+    for (let k = 1; k + 1 < rounded.length; k++) {
+      const [a, b, c] = [rounded[k - 1], rounded[k], rounded[k + 1]];
+      const turn = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x);
+      expect(Math.abs(Math.atan2(Math.sin(turn), Math.cos(turn)))).toBeLessThanOrEqual(Math.PI / 3 + 1e-9);
+    }
+    // Ends where it began and where it was going: the rounding is only at the turn.
+    expect(rounded[0]).toEqual({ x: pts[0][0], y: pts[0][1] });
+    expect(rounded[rounded.length - 1]).toEqual({ x: pts[2][0], y: pts[2][1] });
+  });
+
+  it('caps a turn all the way back, which no rounding can take, with its cover stone as before', () => {
+    const pts: [number, number][] = [[0, 0], [6, 0], [0, 0.001]];
+    const nodes = layoutWall(pts, false, specs, { wallWidth: WIDTH, seed: 3, continuous: true });
+    expect(nodes.filter((n) => n.kind === 'fan')).toHaveLength(1);
   });
 
   it('lays the same octagon without the trait exactly as before', () => {
@@ -169,5 +182,32 @@ describe('layoutWall: continuous sets', () => {
     for (const v of pts) expect(corners.filter((n) => near(n, v))).toHaveLength(1);
     expect(nodes.some((n) => n.kind === 'fan')).toBe(false);
     expect(nodes.some((n) => n.clips)).toBe(false);
+  });
+});
+
+describe('a continuous wall at an opening', () => {
+  const resolved = () => ({ specs, specById: new Map(specs.map((p) => [p.id, p])), colored: false, continuous: true, joints: new Map() });
+
+  it('caps the wall either side of an opening with no jambs with the set’s end piece, facing into it', () => {
+    const caps = gapEndings([{ wallId: 'w', position: [4, 0], width: 1.2 }], [[0, 0], [8, 0]], false, resolved() as never, SET, WIDTH);
+    expect(caps).toHaveLength(2);
+    expect(caps.every((n) => n.kind === 'ending' && n.pieceId === specs.find((p) => p.role === 'ending')!.id)).toBe(true);
+    const [left, right] = [...caps].sort((a, b) => a.x - b.x);
+    expect([left.x, left.y]).toEqual([3.4, 0]);
+    expect([right.x, right.y]).toEqual([4.6, 0]);
+    // Each faces the opening: the left one along the wall, the right one back along it.
+    expect(Math.cos(left.angle)).toBeCloseTo(1, 9);
+    expect(Math.cos(right.angle)).toBeCloseTo(-1, 9);
+  });
+
+  it('leaves an opening at the wall’s own end with one cap, and one away from the wall with none', () => {
+    expect(gapEndings([{ wallId: 'w', position: [0.6, 0], width: 1.2 }], [[0, 0], [8, 0]], false, resolved() as never, SET, WIDTH)).toHaveLength(1);
+    expect(gapEndings([{ wallId: 'w', position: [4, 3], width: 1.2 }], [[0, 0], [8, 0]], false, resolved() as never, SET, WIDTH)).toEqual([]);
+  });
+
+  it('lays no caps for a set that is not continuous, or one whose doors bring their own jambs', () => {
+    const gap = [{ wallId: 'w', position: [4, 0] as [number, number], width: 1.2 }];
+    expect(gapEndings(gap, [[0, 0], [8, 0]], false, { ...resolved(), continuous: false } as never, SET, WIDTH)).toEqual([]);
+    expect(gapEndings(gap, [[0, 0], [8, 0]], false, resolved() as never, 'GG_Fieldstone', WIDTH)).toEqual([]);
   });
 });

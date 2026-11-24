@@ -187,6 +187,62 @@ function capAngleFor(through: number, turn: number): number {
   return Math.abs(turn) >= ARM_TURN_MIN ? through + Math.PI / 2 : through;
 }
 
+/** The most a hairpin's rounded turns each turn: no sharper than a bend's, well inside what a continuous set mitres. */
+const HAIRPIN_STEP = 60 * (Math.PI / 180);
+/** How much of either side a rounded hairpin may take, as a share of the shorter. */
+const HAIRPIN_ROOM = 0.45;
+/** The shortest side between a rounded hairpin's turns, as a share of the set's shortest straight. */
+const HAIRPIN_LEAST = 0.5;
+
+/**
+ * A spine with each vertex turning past MITRE_TURN_MAX (a hairpin) cut back along both sides and
+ * turned in two or three equal turns of at most HAIRPIN_STEP, joined by sides as long as `side`
+ * (the set's shortest straight) or as HAIRPIN_ROOM of the sides allows. A vertex turning all the
+ * way back, or whose sides are too short to round it, is left: it keeps its cover stone.
+ */
+export function roundHairpins(pts: Point[], closed: boolean, side: number): Point[] {
+  const n = pts.length;
+  const out: Point[] = [];
+  for (let k = 0; k < n; k++) {
+    const V = pts[k];
+    if (!closed && (k === 0 || k === n - 1)) {
+      out.push(V);
+      continue;
+    }
+    const P = pts[(k - 1 + n) % n];
+    const N = pts[(k + 1) % n];
+    const [lin, lout] = [Math.hypot(V.x - P.x, V.y - P.y), Math.hypot(N.x - V.x, N.y - V.y)];
+    const hin = Math.atan2(V.y - P.y, V.x - P.x);
+    const turn = norm(Math.atan2(N.y - V.y, N.x - V.x) - hin);
+    const across = Math.hypot(Math.cos(hin) + Math.cos(hin + turn), Math.sin(hin) + Math.sin(hin + turn));
+    if (Math.abs(turn) <= MITRE_TURN_MAX || across < 0.1 || lin < 1e-9 || lout < 1e-9) {
+      out.push(V);
+      continue;
+    }
+    const parts = Math.ceil(Math.abs(turn) / HAIRPIN_STEP - 1e-9);
+    const step = turn / parts;
+    let sx = 0;
+    let sy = 0;
+    for (let j = 1; j < parts; j++) {
+      sx += Math.cos(hin + j * step);
+      sy += Math.sin(hin + j * step);
+    }
+    const per = Math.hypot(sx, sy) / across;
+    const c = Math.min(side, (HAIRPIN_ROOM * Math.min(lin, lout)) / per);
+    if (c < HAIRPIN_LEAST * side) {
+      out.push(V);
+      continue;
+    }
+    let q = { x: V.x - Math.cos(hin) * c * per, y: V.y - Math.sin(hin) * c * per };
+    out.push(q);
+    for (let j = 1; j < parts; j++) {
+      q = { x: q.x + Math.cos(hin + j * step) * c, y: q.y + Math.sin(hin + j * step) * c };
+      out.push(q);
+    }
+  }
+  return out;
+}
+
 /**
  * World length of a piece at a given band width. Pieces scale uniformly so the
  * stone detail keeps its proportions — the same rule the strip renderer used.
@@ -905,18 +961,49 @@ export function layoutWall(
   pieces: WallPieceSpec[],
   opts: LayoutOptions,
 ): WallNode[] {
+  // Laid out once while the spine, its set's pieces and the options are the same: a rebuild lays
+  // every wall again, and on a drag all but one are as they were. Pure, and its callers copy
+  // before they change anything (see withoutDoorGaps, applyWallEdits).
+  const key = JSON.stringify([points, closed, pieces.map((p) => [p.id, p.role, p.lengthPx, p.thicknessPx, p.swapOnly ?? 0, p.cornerShape ?? '', p.authoredTurn ?? 0]), opts]);
+  const hit = keptWalls.get(key);
+  if (hit) {
+    keptWalls.delete(key);
+    keptWalls.set(key, hit);
+    return hit;
+  }
+  wallWork.layouts++;
+  const value = layWall(points, closed, pieces, opts);
+  if (keptWalls.size >= KEPT_WALLS) keptWalls.delete(keptWalls.keys().next().value!);
+  keptWalls.set(key, value);
+  return value;
+}
+
+/** The most wall layouts kept before the oldest are dropped. */
+const KEPT_WALLS = 512;
+const keptWalls = new Map<string, WallNode[]>();
+/** How many walls were laid out afresh (`layoutWall`). Tests read it. */
+export const wallWork = { layouts: 0 };
+
+function layWall(
+  points: Point[] | [number, number][],
+  closed: boolean,
+  pieces: WallPieceSpec[],
+  opts: LayoutOptions,
+): WallNode[] {
   const raw: Point[] = (points as (Point | [number, number])[]).map((p) =>
     Array.isArray(p) ? { x: p[0], y: p[1] } : p,
   );
   if (raw.length < 2) return [];
 
   const { wallWidth } = opts;
-  const pts = simplifySpine(raw, wallWidth * MIN_EDGE_FRAC, closed);
+  const simple = simplifySpine(raw, wallWidth * MIN_EDGE_FRAC, closed);
   const seed = opts.seed ?? 1;
   const elbowTol = opts.elbowTolerance ?? DEFAULTS.elbowTolerance;
   const overlap = Math.min(Math.max(opts.overlap ?? DEFAULTS.overlap, 0), 0.5);
 
   const straights = pieces.filter((p) => p.role === 'straight');
+  // A continuous set's hairpin, sharper than it mitres, is rounded off into turns it does.
+  const pts = opts.continuous && straights.length > 0 ? roundHairpins(simple, closed, Math.min(...straights.map((p) => pieceWorldLength(p, wallWidth)))) : simple;
   const rocks = pieces.filter((p) => p.role === 'rock');
   const elbows = elbowsFor(pieces, opts.cornerStyle);
   const endings = pieces.filter((p) => p.role === 'ending');

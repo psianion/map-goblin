@@ -24,6 +24,7 @@ import { bandPiecesFor } from '../assets/caveWallKit';
 import { ringOpeningGaps } from '../shared/caveFloor';
 import type { WalkPlacement } from './caveWalk';
 import { findWallJoints, type JointSpine } from './wallJoints';
+import { doorKitFor } from '../assets/doorKits';
 import {
   bandFillColor,
   layBandChain,
@@ -551,6 +552,47 @@ export function withoutDoorGaps(
   }
 }
 
+/**
+ * The end caps either side of each opening (`gaps`) in a wall of a continuous set (`set`) whose
+ * doors have no jambs of their own (no door kit for `setId`): the set's own end piece, as a wall
+ * wears at a free end, on each side of the opening that still has wall, facing into it. None for
+ * a set with no end piece, or one whose doors bring their jambs.
+ */
+export function gapEndings(gaps: readonly DoorGap[], spine: readonly [number, number][], closed: boolean, set: ResolvedSet, setId: string | undefined, wallWidth: number): WallNode[] {
+  if (gaps.length === 0 || !set.continuous || doorKitFor(setId)) return [];
+  const ending = set.specs.find((p) => p.role === 'ending');
+  if (!ending) return [];
+  const n = spine.length;
+  const segs = closed ? n : n - 1;
+  const out: WallNode[] = [];
+  for (const g of gaps) {
+    // The wall's way at the opening, off the stretch of spine it lies on.
+    let best = { d: Infinity, k: -1, t: 0 };
+    for (let k = 0; k < segs; k++) {
+      const [a, b] = [spine[k], spine[(k + 1) % n]];
+      const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+      const L2 = dx * dx + dy * dy;
+      if (L2 < 1e-12) continue;
+      const t = Math.max(0, Math.min(1, ((g.position[0] - a[0]) * dx + (g.position[1] - a[1]) * dy) / L2));
+      const d = Math.hypot(g.position[0] - a[0] - dx * t, g.position[1] - a[1] - dy * t);
+      if (d < best.d) best = { d, k, t };
+    }
+    if (best.k < 0 || best.d > wallWidth) continue;
+    const [a, b] = [spine[best.k], spine[(best.k + 1) % n]];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const [ux, uy] = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+    const angle = Math.atan2(uy, ux);
+    const half = g.width / 2;
+    const along = best.t * L;
+    // Wall left before the opening, and after it, on this stretch or past its corner.
+    const before = along - half > 1e-6 || best.k > 0 || closed;
+    const after = along + half < L - 1e-6 || best.k < segs - 1 || closed;
+    if (before) out.push({ t: 0, x: g.position[0] - ux * half, y: g.position[1] - uy * half, angle, pieceId: ending.id, scale: 1, sizeScale: 1, kind: 'ending' });
+    if (after) out.push({ t: 0, x: g.position[0] + ux * half, y: g.position[1] + uy * half, angle: angle + Math.PI, pieceId: ending.id, scale: 1, sizeScale: 1, kind: 'ending' });
+  }
+  return out;
+}
+
 /** A stone this far off a side, or turned this far from it (sine), does not stand on it. */
 const ON_SIDE = 0.5;
 const SIDE_SIN = 0.17;
@@ -1026,7 +1068,7 @@ export function renderNodeWalls(
     const gaps = doorGaps.filter((g) => g.ring === i);
     place(
       wallsContainer,
-      withoutDoorGaps(nodes, gaps, set.specById, wallWidth, ringSideEnds(poly)),
+      [...withoutDoorGaps(nodes, gaps, set.specById, wallWidth, ringSideEnds(poly)), ...gapEndings(gaps, poly, true, set, look.setId, wallWidth)],
       set.specById,
       wallWidth,
       stoneTint(set, look.tint),
@@ -1087,13 +1129,16 @@ export function renderNodeWalls(
       parts && group !== 'solid' ? parts[group] : wallsContainer,
       // A ring has no ends to hold a nudged stone inside — both "ends" are the
       // same seam point, so clamping to them would drag it there.
-      withoutDoorGaps(
-        nodes,
-        gaps,
-        set.specById,
-        w,
-        closed ? undefined : [wall.points[0], wall.points[wall.points.length - 1]],
-      ),
+      [
+        ...withoutDoorGaps(
+          nodes,
+          gaps,
+          set.specById,
+          w,
+          closed ? undefined : [wall.points[0], wall.points[wall.points.length - 1]],
+        ),
+        ...gapEndings(gaps, wall.points, closed, set, look.setId, w),
+      ],
       set.specById,
       w,
       stoneTint(set, look.tint),

@@ -106,6 +106,8 @@ export interface SpeedMods {
   soft: typeof import('../engine/softPiece');
   packs: typeof import('../engine/assetPackInstance');
   band: typeof import('../engine/caveBandRenderer');
+  plateaus: typeof import('../engine/plateauRenderer');
+  walls: typeof import('../engine/wallLayout');
 }
 
 /** A fresh copy of every module: nothing a rebuild keeps survives from the last. */
@@ -124,6 +126,8 @@ export async function freshMods(): Promise<SpeedMods> {
     soft: await import('../engine/softPiece'),
     packs: await import('../engine/assetPackInstance'),
     band: await import('../engine/caveBandRenderer'),
+    plateaus: await import('../engine/plateauRenderer'),
+    walls: await import('../engine/wallLayout'),
   };
   (await import('../geometry/Clipper2Engine')).setClipperModule(await clipperWasm());
   // A live GL context, as far as the soft pieces ask: their masks are kept as the editor keeps them.

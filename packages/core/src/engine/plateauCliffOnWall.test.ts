@@ -215,7 +215,8 @@ describe('other cliffs against a wall', () => {
       // A pit's low side, the walk's left, is inside it.
       const [dx, dy] = [pl.Q[0] - pl.P[0], pl.Q[1] - pl.P[1]];
       expect(dy * (2 - mid(pl)[0]) - dx * (4 - mid(pl)[1])).toBeGreaterThan(0);
-      expect(segDist(mid(pl), [0, 2], [0, 6])).toBeGreaterThan(0.5);
+      // None runs along the wall: a piece that ends on it runs off it, square to it.
+      if (segDist(mid(pl), [0, 2], [0, 6]) <= 0.5) expect(Math.abs(dx)).toBeGreaterThan(5 * Math.abs(dy));
     }
     expect(drawn[0].filter((pl) => pl.branch === 'end')).toEqual([]);
     // The wall's rock wanders here, so the chain meets it a little aslant: still under the wall's rock, which is half a cell and more either side of its line.

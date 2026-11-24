@@ -70,6 +70,18 @@ export function cliffRockLines(layer: DungeonLayer): { walks: CliffWalks; lines:
   return { walks, lines, missing };
 }
 
+/** Whether two lists of rock lines are the same, point for point: what a rebuild that changed nothing stores. */
+function sameLines(a: readonly RockLine[], b: readonly RockLine[]): boolean {
+  const samePts = (p: readonly (readonly number[])[], q: readonly (readonly number[])[]): boolean => p.length === q.length && p.every((v, i) => v[0] === q[i][0] && v[1] === q[i][1]);
+  return (
+    a.length === b.length &&
+    a.every((x, i) => {
+      const y = b[i];
+      return x.kind === y.kind && x.closed === y.closed && samePts(x.edge, y.edge) && x.runs.length === y.runs.length && x.runs.every((r, k) => samePts(r, y.runs[k]));
+    })
+  );
+}
+
 /** What each part of the renderer last laid on a layer: the floor rings, the painted caves, and the plateau cliffs. */
 const laid = new Map<string, { floor?: RockLine[]; cave?: RockLine[]; cliff?: RockLine[] }>();
 
@@ -98,7 +110,7 @@ export function storeRockLines(layerId: string, part: 'floor' | 'cave' | 'cliff'
     ...(record.cave ?? walls.filter(ofCave)),
     ...(record.cliff ?? stored.filter((e) => e.kind === 'cliff')),
   ];
-  if (JSON.stringify(next) === JSON.stringify(stored)) return;
+  if (sameLines(next, stored)) return;
   useStore.setState((s) => {
     const l = s.layers.find((la) => la.id === layerId);
     if (!l || l.type !== 'dungeon') return;

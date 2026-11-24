@@ -33,6 +33,15 @@ export const BAND_RULES = {
   scale: [0.85, 1.25] as [number, number],
   /** 7: the rock line moved this share of the rock's width to the void side lies under rock everywhere. */
   rim: 0.4,
+  /**
+   * 8: two pieces in a row whose rock lines come this close meet at a joint; no joint turns more
+   * than `cornerTurn` degrees (one piece's art crossing the other's rock line), and at a joint
+   * turning more than `cornerFrom` neither rock line runs on more than `cornerPast` past where the two cross.
+   */
+  cornerMeet: 0.5,
+  cornerTurn: 60,
+  cornerFrom: 30,
+  cornerPast: 0.15,
 };
 
 /** What one ring's rock measured. Lengths in cells at size 1. */
@@ -60,6 +69,11 @@ export interface BandCheck {
   /** 7: length of the rim (see BAND_RULES.rim) under no piece's body and no connector, and the first such point. */
   bareRim: number;
   bareRimAt: V | null;
+  /** 8: joints turning past BAND_RULES.cornerTurn, and the furthest a rock line runs on past a corner's crossing. */
+  crossed: number;
+  crossedAt: V | null;
+  pastCorner: number;
+  pastCornerAt: V | null;
 }
 
 /** Which rules a check breaks, by number. */
@@ -72,6 +86,7 @@ export function brokenRules(c: BandCheck): number[] {
   if (c.floorOff > BAND_RULES.floorReach || c.spikes > 0) out.push(5);
   if (c.scale[0] < BAND_RULES.scale[0] - 1e-6 || c.scale[1] > BAND_RULES.scale[1] + 1e-6) out.push(6);
   if (c.bareRim > 1e-9) out.push(7);
+  if (c.crossed > 0 || c.pastCorner > BAND_RULES.cornerPast) out.push(8);
   return out;
 }
 
@@ -280,7 +295,7 @@ function bareRimOf(
   return { bare, at };
 }
 
-/** Measure one ring's rock against the seven rules. */
+/** Measure one ring's rock against the eight rules. */
 export function checkBand(input: BandCheckInput): BandCheck {
   const { placed, gaps, size } = input;
   const closedEdge = input.closed ?? true;
@@ -448,6 +463,41 @@ export function checkBand(input: BandCheckInput): BandCheck {
     bareRimAt ??= r.at;
   }
 
+  // 8: corners. Two pieces in a row whose rock lines, as drawn, meet: the joint's turn, and how far
+  // either line runs on past where the two cross.
+  let crossed = 0;
+  let crossedAt: V | null = null;
+  let pastCorner = 0;
+  let pastCornerAt: V | null = null;
+  {
+    const drawn = bandBends(placed, set, size).map((pl) => ({ pl, line: bentRockLine(pl, input.overlap) }));
+    const pairs = placed.length - (closedEdge ? 0 : 1);
+    for (let k = 0; k < pairs && placed.length > 1; k++) {
+      const a = drawn[k];
+      const b = drawn[(k + 1) % drawn.length];
+      if (a.line.length < 2 || b.line.length < 2) continue;
+      const meet = Math.min(...a.line.map((p) => lineDist(p, b.line, false)), ...b.line.map((p) => lineDist(p, a.line, false)));
+      if (meet / size > BAND_RULES.cornerMeet) continue;
+      const ta = endTangents(a.pl)[1];
+      const tb = endTangents(b.pl)[0];
+      const turn = (Math.abs(Math.atan2(cross(ta, tb), dot(ta, tb))) * 180) / Math.PI;
+      const at = a.line[a.line.length - 1];
+      if (turn > BAND_RULES.cornerTurn) {
+        crossed++;
+        crossedAt ??= at;
+      }
+      // Bent to meet (bandBends), the two ends lie on one line: neither runs on.
+      if (turn <= BAND_RULES.cornerFrom || (a.pl.bend?.b && b.pl.bend?.a)) continue;
+      // Where the two lines cross, each taken on from its end along its own way.
+      const [pa, pb] = [a.line[a.line.length - 1], b.line[0]];
+      const den = cross(ta, tb);
+      if (Math.abs(den) < 1e-9) continue;
+      const x = add(pa, mul(ta, cross(sub(pb, pa), tb) / den));
+      const past = Math.max(...a.line.map((p) => dot(sub(p, x), ta)), ...b.line.map((p) => dot(sub(x, p), tb))) / size;
+      if (past > pastCorner) [pastCorner, pastCornerAt] = [past, x];
+    }
+  }
+
   // A piece of a narrow passage is held to the size its stretch was laid at.
   const scales = placed.map((pl) => pl.at.scale / (pl.size ?? size));
   return {
@@ -467,6 +517,10 @@ export function checkBand(input: BandCheckInput): BandCheck {
     scale: scales.length ? [Math.min(...scales), Math.max(...scales)] : [1, 1],
     bareRim,
     bareRimAt,
+    crossed,
+    crossedAt,
+    pastCorner,
+    pastCornerAt,
   };
 }
 

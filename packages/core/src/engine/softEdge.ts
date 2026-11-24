@@ -94,14 +94,17 @@ export function mouthLines(rings: readonly Polygon[], openings: readonly Polygon
  * line, full MOUTH_FADE in from it, eased between, how far in wandering a little (the same
  * way every time for `seed`). Only ever less floor than `region`: nothing is added outside the
  * cave, and the floor beside the rock either side of a mouth keeps its fitted edge. Paint
- * only. Null when no mouth comes near the region: it is painted whole, as it always was.
+ * only. Null when no mouth comes near the region's box: it is painted whole, as it always was.
  */
 export function mouthRamp(region: Polygon[], mouths: readonly Polygon[], seed: number): Ramp | null {
   if (mouths.length === 0 || region.length === 0) return null;
-  return keptRamp('mouth', [region, mouths, seed], () => {
-    const reach = MOUTH_FADE * (1 + MOUTH_WOBBLE);
-    const zone = clipper2Engine.inflateOpen([...mouths], reach);
-    if (clipper2Engine.intersection(region, zone).length === 0) return null;
+  const reach = MOUTH_FADE * (1 + MOUTH_WOBBLE);
+  // The fade is worked out over the region's box alone (its texels and their distance to the
+  // mouths): kept while the box is, so painting elsewhere on the floor works none of it out again.
+  const box = boxOfRings(region);
+  const near = mouths.some((m) => m.some(([x, y]) => x >= box[0] - reach && x <= box[2] + reach && y >= box[1] - reach && y <= box[3] + reach));
+  if (!near) return null;
+  const kept = keptRamp('mouth', [box, mouths, seed], () => {
     const grid = rampGrid(region, RAMP_PAD);
     if (!grid) return null;
     const noise = wobbleNoise(seed);
@@ -110,6 +113,14 @@ export function mouthRamp(region: Polygon[], mouths: readonly Polygon[], seed: n
       grid,
       reach,
     );
-    return { field: fieldOf(grid, (_x, _y, k) => (d[k] === Infinity ? 1 : ease(unit(d[k] / (MOUTH_FADE * (1 + MOUTH_WOBBLE * noise(qx[k], qy[k]))))))), clip: region };
+    return { field: fieldOf(grid, (_x, _y, k) => (d[k] === Infinity ? 1 : ease(unit(d[k] / (MOUTH_FADE * (1 + MOUTH_WOBBLE * noise(qx[k], qy[k]))))))), clip: null };
   });
+  return kept ? { field: kept.field, clip: region } : null;
+}
+
+/** The box round `rings`: min x, min y, max x, max y. */
+function boxOfRings(rings: readonly Polygon[]): [number, number, number, number] {
+  const b: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of rings) for (const [x, y] of r) [b[0], b[1], b[2], b[3]] = [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)];
+  return b;
 }

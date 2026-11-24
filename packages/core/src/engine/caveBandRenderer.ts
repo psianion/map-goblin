@@ -585,12 +585,15 @@ export function layBandRing(
   gaps: DoorGap[] = [],
   set: CaveKitPiece[] = caveBandPieces(),
   size = 1,
+  cliff = false,
 ): WalkPlacement[] {
-  return keptLaying('ring', poly, gaps, set, size, () => {
-    const least = narrowSize(poly, gaps, set, size);
-    if (least !== null) return layRingAt(poly, gaps, set, least).map((pl) => ({ ...pl, size: least }));
-    const laid = layRingAt(poly, gaps, set, size);
-    if (!isMeasuredHole(poly, set)) return laid;
+  return keptLaying(cliff ? 'cliff-ring' : 'ring', poly, gaps, set, size, () => {
+    // A plateau's top is no passage: its cliff keeps its size however narrow the top.
+    const least = cliff ? null : narrowSize(poly, gaps, set, size);
+    if (least !== null) return layRingAt(poly, gaps, set, least, cliff).map((pl) => ({ ...pl, size: least }));
+    const laid = layRingAt(poly, gaps, set, size, cliff);
+    // A pit's cliff laid corner by corner is closed by its corner pieces, as a plateau's is.
+    if (!isMeasuredHole(poly, set) || (cliff && laid.length > 0 && laid.every((pl) => pl.branch === 'corner' || pl.branch === 'side'))) return laid;
     // A hole with an opening on it is held to its pieces' sizes alone; any other to closing all round.
     const closes = gaps.length > 0 ? closesInside(laid, size) : closesRound(laid, set, size);
     return closes ? laid : layHoleSmaller(poly, gaps, set, size, laid);
@@ -741,9 +744,9 @@ function layRoundHole(poly: Polygon, set: CaveKitPiece[], size: number): WalkPla
 }
 
 /** {@link layBandRing} at `size` as it stands, narrow passages or not. */
-function layRingAt(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], size: number): WalkPlacement[] {
-  if (size !== 1) return laidAtSize(size, poly, gaps, (p, g) => layRingAt(p, g, set, 1));
-  return layRing(poly, gaps, set);
+function layRingAt(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], size: number, cliff = false): WalkPlacement[] {
+  if (size !== 1) return laidAtSize(size, poly, gaps, (p, g) => layRingAt(p, g, set, 1, cliff));
+  return layRing(poly, gaps, set, cliff);
 }
 
 /* ── Narrow passages ──────────────────────────────────────────────────
@@ -849,18 +852,19 @@ function keptLaying(kind: string, line: Polygon, gaps: DoorGap[], set: CaveKitPi
   const hit = kept.get(key);
   if (hit) return hit;
   bandWork.layings++;
+  if (kind.startsWith('cliff')) bandWork.cliffs++;
   const laid = lay();
   if (kept.size >= KEPT_LAYINGS) kept.delete(kept.keys().next().value!);
   kept.set(key, laid);
   return laid;
 }
 
-function layRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): WalkPlacement[] {
+function layRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff = false): WalkPlacement[] {
   if (poly.length < 3) return [];
   const base = resampleClosed(poly as Curve, CURVE_STEP);
   if (base.length < 8) return [];
   const measured = set.some((p) => p.exact);
-  const exact = measured ? layExactRing(poly, gaps, set) : null;
+  const exact = measured ? layExactRing(poly, gaps, set, cliff) : null;
   if (exact) return exact;
   // A measured kit's ring with openings on it is laid stretch by stretch between them.
   const runs = measured && gaps.length > 0 ? layWallRuns(poly, gaps, set, true, { lap: true }) : null;
@@ -921,6 +925,143 @@ const EXACT_SLIVER = 0.25;
 const FILL_STEP = 0.01;
 /** The scales a stretch's straights are chosen within, tightest first (see {@link fillStretch}). */
 const FILL_BANDS: [number, number][] = [[0.9, 1.1], EXACT_FIT];
+/** How far a corner piece's rock may pass from its corner where none passes within BEND_HUG, cells: a cliff kit's inner corner rounds wider. */
+const CLIFF_BEND_HUG = 0.8;
+/** A cliff's corner turning less than EXACT_CORNER_DEG is a joint its straights bend at only between sides at least this long, cells. */
+const SOFT_SIDE = 1.5;
+/** How much of either side a rounded corner may take, as a share of the shorter. */
+const SPLIT_ROOM = 0.45;
+/** The sides a rounded corner is joined by, as shares of the kit's shortest straight's art: what it is laid with, and the least. */
+const SPLIT_SIDE = 0.7;
+const SPLIT_LEAST = 0.5;
+
+/**
+ * The bends laid on corner `V` (between `prev` and `next`) whose rock passes within BEND_HUG of it
+ * and strays no further than BEND_STRAY from its sides; on a cliff, where none passes that close (a
+ * cliff kit's inner corner rounds wider), those within CLIFF_BEND_HUG, on the same joint lines.
+ */
+function suitingBends(laid: WalkPlacement[], V: Vec, prev: Vec, next: Vec, cliff: boolean): WalkPlacement[] {
+  const fits = laid
+    .map((pl) => {
+      const rock = seatLine([pl]) as Vec[];
+      const hug = Math.min(...rock.map((q, i) => (i > 0 ? segmentDist(V, rock[i - 1], q) : dist(V, q))));
+      const stray = Math.max(...rock.map((q) => Math.min(segmentDist(q, prev, V), segmentDist(q, V, next))));
+      return { pl, hug, stray };
+    })
+    .filter((f) => f.stray <= BEND_STRAY);
+  const close = fits.filter((f) => f.hug <= BEND_HUG);
+  return (close.length > 0 || !cliff ? close : fits.filter((f) => f.hug <= CLIFF_BEND_HUG)).map((f) => f.pl);
+}
+
+/**
+ * Corner sizes (`size`, indexes into `choices`) made smaller where the stretch between two corner
+ * pieces (`between`, the corners either side of stretch `k`, of `count`) holds no straight at its
+ * least size but is too long to leave to their laps: the larger of the two, while either can be, so
+ * long as that leaves room for one; else they are left as they were.
+ */
+function shortSides(
+  count: number,
+  between: (k: number) => [number, number],
+  stretch: (k: number) => number,
+  bendOf: (k: number) => WalkPlacement | null,
+  choices: WalkPlacement[][][],
+  size: number[],
+  set: CaveKitPiece[],
+): void {
+  const straights = set.filter((p) => p.turnDeg === 0 && p.radius === undefined);
+  if (straights.length === 0) return;
+  const least = (Math.min(...straights.map((p) => p.chordCells)) - kitOverlap(set)) * EXACT_REACH[0];
+  const fills = (k: number): boolean => {
+    const L = stretch(k);
+    return L < EXACT_SLIVER || L >= least;
+  };
+  for (let k = 0; k < count; k++) {
+    const [a, b] = between(k);
+    if (!bendOf(a) || !bendOf(b) || fills(k)) continue;
+    // Made smaller a step at a time, the larger first, and kept only once the stretch holds a straight.
+    const before = [size[a], size[b]];
+    for (;;) {
+      const pick = [a, b].filter((x) => size[x] + 1 < choices[x].length).sort((p, q) => bendOf(q)!.piece.chordCells - bendOf(p)!.piece.chordCells)[0];
+      if (pick === undefined) {
+        [size[a], size[b]] = before;
+        break;
+      }
+      size[pick]++;
+      if (fills(k)) break;
+    }
+  }
+}
+
+/**
+ * A cliff's corners: {@link ringCorners} down to SIDE_TURN_DEG, a gentle corner being one its
+ * straights bend at, so long as the sides either side hold them (SOFT_SIDE). Null for a curve.
+ */
+function cliffCorners(ring: Vec[]): { p: Vec; turn: number }[] | null {
+  const corners = ringCorners(ring as Polygon, SIDE_TURN_DEG);
+  if (!corners) return null;
+  const m = corners.length;
+  const soft = corners.some((c, k) => {
+    if (Math.abs(c.turn) >= EXACT_CORNER_DEG) return false;
+    const [prev, next] = [corners[(k - 1 + m) % m].p, corners[(k + 1) % m].p];
+    return Math.min(dist(prev, c.p), dist(c.p, next)) < SOFT_SIDE;
+  });
+  return soft ? null : corners;
+}
+
+/**
+ * A cliff's corners that no corner piece turns and that turn too far to bend at one joint
+ * (`sharp`), each rounded off: the corner cut back along both sides and turned in two or three
+ * equal bends of at most MITRE_MOST_DEG, joined by sides SPLIT_SIDE of the kit's shortest straight's
+ * art, or as long as SPLIT_ROOM of the sides allows: the straight on each laps past both its ends.
+ * The new line, and the corners it added (no corner piece is laid on those). Null when none could be rounded: a hairpin, or sides too short.
+ */
+function splitTurns(pts: Vec[], closed: boolean, sharp: boolean[], set: CaveKitPiece[]): { pts: Vec[]; plain: Vec[] } | null {
+  const straights = set.filter((p) => p.turnDeg === 0 && p.radius === undefined);
+  if (straights.length === 0) return null;
+  const want = Math.min(...straights.map((p) => p.chordCells)) - kitOverlap(set);
+  const most = (MITRE_MOST_DEG * Math.PI) / 180;
+  const n = pts.length;
+  const out: Vec[] = [];
+  const plain: Vec[] = [];
+  for (let k = 0; k < n; k++) {
+    const V = pts[k];
+    const ends = !closed && (k === 0 || k === n - 1);
+    if (!sharp[k] || ends) {
+      out.push(V);
+      continue;
+    }
+    const [P, N] = [pts[(k - 1 + n) % n], pts[(k + 1) % n]];
+    const uIn = norm(sub(V, P));
+    const uOut = norm(sub(N, V));
+    const turn = Math.atan2(cross(uIn, uOut), dot(uIn, uOut));
+    const across = Math.hypot(uIn[0] + uOut[0], uIn[1] + uOut[1]);
+    const parts = Math.ceil(Math.abs(turn) / most - 1e-9);
+    if (across < 0.2 || parts < 2) {
+      out.push(V);
+      continue;
+    }
+    const h0 = Math.atan2(uIn[1], uIn[0]);
+    const step = turn / parts;
+    const dirs: Vec[] = Array.from({ length: parts - 1 }, (_, j) => [Math.cos(h0 + (j + 1) * step), Math.sin(h0 + (j + 1) * step)]);
+    // How far back along each side the rounding starts, per cell of the sides joining its bends.
+    const span = dirs.reduce((s, d) => add(s, d), [0, 0] as Vec);
+    const per = Math.hypot(span[0], span[1]) / across;
+    const c = Math.min(SPLIT_SIDE * want, (SPLIT_ROOM * Math.min(dist(P, V), dist(V, N))) / per);
+    if (c < SPLIT_LEAST * want) {
+      out.push(V);
+      continue;
+    }
+    let q = sub(V, mul(uIn, c * per));
+    out.push(q);
+    plain.push(q);
+    for (const d of dirs) {
+      q = add(q, mul(d, c));
+      out.push(q);
+      plain.push(q);
+    }
+  }
+  return plain.length > 0 ? { pts: out, plain } : null;
+}
 
 /**
  * A measured kit round a ring of straight sides: each opening bridged straight between its
@@ -939,10 +1080,17 @@ const FILL_BANDS: [number, number][] = [[0.9, 1.1], EXACT_FIT];
  * reaches into whatever the bend, gets none: the stretches either side run on to where their
  * joint lines meet (no further past a convex corner than at a right angle) and cross there.
  *
+ * A plateau's cliff (`cliff`) is held further: a gentle corner between long sides is a joint
+ * its straights bend at (`cliffCorners`); an inner corner takes the kit's corner piece even where
+ * it rounds wider than BEND_HUG (`suitingBends`); a side too short for a straight between two
+ * corner pieces has them made smaller (`shortSides`); and a corner no piece turns that turns more
+ * than a joint bends is rounded off into smaller turns (`splitTurns`), whose corners (`plain`) take
+ * no piece. Never two straights crossing on a corner.
+ *
  * Placements in walk order, starting after an opening when there is one. Null when the
  * bridged ring has a curve in it (a vertex turning between 5 and EXACT_CORNER_DEG).
  */
-function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): WalkPlacement[] | null {
+function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff = false, plain: readonly Vec[] = []): WalkPlacement[] | null {
   const { pts, cum, joined } = openingArcs(poly, gaps, true);
   const total = cum[cum.length - 1];
   if (joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN) return null;
@@ -962,9 +1110,10 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
       return [at(from), ...inner, at(to)];
     });
   }
-  const corners = ringCorners(bridged, EXACT_CORNER_DEG);
+  const corners = cliff ? cliffCorners(bridged) : ringCorners(bridged, EXACT_CORNER_DEG);
   if (!corners) return null;
   const m = corners.length;
+  const isPlain = (p: Vec): boolean => plain.some((q) => dist(p, q) < 1e-6);
 
   const half = kitOverlap(set) / 2;
   const out = kitOut(set);
@@ -1006,16 +1155,11 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
     const V = c.p;
     const prev = corners[(k - 1 + m) % m].p;
     const next = corners[(k + 1) % m].p;
-    const suits = set
+    if (isPlain(V)) return [];
+    const laid = set
       .filter((p) => p.turnDeg !== 0 && !p.flipY && Math.sign(p.turnDeg) === Math.sign(c.turn) && Math.abs(p.turnDeg - c.turn) / 2 <= EXACT_TURN_TOL)
-      .map((p) => bendAt(k, p))
-      .filter((pl) => {
-        const rock = seatLine([pl]) as Vec[];
-        const hug = Math.min(...rock.map((q, i) => (i > 0 ? segmentDist(V, rock[i - 1], q) : dist(V, q))));
-        const stray = Math.max(...rock.map((q) => Math.min(segmentDist(q, prev, V), segmentDist(q, V, next))));
-        return hug <= BEND_HUG && stray <= BEND_STRAY;
-      })
-      .sort((p, q) => q.piece.chordCells - p.piece.chordCells);
+      .map((p) => bendAt(k, p));
+    const suits = suitingBends(laid, V, prev, next, cliff).sort((p, q) => q.piece.chordCells - p.piece.chordCells);
     const sizes: WalkPlacement[][] = [];
     for (const pl of suits) {
       const last = sizes[sizes.length - 1];
@@ -1073,7 +1217,19 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
     }
     if (!changed) break;
   }
+  // On a cliff, a side left too short for any straight at its least size between two corner
+  // pieces has the larger made smaller, while either can be: the straight would lap both far over.
+  if (cliff) shortSides(m, (k) => [k, (k + 1) % m], (k) => endOf((k + 1) % m) - startOf(k), bendOf, choices, size, set);
   const bends = corners.map((_, k) => bendOf(k));
+  // A cliff's corner no corner piece turns, and too sharp to bend at one joint, is rounded off
+  // in two or three bends of at most MITRE_MOST_DEG joined by short sides (see splitTurns).
+  if (cliff && plain.length === 0 && joined.length === 0) {
+    const sharp = corners.map((c, k) => bends[k] === null && Math.abs(c.turn) > MITRE_MOST_DEG);
+    if (sharp.some(Boolean)) {
+      const split = splitTurns(corners.map((c) => c.p), true, sharp, set);
+      if (split) return layExactRing(split.pts as Polygon, gaps, set, cliff, split.plain);
+    }
+  }
   const starts = sides.map((_, k) => (bends[k] ? startOf(k) : 0));
   const ends = sides.map((_, k) => (bends[(k + 1) % m] ? endOf((k + 1) % m) : 0));
   // A side's rock runs to where the joint lines meet at a corner left without a bend.
@@ -1131,10 +1287,11 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[]): Walk
  * sides it joins; each stretch between bends filled with straights scaled alike (see
  * {@link fillStretch}); the first piece's art starting exactly at the run's start and the last
  * one's ending exactly at its end. A bend that would reach past either end of the run is made
- * smaller, or left out with the two sides crossing at the corner as a ring's are. Null when the
- * run has a curve in it (a vertex turning between SIDE_TURN_DEG and EXACT_CORNER_DEG).
+ * smaller, or left out with the two sides crossing at the corner as a ring's are; a plateau's cliff
+ * (`cliff`) is held as {@link layExactRing} holds one. Null when the run has a curve in it (a vertex
+ * turning between SIDE_TURN_DEG and EXACT_CORNER_DEG, or on a cliff between sides too short to bend at).
  */
-function layExactRun(line: Polygon, set: CaveKitPiece[]): WalkPlacement[] | null {
+function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: readonly Vec[] = []): WalkPlacement[] | null {
   const pts: Vec[] = [];
   for (const p of line) {
     const last = pts[pts.length - 1];
@@ -1149,12 +1306,14 @@ function layExactRun(line: Polygon, set: CaveKitPiece[]): WalkPlacement[] | null
     const b = norm(sub(pts[k + 1], pts[k]));
     const turn = (Math.atan2(cross(a, b), dot(a, b)) * 180) / Math.PI;
     if (Math.abs(turn) < SIDE_TURN_DEG) continue;
-    if (Math.abs(turn) < EXACT_CORNER_DEG) return null;
+    if (Math.abs(turn) < EXACT_CORNER_DEG && !cliff) return null;
     verts.push(pts[k]);
     turns.push(turn);
   }
   verts.push(pts[pts.length - 1]);
   const m = turns.length;
+  // A cliff's gentle corner is a joint its straights bend at: on sides long enough to hold them, not a curve's.
+  if (cliff && turns.some((t, c) => Math.abs(t) < EXACT_CORNER_DEG && Math.min(dist(verts[c], verts[c + 1]), dist(verts[c + 1], verts[c + 2])) < SOFT_SIDE && !plain.some((q) => dist(q, verts[c + 1]) < 1e-6))) return null;
   const half = kitOverlap(set) / 2;
   const out = kitOut(set);
   const sides = verts.slice(0, -1).map((V, k) => {
@@ -1188,16 +1347,11 @@ function layExactRun(line: Polygon, set: CaveKitPiece[]): WalkPlacement[] | null
   // Each corner's bends that suit it, largest first, twins together: [size][twin].
   const choices = turns.map((turn, c): WalkPlacement[][] => {
     const [prev, V, next] = [verts[c], verts[c + 1], verts[c + 2]];
-    const suits = set
+    if (plain.some((q) => dist(q, V) < 1e-6)) return [];
+    const laid = set
       .filter((p) => p.turnDeg !== 0 && !p.flipY && Math.sign(p.turnDeg) === Math.sign(turn) && Math.abs(p.turnDeg - turn) / 2 <= EXACT_TURN_TOL)
-      .map((p) => bendAt(c, p))
-      .filter((pl) => {
-        const rock = seatLine([pl]) as Vec[];
-        const hug = Math.min(...rock.map((q, i) => (i > 0 ? segmentDist(V, rock[i - 1], q) : dist(V, q))));
-        const stray = Math.max(...rock.map((q) => Math.min(segmentDist(q, prev, V), segmentDist(q, V, next))));
-        return hug <= BEND_HUG && stray <= BEND_STRAY;
-      })
-      .sort((p, q) => q.piece.chordCells - p.piece.chordCells);
+      .map((p) => bendAt(c, p));
+    const suits = suitingBends(laid, V, prev, next, cliff).sort((p, q) => q.piece.chordCells - p.piece.chordCells);
     const sizes: WalkPlacement[][] = [];
     for (const pl of suits) {
       const last = sizes[sizes.length - 1];
@@ -1244,7 +1398,15 @@ function layExactRun(line: Polygon, set: CaveKitPiece[]): WalkPlacement[] | null
     }
     if (!changed) break;
   }
+  if (cliff) shortSides(m - 1, (c) => [c, c + 1], (c) => endOf(c + 1) - startOf(c), bendOf, choices, size, set);
   const bends = turns.map((_, c) => bendOf(c));
+  if (cliff && plain.length === 0) {
+    const sharp = verts.map((_, k) => k > 0 && k < verts.length - 1 && bends[k - 1] === null && Math.abs(turns[k - 1]) > MITRE_MOST_DEG);
+    if (sharp.some(Boolean)) {
+      const split = splitTurns(verts, false, sharp, set);
+      if (split) return layExactRun(split.pts as Polygon, set, cliff, split.plain);
+    }
+  }
   const runOn = (c: number): number => {
     const cos = Math.cos((turns[c] * Math.PI) / 180);
     const lap = choices[c].length === 0 ? half * (2 / (1 + Math.max(0, cos)) - 1) : 0;
@@ -1770,8 +1932,8 @@ const KEPT_MESHES = 1024;
 const pieceIds = new WeakMap<CaveKitPiece, number>();
 let nextPieceId = 0;
 
-/** What is counted of the work a rebuild does: the rings and runs it laid, and the meshes it worked out. Tests read it. */
-export const bandWork = { layings: 0, meshes: 0 };
+/** What is counted of the work a rebuild does: the rings and runs it laid (the plateau cliffs among them), and the meshes it worked out. Tests read it. */
+export const bandWork = { layings: 0, cliffs: 0, meshes: 0 };
 
 function keptMesh(pl: WalkPlacement, laidAs: number[], build: () => ReturnType<typeof bentMesh>): MeshGeometry {
   let id = pieceIds.get(pl.piece);
@@ -1958,21 +2120,22 @@ export function layBandChain(
   gaps: DoorGap[] = [],
   set: CaveKitPiece[] = caveBandPieces(),
   size = 1,
+  cliff = false,
 ): WalkPlacement[] {
-  return keptLaying('chain', points, gaps, set, size, () => {
-    if (size !== 1) return laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set));
-    return layChain(points as Curve, gaps, set, { lap: true });
+  return keptLaying(cliff ? 'cliff-chain' : 'chain', points, gaps, set, size, () => {
+    if (size !== 1) return laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set, 1, cliff));
+    return layChain(points as Curve, gaps, set, { lap: true }, cliff);
   });
 }
 
-function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions): WalkPlacement[] {
+function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions, cliff = false): WalkPlacement[] {
   if (points.length < 2) return [];
   // A measured kit's run with openings on it is laid stretch by stretch between them.
   const measured = set.some((p) => p.exact);
   const runs = measured && gaps.length > 0 ? layWallRuns(points as Polygon, gaps, set, false, opts) : null;
   if (runs) return runs;
   // A measured kit's run of straight sides is laid corner by corner; a curved one is walked.
-  const exact = measured ? layExactRun(points as Polygon, set) : null;
+  const exact = measured ? layExactRun(points as Polygon, set, cliff) : null;
   if (exact) return exact;
   const cuts = measured ? [] : gaps;
   const base = resampleOpen(points, CURVE_STEP);

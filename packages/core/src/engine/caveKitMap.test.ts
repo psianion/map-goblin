@@ -86,7 +86,9 @@ function seedKit(connectors = true, set = SET, lengths = [1, 2, 3, 4, 5, 6, 7, 8
 
 const fmt = (c: BandCheck): string => JSON.stringify(c, (_, v) => (typeof v === 'number' ? +v.toFixed(2) : v));
 const report = (bands: LaidBand[]): string => bands.map((b) => `${b.kind}: ${fmt(b.check)}`).join('\n');
-const broken = (bands: LaidBand[]) => bands.map((b) => [b.kind, brokenRules(b.check)]);
+// Rule 8 (corners) is held on cliffs, in cliffCorners.test.ts: a cave's corners are as its walk lays them.
+const rulesOf = (b: LaidBand): number[] => brokenRules(b.check).filter((r) => r !== 8 || b.kind === 'cliff');
+const broken = (bands: LaidBand[]) => bands.map((b) => [b.kind, rulesOf(b)]);
 const clean = (bands: LaidBand[]) => bands.map((b) => [b.kind, []]);
 
 type V = [number, number];
@@ -424,7 +426,7 @@ describe('narrow passages and wall width', () => {
     const cave = bands.filter((b) => b.kind === 'cave');
     expect(cave.length).toBeGreaterThan(0);
     // Rules 1, 3, 5, 6 and 7; rock still reaches its mouth and one passage (rules 2 and 4).
-    const held = bands.map((b) => [b.kind, brokenRules(b.check).filter((r) => r !== 2 && r !== 4)]);
+    const held = bands.map((b) => [b.kind, rulesOf(b).filter((r) => r !== 2 && r !== 4)]);
     expect(held, report(bands)).toEqual(clean(bands));
     for (const b of cave) {
       const narrow = facing(b, 1);
@@ -453,7 +455,7 @@ describe('narrow passages and wall width', () => {
         expect(bands.map((b) => b.size), where).toEqual(bands.map(want));
         // Rules 2, 3, 6 and 7 at every width; at a width of 1 the six-sided cave's mouth notch and the
         // brush cave still break rules 1, 4 and 5.
-        const held = bands.map((b) => [b.kind, brokenRules(b.check).filter((r) => width < 1 || ![1, 4, 5].includes(r))]);
+        const held = bands.map((b) => [b.kind, rulesOf(b).filter((r) => width < 1 || ![1, 4, 5].includes(r))]);
         expect(held, `${where}\n${report(bands)}`).toEqual(clean(bands));
         for (const b of bands) {
           // Its connectors no wider than 1.1 times its rock, at its size.

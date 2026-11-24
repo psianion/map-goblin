@@ -32,16 +32,29 @@ const repoMap = (file: string): unknown => JSON.parse(readFileSync(resolve(proce
 const TESTING: SpeedMap = { name: 'Testing', file: () => withCaveKit(repoMap('testing-cave.ggvtt'), MEASURED_SET), seed: seedMeasured, material: MEASURED_SET };
 const WARREN: SpeedMap = { name: 'Goblin Warren', file: () => withCaveKit(repoMap('goblin-warren.mapbuilder'), MEASURED_SET), seed: seedMeasured, material: MEASURED_SET };
 
-const work = (mods: SpeedMods) => ({ ...mods.band.bandWork });
+/** A cliff plateau of the measured kit, clear of everything on the map, added to its first layer. */
+const addPlateau = (mods: SpeedMods, id: string): void =>
+  mods.store.useStore.setState((s) => {
+    const l = s.layers.find((x) => x.id === id) as DungeonLayer;
+    l.children.push({ id: 'work-plateau', name: 'p', childType: 'plateau', visible: true, contours: [[[-80, -62], [-72, -62], [-72, -57], [-76, -57], [-76, -54], [-80, -54]]], height: 1, edge: 'cliff', edgeArt: MEASURED_SET } as never);
+  });
+
+const work = (mods: SpeedMods) => ({ ...mods.band.bandWork, slopes: mods.plateaus.slopeWork.faces, walls: mods.walls.wallWork.layouts });
 
 describe('the work a cave rebuild does', () => {
-  it('works out no mesh and lays nothing on a rebuild with nothing changed', async () => {
+  it('works out no mesh and lays nothing on a rebuild with nothing changed: no ring, cliff, slope face or wall', async () => {
     useFrames();
     const mods = await freshMods();
     const open = openMap(mods, TESTING);
+    addPlateau(mods, open.ids[0]);
+    open.drawAll();
+    // Drawn twice: the first draw stores the rock lines the second is drawn along.
     open.drawAll();
     const before = work(mods);
     expect(before.meshes).toBeGreaterThan(0);
+    expect(before.cliffs).toBeGreaterThan(0);
+    expect(before.slopes).toBeGreaterThan(0);
+    expect(before.walls).toBeGreaterThan(0);
     open.drawAll();
     expect(work(mods)).toEqual(before);
     open.close();
@@ -102,6 +115,37 @@ describe('the work a cave rebuild does', () => {
     mods.tool.paintCaveFloor(layer(), id, mods.patch.strokeArea([[-56.4, -60]], 1), settings);
     redraw();
     expect(mods.band.bandWork.layings - before).toBe(1);
+    open.close();
+  }, 60_000);
+
+  it('walks no plateau’s cliff again for a brush stroke that leaves its outline as it was', async () => {
+    useFrames();
+    const mods = await freshMods();
+    const open = openMap(mods, TESTING);
+    const { useStore } = mods.store;
+    const id = open.ids[0];
+    const layer = (): DungeonLayer => useStore.getState().layers.find((l): l is DungeonLayer => l.id === id)!;
+    addPlateau(mods, id);
+    const settings = { ...useStore.getState().tools.settings.material, material: MEASURED_SET };
+    const redraw = (): void => {
+      useStore.setState((s) => {
+        const l = s.layers.find((x) => x.id === id) as DungeonLayer;
+        l.mergedFloor = mods.merged.computeMergedFloor(l as DungeonLayer);
+      });
+      open.drawAll();
+    };
+    const circle = (c: [number, number], r: number): Polygon => Array.from({ length: 48 }, (_, k): [number, number] => [c[0] + r * Math.cos((2 * Math.PI * k) / 48), c[1] + r * Math.sin((2 * Math.PI * k) / 48)]);
+    mods.tool.paintCaveFloor(layer(), id, [circle([-60, -60], 3.6)], settings);
+    redraw();
+    redraw();
+    const before = work(mods);
+    expect(before.cliffs).toBeGreaterThan(0);
+    mods.tool.paintCaveFloor(layer(), id, mods.patch.strokeArea([[-56.4, -60]], 1), settings);
+    redraw();
+    const after = work(mods);
+    // The brush cave is laid again; no cliff is.
+    expect(after.layings - before.layings).toBe(1);
+    expect(after.cliffs).toBe(before.cliffs);
     open.close();
   }, 60_000);
 
