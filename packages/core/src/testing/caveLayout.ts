@@ -12,16 +12,17 @@ import { layerDrawStyle, layerLevelLook } from '../engine/levelLook';
 import { laidCaves } from '../engine/material/materialRenderer';
 import { computeMergedFloor } from '../engine/mergedFloor';
 import { cliffChoice } from '../engine/plateauKit';
-import { laidRuns, walkCliff } from '../engine/plateauRenderer';
-import { rockLineOf } from '../engine/rockLines';
+import { bandShades, fittedAlongWalls, laidRuns, layerSlopes, walkCliff } from '../engine/plateauRenderer';
+import type { RampField } from '../engine/rampMask';
+import { cliffLineOf, cliffRockLines, rockLineOf } from '../engine/rockLines';
 import { renderNodeWalls, type DoorGap } from '../engine/wallNodeRenderer';
-import { layerPlateaus } from '../shared/plateaus';
+import { byPrecedence, layerPlateaus, type EdgeRun, type PlateauBand } from '../shared/plateaus';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { doorOpeningCuts, resolveDoors, resolveWalls } from '../shared/wallResolve';
 import type { DungeonLayer, RockLine } from '../store/types';
 import type { Polygon } from '../types/geometry';
-import { checkBand, type BandCheck } from './bandChecks';
+import { checkBand, pastRockLine, type BandCheck, type SideRegion } from './bandChecks';
 
 /** One ring, run or cliff stretch a measured kit laid, and what it measured. */
 export interface LaidBand {
@@ -106,9 +107,60 @@ export function layLayer(input: DungeonLayer): LaidLayer {
       if (!cliffs || !isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId)) continue;
       for (const c of cliffs) {
         const pts = c.run.drop > 0 ? c.run.points : [...c.run.points].reverse();
-        add('cliff', pts, walkCliff(c.run), [], 1, false, c.run.closed);
+        add('cliff', pts, walkCliff(c.run, c.merged), [], 1, false, c.run.closed);
       }
     }
   }
   return { layer, bands, fit: { tips, gaps: gapsFit }, rockLines: lines };
+}
+
+/** What one band draws from its outline once its cliffs' lines are saved, and how far any of it strays past them (rule 9). */
+export interface OutlineDrawn {
+  band: PlateauBand;
+  /** Its top: a raised band's lift, a pit's floor. */
+  top: Polygon[];
+  /** Its drop shades: each mask and the ramp painted through it. */
+  shades: { outward: boolean; region: Polygon[]; field: RampField }[];
+  /** Each cliff stretch's top line, as drawn. */
+  topLines: EdgeRun[];
+  /** The lines its cliffs saved, each with the drop of the run it was laid for. */
+  lines: { line: RockLine; drop: number }[];
+  /** Rule 9: the furthest its top or shade lies past a cliff's line on the wrong side, and where. */
+  past: number;
+  pastAt: [number, number] | null;
+}
+
+/**
+ * Every band of a laid layer (`layLayer`) drawn as a rebuild draws it: its cliffs' lines saved
+ * (`cliffRockLines`) beside the walls' lines, then its top fitted to them and its drop shades.
+ */
+export function drawnFromOutline(laid: LaidLayer): { layer: DungeonLayer; bands: OutlineDrawn[] } {
+  const cliffs = cliffRockLines(laid.layer);
+  const lines = [...(laid.layer.rockLines ?? []), ...cliffs.lines];
+  const layer: DungeonLayer = { ...laid.layer, rockLines: lines.length > 0 ? lines : undefined };
+  const fit = laid.fit.tips.length + laid.fit.gaps.length > 0 ? laid.fit : undefined;
+  const slopes = layerSlopes(layer);
+  const out: OutlineDrawn[] = [];
+  for (const band of layerPlateaus(layer).bands) {
+    const runs = laidRuns(layer, band);
+    const top = fittedAlongWalls(band.surface, runs, fit);
+    const faces = slopes.faces.filter((f) => f.run.band === band);
+    const over = slopes.faces.filter((f) => byPrecedence(f.run.band, band) > 0).flatMap((f) => f.region);
+    const shades = bandShades(band, runs, faces, slopes.land, over, fit);
+    const own: { line: RockLine; drop: number }[] = [];
+    const topLines: EdgeRun[] = [];
+    for (const { run, cliffs: stretches } of runs) {
+      if (!stretches || !isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId)) continue;
+      for (const c of stretches) {
+        topLines.push(c.top);
+        const line = cliffLineOf(c.run, walkCliff(c.run, c.merged));
+        if (line) own.push({ line, drop: c.run.drop });
+      }
+    }
+    // A raised band's top lies on its rock's floor side; a pit's floor, walked the other way round, on its void side.
+    const regions: SideRegion[] = [{ rings: top, side: band.height > 0 ? 'floor' : 'void' }, ...shades.map((s) => ({ rings: s.region, side: 'void' as const }))];
+    const { past, at: pastAt } = own.length > 0 ? pastRockLine(regions, own.flatMap((l) => l.line.runs)) : { past: 0, at: null };
+    out.push({ band, top, shades, topLines, lines: own, past, pastAt });
+  }
+  return { layer, bands: out };
 }

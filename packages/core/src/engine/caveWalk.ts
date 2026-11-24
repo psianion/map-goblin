@@ -12,7 +12,7 @@
 // re-lays the whole cave, so treat them as measurements, not preferences.
 
 import type { CaveKitPiece, KitPlacement } from '../assets/caveWallKit';
-import type { PieceBend } from './bandBend';
+import { endTangents, MITRE_MOST_DEG, type PieceBend } from './bandBend';
 
 export type Vec = [number, number];
 /** A densely and evenly sampled closed curve. Index arithmetic wraps modulo length. */
@@ -722,6 +722,18 @@ function nearestClose(
   return null;
 }
 
+/** The joints of a ring of placements turning further than a joint bends (MITRE_MOST_DEG): where one piece's art crosses the next's. */
+function sharpJoints(placed: WalkPlacement[]): number {
+  const most = Math.cos((MITRE_MOST_DEG * Math.PI) / 180);
+  let count = 0;
+  for (let k = 0; k < placed.length; k++) {
+    const ta = endTangents(placed[k])[1];
+    const tb = endTangents(placed[(k + 1) % placed.length])[0];
+    if (dot(ta, tb) < most - 1e-9) count++;
+  }
+  return count;
+}
+
 /** How many starting points a ring is walked from before the best closure is kept. */
 const RING_STARTS = 12;
 /** A closing piece within this of scale 1 is even enough to stop looking. */
@@ -747,9 +759,11 @@ export function walkClosed(
 ): WalkResult {
   const n = curve.length;
   // The start is judged on open joints and stretch only: a plain close butts the first
-  // piece end to end (a seam on every start alike); the lap below is what closes it.
+  // piece end to end (a seam on every start alike); the lap below is what closes it. A measured
+  // kit's walk is held to its joints too: one turning further than its art bends crosses.
+  const measured = set.some((p) => p.exact);
   const cost = (r: WalkResult): number =>
-    jointHoles(r.placed, true, false).length * 100 + Math.max(0, ...r.placed.map((p) => Math.abs(Math.log(p.at.scale))));
+    jointHoles(r.placed, true, false).length * 100 + (measured ? sharpJoints(r.placed) * 10 : 0) + Math.max(0, ...r.placed.map((p) => Math.abs(Math.log(p.at.scale))));
   let best: WalkResult | null = null;
   let bestStart = 0;
   let bestCost = Infinity;
@@ -781,6 +795,9 @@ export function walkClosed(
   try {
     const closed = walkSpan(curve, set, bestStart, bestStart + n, { ...opts, ring: true });
     if (closed.holes.length > best.holes.length) return best;
+    // A measured kit's close that turns a joint further than its art bends (one piece crossing the
+    // next) where the plain close did not is not kept either.
+    if (measured && best.holes.length === 0 && sharpJoints(closed.placed) > sharpJoints(best.placed)) return best;
     return closed.placed.length === best.placed.length || best.holes.length > 0 ? closed : best;
   } catch {
     return best;

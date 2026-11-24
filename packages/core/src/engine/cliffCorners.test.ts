@@ -14,12 +14,12 @@ vi.mock('../assets/textureLoader', async (importOriginal) => {
 
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
-import { bandPiecesFor, jointsOf } from '../assets/caveWallKit';
+import { bandPiecesFor } from '../assets/caveWallKit';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
-import { brokenRules, checkBand, BAND_RULES } from '../testing/bandChecks';
-import { layLayer, type LaidBand } from '../testing/caveLayout';
-import { caseLayer, plateau, type CaseKits } from '../testing/caveCases';
-import { bandBends, FIT_DOOR_PAD, withConnectors } from './caveBandRenderer';
+import { brokenRules, checkBand, BAND_RULES, pastRockLine, pieceRockLine } from '../testing/bandChecks';
+import { drawnFromOutline, layLayer, type LaidBand } from '../testing/caveLayout';
+import { CAVE_CASES, caseLayer, joinedCaves, plateau, type CaseKits } from '../testing/caveCases';
+import { bandBends, FIT_DOOR_PAD, seatLine, withConnectors } from './caveBandRenderer';
 import { endTangents, MITRE_MOST_DEG } from './bandBend';
 import { kitOverlap, placePiece, type WalkPlacement } from './caveWalk';
 import { cliffFreeTips, cliffLedge, FACE_SIDE_FADE, faceSideFade, laidRuns, layerSlopes, walkCliff } from './plateauRenderer';
@@ -71,6 +71,12 @@ function seedCliffKit(): void {
 }
 
 const shift = (pts: V[], dx: number, dy: number): V[] => pts.map(([x, y]) => [x + dx, y + dy]);
+const segDist = (p: V, a: V, b: V): number => {
+  const [vx, vy] = [b[0] - a[0], b[1] - a[1]];
+  const L2 = vx * vx + vy * vy;
+  const t = L2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / L2)) : 0;
+  return Math.hypot(p[0] - a[0] - vx * t, p[1] - a[1] - vy * t);
+};
 const L_SHAPE: V[] = [[0, 0], [0, 4], [2, 4], [2, 2], [4, 2], [4, 0]];
 /** Two 45° corners and three square ones. */
 const CUT_CORNERS: V[] = [[0, 0], [6, 0], [8, 2], [8, 5], [0, 5]];
@@ -115,14 +121,117 @@ describe('a cliff’s corners', () => {
     expect(corners.filter((pl) => pl.piece.turnDeg < 0)).toHaveLength(1);
   });
 
-  it('rounds a tip no corner piece turns in bends of 60° or less', () => {
+  it('lays a tip no corner piece turns with the smallest one across it, made smaller, its rock within half a cell of the tip', () => {
     seedCliffKit();
     const [band] = cliffBands(caseLayer([plateau('p', shift(SPIKE, 3, 3), KITS)], KITS));
-    // The two square-ish corners take corner pieces; the tip none.
-    expect(band.placed.filter((pl) => pl.branch === 'corner')).toHaveLength(2);
+    // The two square-ish corners take corner pieces, and the tip one more.
+    const corners = band.placed.filter((pl) => pl.branch === 'corner');
+    expect(corners).toHaveLength(3);
     const tip: V = [11, 5];
-    const near = band.placed.filter((pl) => Math.min(...jointsOf(pl.piece, pl.at).map((j) => Math.hypot(j[0] - tip[0], j[1] - tip[1]))) < 4);
-    expect(near.every((pl) => pl.piece.turnDeg === 0)).toBe(true);
+    const dTip = (pl: WalkPlacement): number => Math.min(...seatLine([pl]).map((p) => Math.hypot(p[0] - tip[0], p[1] - tip[1])));
+    const across = corners.reduce((a, b) => (dTip(b) < dTip(a) ? b : a));
+    const smallest = Math.min(...bandPiecesFor(SET).filter((p) => p.turnDeg > 0).map((p) => p.chordCells));
+    expect(across.piece.chordCells).toBe(smallest);
+    expect(across.at.scale).toBeGreaterThanOrEqual(0.5 - 1e-6);
+    expect(across.at.scale).toBeLessThan(1);
+    expect(dTip(across)).toBeLessThanOrEqual(0.5);
+    // The rock is laid to the tip: rule 1 holds there.
+    expect(band.check.worstBare).toBeLessThanOrEqual(BAND_RULES.bareReach);
+  });
+});
+
+describe('rule 9', () => {
+  const shapes: [string, V[], number][] = [
+    ['an L-shaped plateau', L_SHAPE, 1],
+    ['an L-shaped pit', L_SHAPE, -1],
+    ['a plateau with a sharp tip', SPIKE, 1],
+    ['a plateau with 45° corners', CUT_CORNERS, 1],
+  ];
+  for (const [name, ring, height] of shapes) {
+    it(`keeps ${name}’s top, floor and shade to its side of the rock, corners and tips too`, () => {
+      seedCliffKit();
+      const { bands } = drawnFromOutline(layLayer(caseLayer([plateau('p', shift(ring, 3, 3), KITS, 'cliff', height)], KITS)));
+      expect(bands.some((b) => b.lines.length > 0)).toBe(true);
+      for (const b of bands) expect(b.past, `${name} at ${b.pastAt}`).toBeLessThanOrEqual(BAND_RULES.rockSide);
+    });
+  }
+
+  it('keeps a plateau’s top to its rock along a stretch that runs on into a wall', () => {
+    seedCliffKit();
+    const { bands } = drawnFromOutline(layLayer(CAVE_CASES[1].layer(KITS)));
+    expect(bands.some((b) => b.lines.some((l) => !l.line.closed))).toBe(true);
+    for (const b of bands) expect(b.past, `at ${b.pastAt}`).toBeLessThanOrEqual(BAND_RULES.rockSide);
+  });
+
+  it('finds a top drawn past its rock', () => {
+    // A square plateau's rock a cell inside it, wound with its top on its right, its top drawn to the outline.
+    const rock = [[1, 1], [3, 1], [3, 3], [1, 3], [1, 1]];
+    const top: Polygon = [[0, 0], [4, 0], [4, 4], [0, 4]];
+    const r = pastRockLine([{ rings: [top], side: 'floor' }], [rock]);
+    expect(r.past).toBeGreaterThan(0.9);
+  });
+});
+
+describe('a cliff meeting a wall', () => {
+  /** The case's plateaus in a room's corners: c11 a cell square, c22 two, c13 one by three. */
+  const tucked = (): DungeonLayer => CAVE_CASES[3].layer(KITS);
+
+  it('runs no straight on past the corner beside a wall: every piece’s rock stays by its stretch', () => {
+    seedCliffKit();
+    const layer = layLayer(tucked()).layer;
+    let merged = 0;
+    for (const band of layerPlateaus(layer).bands) {
+      for (const { cliffs } of laidRuns(layer, band)) {
+        for (const c of cliffs ?? []) {
+          if (!c.merged.some(Boolean)) continue;
+          merged++;
+          const pts = c.run.points as V[];
+          const placed = walkCliff(c.run, c.merged);
+          for (const pl of placed) {
+            for (const p of pieceRockLine(pl, kitOverlap(bandPiecesFor(SET)))) {
+              const d = Math.min(...pts.slice(1).map((q, i) => segDist(p, pts[i], q)));
+              expect(d, `${pl.piece.key} at ${p}`).toBeLessThanOrEqual(0.55);
+            }
+          }
+        }
+      }
+    }
+    expect(merged).toBeGreaterThanOrEqual(3);
+  });
+
+  it('narrows an end that butts a painted cave’s rock, and leaves one under a walled floor’s rock square', () => {
+    seedCliffKit();
+    for (const [layer, butts] of [
+      [CAVE_CASES[0].layer(KITS), true],
+      [tucked(), false],
+    ] as [DungeonLayer, boolean][]) {
+      const laid = layLayer(layer).layer;
+      let tips = 0;
+      for (const band of layerPlateaus(laid).bands) {
+        for (const { cliffs } of laidRuns(laid, band)) {
+          for (const c of cliffs ?? []) {
+            if (!c.merged.some(Boolean)) continue;
+            expect(c.butts.some(Boolean)).toBe(butts);
+            const drawn = cliffLedge(c, walkCliff(c.run, c.merged));
+            const bent = withConnectors(drawn, bandPiecesFor(SET), 1, cliffFreeTips(c, drawn));
+            tips += bent.reduce((s, pl) => s + (pl.bend?.taper?.filter(Boolean).length ?? 0), 0);
+          }
+        }
+      }
+      if (butts) expect(tips).toBeGreaterThan(0);
+      else expect(tips).toBe(0);
+    }
+  });
+});
+
+describe('the cliff kit as a cave’s rock', () => {
+  it('takes its inner corner pieces on a cave ring: no two pieces cross at a corner', () => {
+    seedCliffKit();
+    const { bands } = layLayer(joinedCaves(KITS));
+    const rings = bands.filter((b) => b.kind !== 'cliff');
+    expect(rings.length).toBeGreaterThan(0);
+    for (const b of rings) expect(brokenRules(b.check).filter((r) => r === 8), b.kind).toEqual([]);
+    expect(rings.some((b) => b.placed.some((pl) => pl.branch === 'corner' && pl.piece.turnDeg < 0))).toBe(true);
   });
 });
 
@@ -157,7 +266,7 @@ describe('a cliff’s free end', () => {
         for (const c of cliffs ?? []) {
           if (c.run.closed) continue;
           open++;
-          const drawn = cliffLedge(c, walkCliff(c.run));
+          const drawn = cliffLedge(c, walkCliff(c.run, c.merged));
           const free = cliffFreeTips(c, drawn);
           expect(free).toBeDefined();
           const bent = withConnectors(drawn, bandPiecesFor(SET), 1, free);

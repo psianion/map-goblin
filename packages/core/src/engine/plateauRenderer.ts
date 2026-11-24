@@ -242,7 +242,7 @@ export function renderPlateaus(
     for (const { run, cliffs } of laid) {
       if (!cliffs) continue;
       const walks = options.cliffs?.get(band)?.get(cliffKey(run));
-      cliffs.forEach((c, i) => sprites.push(...drawCliff(holder, c, walks?.[i] ?? walkCliff(c.run))));
+      cliffs.forEach((c, i) => sprites.push(...drawCliff(holder, c, walks?.[i] ?? walkCliff(c.run, c.merged))));
     }
     // A painted border's Edge line rides on the card's Contour lines switch: on unless set off.
     for (const run of runs) if (painted(run) && run.owner?.contourLines !== false) drawEdgeLine(holder, run);
@@ -298,6 +298,8 @@ export interface CliffRun {
   top: EdgeRun;
   /** Whether its head and its tail, in `run`'s order, run on into a wall's rock: no end piece there. */
   merged: [boolean, boolean];
+  /** Of those, whether each stops at the floor-side face of rock drawn under it (a painted cave's): it narrows there, as a free end does. */
+  butts: [boolean, boolean];
 }
 
 /** How far past the drawn stretch and its rock a stretch's zone reaches, cells: past Clipper's snap. */
@@ -426,7 +428,7 @@ function crossings(a: Vec, b: Vec, walls: CliffWalls): { p: Vec; t: number; back
  * no wall is its walk, its top the run as drawn (`laid`), as one stretch; one wholly on walls has none.
  */
 function cliffRuns(run: EdgeRun, walk: EdgeRun, laid: EdgeRun, walls: CliffWalls, own: RockLine[] | undefined): CliffRun[] {
-  const whole: CliffRun[] = [{ run: walk, top: laid, merged: [false, false] }];
+  const whole: CliffRun[] = [{ run: walk, top: laid, merged: [false, false], butts: [false, false] }];
   if (walls.lines.length === 0 && walls.openings.length === 0) return whole;
   const cut = alongRock(run.points, run.closed, walls.lines);
   // The run as stretches of drawn edge and the walls between them, each wall with how far short of it the cliff stops.
@@ -467,7 +469,7 @@ function cliffRuns(run: EdgeRun, walk: EdgeRun, laid: EdgeRun, walls: CliffWalls
       const stretch: EdgeRun = { ...run, closed: false, ...kept };
       const a = alongRock(kept.points, false, own);
       const top = a.replaced.length === 0 ? stretch : { ...stretch, points: a.points, drops: a.segs.map((i) => kept.drops[i]) };
-      out.push({ run: stretch, top, merged: [part.head !== null, tail !== null] });
+      out.push({ run: stretch, top, merged: [part.head !== null, tail !== null], butts: [(part.head ?? 0) > 0, (tail ?? 0) > 0] });
     }
     part = null;
   };
@@ -1304,14 +1306,11 @@ export function dropShadeField(runs: EdgeRun[]): RampField | null {
 }
 
 /**
- * The shade a band lays under its edges, per side it drops to: the drop shade along each
- * edge, blurred, then cut by a mask of that side and of the ground there is (`land`), less the
- * band's slope faces there and the faces of higher bands (`over`), so it is as dark at the edge
- * as the shade says, never spills up onto the band, never lands on void and stays off a face.
- * Along a cave wall it runs on the rock and its mask is fitted to it (`fittedAlongWalls`); a
- * ledge cliff's is drawn only along its stretches off the walls (`LaidRun.cliffs`).
+ * The shade a band lays under its edges, per side it drops to (see {@link drawShade}): the mask it
+ * is painted through and the drop shade's ramp, unblurred. None for a side with no edge or no ground.
  */
-function drawShade(parent: Container, band: PlateauBand, runs: LaidRun[], faces: SlopeFaceRun[], land: LandOf, over: Polygon[], fit: FloorFit | undefined): void {
+export function bandShades(band: PlateauBand, runs: LaidRun[], faces: SlopeFaceRun[], land: LandOf, over: Polygon[], fit: FloorFit | undefined): { outward: boolean; region: Polygon[]; field: RampField }[] {
+  const out: { outward: boolean; region: Polygon[]; field: RampField }[] = [];
   for (const outward of [true, false]) {
     // A run dropping to a band below shades it from above; one rising to a band it merely meets
     // is that band's to shade, so only the rim of a pit or a dip (rising to the ground or to the
@@ -1324,7 +1323,21 @@ function drawShade(parent: Container, band: PlateauBand, runs: LaidRun[], faces:
     const region = fittedAlongWalls(low, mine, fit, outward);
     if (region.length === 0) continue;
     const field = dropShadeField(mine.flatMap(({ laid, cliffs }) => (cliffs ? cliffs.map((c) => c.top) : [laid])));
-    if (!field) continue;
+    if (field) out.push({ outward, region, field });
+  }
+  return out;
+}
+
+/**
+ * The shade a band lays under its edges, per side it drops to: the drop shade along each
+ * edge, blurred, then cut by a mask of that side and of the ground there is (`land`), less the
+ * band's slope faces there and the faces of higher bands (`over`), so it is as dark at the edge
+ * as the shade says, never spills up onto the band, never lands on void and stays off a face.
+ * Along a cave wall it runs on the rock and its mask is fitted to it (`fittedAlongWalls`); a
+ * ledge cliff's is drawn only along its stretches off the walls (`LaidRun.cliffs`).
+ */
+function drawShade(parent: Container, band: PlateauBand, runs: LaidRun[], faces: SlopeFaceRun[], land: LandOf, over: Polygon[], fit: FloorFit | undefined): void {
+  for (const { region, field } of bandShades(band, runs, faces, land, over, fit)) {
     const g = new Container();
     g.label = 'plateau-drop-shade';
     paintRamp(g, { field, clip: null }, { color: 0x000000 });
@@ -1476,15 +1489,17 @@ const lowNormal = (pl: WalkPlacement): Vec => {
  * straights and corners alike, walked with the measured ledge pieces, every piece at its own
  * size, none stretched to fit an edge. One ring of it at any drop. `run` is a stretch of the
  * run's walk off the walls (`CliffRun.run`), never along its own saved line, so laying it
- * again lays the same rock. Nothing when its kit has no pieces.
+ * again lays the same rock. A tip that runs on into a wall's rock (`merged`, in `run`'s order,
+ * `CliffRun.merged`) is laid as one. Nothing when its kit has no pieces.
  */
-export function walkCliff(run: EdgeRun): WalkPlacement[] {
+export function walkCliff(run: EdgeRun, merged: [boolean, boolean] = [false, false]): WalkPlacement[] {
   const pieces = cliffPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt);
   if (pieces.length === 0) return [];
   // The walk lays rock with the void on its left; band rings run with the outside on the
   // left, which is the low side of a plateau. A pit's low side is inside: walk it backwards.
   const pts = run.drop > 0 ? run.points : [...run.points].reverse();
-  return run.closed ? layBandRing(pts, [], pieces, 1, true) : layBandChain(pts, [], pieces, 1, true);
+  const ends: [boolean, boolean] = run.drop > 0 ? merged : [merged[1], merged[0]];
+  return run.closed ? layBandRing(pts, [], pieces, 1, true) : layBandChain(pts, [], pieces, 1, true, ends);
 }
 
 /**
@@ -1504,17 +1519,26 @@ export function cliffLedge(stretch: CliffRun, placed: WalkPlacement[]): WalkPlac
 }
 
 /**
- * The free tips of a cliff's ledge as drawn (`cliffLedge`): each open run's first and last joint,
- * but for a tip that runs on into a wall (`merged`). None where the kit lays end pieces there.
+ * The tips of a cliff's ledge as drawn (`cliffLedge`) that narrow to a point: each open run's
+ * first and last joint where the kit lays no end piece, and a tip that butts a painted cave's
+ * rock (`butts`) whatever the kit, so no square end stands against it. A tip that runs on under
+ * a walled floor's rock (`merged`) stays square: that rock covers it.
  */
 export function cliffFreeTips(stretch: CliffRun, drawn: WalkPlacement[]): ((end: Vec) => boolean) | undefined {
   const { run } = stretch;
-  if (ledgeEndPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt).length > 0) return undefined;
-  const runs = ledgeRuns(drawn, run.closed).filter((r) => r.open);
-  const [head, tail] = run.drop > 0 ? stretch.merged : [stretch.merged[1], stretch.merged[0]];
+  const ends = ledgeEndPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt).length > 0;
+  // The ledge's own pieces: the end pieces laid at its free tips come after them.
+  const runs = ledgeRuns(
+    drawn.filter((pl) => pl.branch !== 'end'),
+    run.closed,
+  ).filter((r) => r.open);
+  const walkWay = <T,>(pair: [T, T]): [T, T] => (run.drop > 0 ? pair : [pair[1], pair[0]]);
+  const [head, tail] = walkWay(stretch.merged);
+  const [buttHead, buttTail] = walkWay(stretch.butts);
+  const narrows = (merged: boolean, butts: boolean): boolean => (merged ? butts : !ends);
   const tips: Vec[] = runs.flatMap((r, k) => [
-    ...(head && k === 0 ? [] : [jointFrame(r.run[0]).joints[0]]),
-    ...(tail && k === runs.length - 1 ? [] : [jointFrame(r.run[r.run.length - 1]).joints[1]]),
+    ...(narrows(head && k === 0, buttHead) ? [jointFrame(r.run[0]).joints[0]] : []),
+    ...(narrows(tail && k === runs.length - 1, buttTail) ? [jointFrame(r.run[r.run.length - 1]).joints[1]] : []),
   ]);
   return tips.length > 0 ? (p) => tips.some((t) => vdist(p, t) < 1e-6) : undefined;
 }

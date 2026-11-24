@@ -48,6 +48,12 @@ export function laidFor(line: RockLine, ring: readonly Pt[]): boolean {
 
 /** A stretch of a drawn run this near a rock line's edge, and parallel to it, lies on it, cells. */
 export const ALONG_EDGE = 0.05;
+/**
+ * A plateau cliff's own line is matched this far off its drawn run, cells: a stretch that runs on
+ * into a wall starts on the wall's rock, so its first and last sides lie aslant of the drawn ones
+ * by as much as the wall's rock lies off its edge.
+ */
+const ALONG_OWN = 0.45;
 /** Shorter shared stretches are a touch or a crossing, not a run along the wall, cells. */
 export const ALONG_MIN = 0.3;
 /** Sine of the widest angle between a run and an edge still read as parallel (~7°). */
@@ -198,6 +204,7 @@ const cross = (a: Pt, b: Pt): number => a[0] * b[1] - a[1] * b[0];
  */
 function stretchesOn(path: Path, line: RockLine): Stretch[] {
   const edge = line.edge;
+  const reach = line.kind === 'cliff' ? ALONG_OWN : ALONG_EDGE;
   const edges = line.closed ? edge.length : edge.length - 1;
   const spans: [number, number][] = [];
   for (let k = 0; k < path.count; k++) {
@@ -221,10 +228,10 @@ function stretchesOn(path: Path, line: RockLine): Stretch[] {
       // Distance from the segment's line along the edge is linear in s; keep where it is within reach.
       const slope = (dq - dp) / (sq - sp);
       if (Math.abs(slope) < 1e-12) {
-        if (Math.abs(dp) > ALONG_EDGE) continue;
+        if (Math.abs(dp) > reach) continue;
       } else {
-        const s1 = sp + (ALONG_EDGE - dp) / slope;
-        const s2 = sp + (-ALONG_EDGE - dp) / slope;
+        const s1 = sp + (reach - dp) / slope;
+        const s2 = sp + (-reach - dp) / slope;
         lo = Math.max(lo, Math.min(s1, s2));
         hi = Math.min(hi, Math.max(s1, s2));
       }

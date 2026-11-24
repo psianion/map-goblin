@@ -229,7 +229,7 @@ describe('other cliffs against a wall', () => {
     for (const extra of [{}, { mergedFloor: [room], rockLines: [wallOf(room)] }]) {
       const layer = layerOf([plat(rect(2, 2, 6, 5))], extra);
       const { laid, stretches, placed, drawn, lines } = cliffOf(layer);
-      expect(stretches).toEqual([{ run: laid.run, top: laid.laid, merged: [false, false] }]);
+      expect(stretches).toEqual([{ run: laid.run, top: laid.laid, merged: [false, false], butts: [false, false] }]);
       expect(laid.walk).toBe(laid.run);
       expect(placed).toEqual([walkCliff(laid.run)]);
       expect(drawn[0]).toHaveLength(placed[0].length);

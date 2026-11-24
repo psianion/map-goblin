@@ -17,7 +17,7 @@ type V = [number, number];
 
 /** The rules, by number, and what each allows. */
 export const BAND_RULES = {
-  /** 1: every point of the drawn edge outside an opening has rock within this. */
+  /** 1: every point of the drawn edge outside an opening, and still on the floor's edge where the floor is fitted (within half this), has rock within this. */
   bareReach: 0.5,
   /** 3: no rock further than this from the drawn edge. */
   strayReach: 0.8,
@@ -42,6 +42,8 @@ export const BAND_RULES = {
   cornerTurn: 60,
   cornerFrom: 30,
   cornerPast: 0.15,
+  /** 9: nothing drawn from a cliff's outline (its top, a pit's floor, a drop shade) lies further than this past its rock line, on the side it does not belong to. */
+  rockSide: 0.1,
 };
 
 /** What one ring's rock measured. Lengths in cells at size 1. */
@@ -318,14 +320,17 @@ export function checkBand(input: BandCheckInput): BandCheck {
   const nearGap = (p: V, pad: number): boolean =>
     gaps.some((g) => len(sub(p, g.position as V)) <= g.width / 2 + pad) || openings.some((o) => inside(p, [o]) || lineDist(p, o as V[], true) < pad);
 
-  // 1: bare wall.
+  // 1: bare wall. Where the floor is given, only the drawn edge it still reaches: where it is fitted
+  // to rock that rounds a corner wider, the rock is its edge there.
   const step = 0.05;
   let bare = 0;
   let worstBare = 0;
   let worstBareAt: V | null = null;
+  const floorEdge = input.floor?.map((r) => r.map(([x, y]): V => [x, y]));
+  const offFloor = (p: V): boolean => !!floorEdge && Math.min(Infinity, ...floorEdge.map((r) => lineDist(p, r, true))) > (BAND_RULES.bareReach / 2) * size;
   const edgePts = sample(ring, closedEdge, step);
   for (const p of edgePts) {
-    if (nearGap(p, 0.02)) continue;
+    if (nearGap(p, 0.02) || offFloor(p)) continue;
     const d = rockDist(p) / size;
     if (d > BAND_RULES.bareReach) bare += step;
     if (d > worstBare) [worstBare, worstBareAt] = [d, p];
@@ -522,6 +527,92 @@ export function checkBand(input: BandCheckInput): BandCheck {
     pastCorner,
     pastCornerAt,
   };
+}
+
+/** How far along an open rock line either side of a point its direction there is read, cells. */
+const SIDE_SPAN = 0.3;
+
+/** The point `by` along the open line `pts` (back for negative) from `t` of the way along its segment `k`, stopping at its ends. */
+function walkFrom(pts: V[], k: number, t: number, by: number): V {
+  let left = Math.abs(by);
+  let p = add(pts[k], mul(sub(pts[k + 1], pts[k]), t));
+  let i = by > 0 ? k + 1 : k;
+  while (left > 0 && i >= 0 && i < pts.length) {
+    const L = len(sub(pts[i], p));
+    if (L >= left) return add(p, mul(sub(pts[i], p), left / L));
+    left -= L;
+    p = pts[i];
+    i += by > 0 ? 1 : -1;
+  }
+  return p;
+}
+
+/** A region drawn from a cliff's outline, and the side of its rock line it belongs on: the floor side (a plateau's top) or the void side (a pit's floor, a drop shade). */
+export interface SideRegion {
+  rings: readonly Polygon[];
+  side: 'floor' | 'void';
+}
+
+/**
+ * Rule 9 on a band's saved cliff lines (each `RockLine.runs`, the rock's seat in walk order, the
+ * void on its left): the furthest any of `regions` lies past the rock on the side it does not
+ * belong to, and where. Each point is judged by the run nearest it: a closed run tells its sides
+ * by what it encloses, an open one by the way it runs there, and nothing by an open run's ends
+ * (within SIDE_SPAN of them) counts.
+ */
+export function pastRockLine(regions: readonly SideRegion[], runs: readonly (readonly (readonly number[])[])[]): { past: number; at: V | null } {
+  const lines = runs
+    .map((raw) => raw.map(([x, y]): V => [x, y]).filter((p, i, all) => i === 0 || len(sub(p, all[i - 1])) > 1e-9))
+    .filter((pts) => pts.length >= 2)
+    .map((pts) => {
+      const loop = pts.length > 3 && len(sub(pts[0], pts[pts.length - 1])) < 0.02;
+      const line = loop ? pts.slice(0, -1) : pts;
+      let area = 0;
+      if (loop) for (let i = 0; i < line.length; i++) area += cross(line[i], line[(i + 1) % line.length]);
+      return { line, loop, area, segs: line.length - (loop ? 0 : 1) };
+    });
+  const cum = lines.map(({ line, segs }) => {
+    const out = [0];
+    for (let k = 0; k < segs; k++) out.push(out[k] + len(sub(line[(k + 1) % line.length], line[k])));
+    return out;
+  });
+  // The floor side is the right of travel (cross > 0); a loop wound that way encloses its floor side.
+  const sideOf = (p: V): { d: number; floor: boolean } | null => {
+    let best = { d: Infinity, l: -1, k: 0, t: 0 };
+    lines.forEach(({ line, segs }, l) => {
+      for (let k = 0; k < segs; k++) {
+        const a = line[k];
+        const v = sub(line[(k + 1) % line.length], a);
+        const L2 = dot(v, v);
+        const t = L2 > 0 ? Math.max(0, Math.min(1, dot(sub(p, a), v) / L2)) : 0;
+        const d = len(sub(p, add(a, mul(v, t))));
+        if (d < best.d) best = { d, l, k, t };
+      }
+    });
+    if (best.l < 0) return null;
+    const { line, loop, area, segs } = lines[best.l];
+    if (loop) return { d: best.d, floor: inside(p, [line]) === area > 0 };
+    // Nothing by an open run's ends: a tip that runs on into a wall's rock, or one its rock rounds off.
+    const s = cum[best.l][best.k] + best.t * (cum[best.l][best.k + 1] - cum[best.l][best.k]);
+    if (s < SIDE_SPAN || s > cum[best.l][segs] - SIDE_SPAN) return null;
+    // Its way there read across SIDE_SPAN either side, so a step where two pieces' seats meet cannot decide it.
+    const q = add(line[best.k], mul(sub(line[best.k + 1], line[best.k]), best.t));
+    const ahead = walkFrom(line, best.k, best.t, SIDE_SPAN);
+    const behind = walkFrom(line, best.k, best.t, -SIDE_SPAN);
+    return { d: best.d, floor: cross(sub(ahead, behind), sub(p, q)) > 0 };
+  };
+  let past = 0;
+  let at: V | null = null;
+  for (const { rings, side } of regions) {
+    for (const ring of rings) {
+      for (const p of sample(ring.map(([x, y]): V => [x, y]), true, 0.05)) {
+        const s = sideOf(p);
+        if (!s || s.d <= past || s.floor === (side === 'floor')) continue;
+        [past, at] = [s.d, p];
+      }
+    }
+  }
+  return { past, at };
 }
 
 /**
