@@ -6,7 +6,7 @@
 // art ends (half the kit's overlap in from each joint).
 
 import { jointsOf, kitRockWidth } from '../assets/caveWallKit';
-import { bandBends, SEAT_IN, seatLine } from '../engine/caveBandRenderer';
+import { bandBends, narrowedLine, SEAT_IN, seatLine } from '../engine/caveBandRenderer';
 import { bendWarp, bentMesh, endTangents, unbend } from '../engine/bandBend';
 import type { WalkPlacement } from '../engine/caveWalk';
 import { ledgeRuns } from '../engine/plateauRenderer';
@@ -147,8 +147,11 @@ export function pieceRockLine(pl: WalkPlacement, overlap: number): V[] {
   const L = len(v);
   if (L < 1e-9) return [];
   if (pl.piece.spine) {
-    // A spine is drawn to the art's own ends already.
-    return pl.piece.spine.map(([x, y]): V => [pl.at.position.x + (x * c - y * s) * pl.at.scale, pl.at.position.y + (x * s + y * c) * pl.at.scale]);
+    // A spine is drawn to the art's own ends already; a narrowing piece's drawn in as its art is.
+    return narrowedLine(
+      pl,
+      pl.piece.spine.map(([x, y]): V => [pl.at.position.x + (x * c - y * s) * pl.at.scale, pl.at.position.y + (x * s + y * c) * pl.at.scale]),
+    ) as V[];
   }
   const right: V = [-v[1] / L, v[0] / L];
   const phi = (Math.abs(pl.piece.turnDeg) * Math.PI) / 360;
@@ -487,6 +490,8 @@ export function checkBand(input: BandCheckInput): BandCheck {
       const tb = endTangents(b.pl)[0];
       const turn = (Math.abs(Math.atan2(cross(ta, tb), dot(ta, tb))) * 180) / Math.PI;
       const at = a.line[a.line.length - 1];
+      // The two sides' rock narrowed into a sharp tip meet there end to end, each narrowed to nothing: no joint.
+      if (a.pl.narrow?.[1] === 0 && b.pl.narrow?.[0] === 0) continue;
       if (turn > BAND_RULES.cornerTurn) {
         crossed++;
         crossedAt ??= at;
@@ -531,6 +536,8 @@ export function checkBand(input: BandCheckInput): BandCheck {
 
 /** How far along an open rock line either side of a point its direction there is read, cells. */
 const SIDE_SPAN = 0.3;
+/** A point no more than this nearer an open run than to the run's nearer end lies past that end, cells. */
+const SIDE_PAST_END = 0.05;
 
 /** The point `by` along the open line `pts` (back for negative) from `t` of the way along its segment `k`, stopping at its ends. */
 function walkFrom(pts: V[], k: number, t: number, by: number): V {
@@ -595,6 +602,10 @@ export function pastRockLine(regions: readonly SideRegion[], runs: readonly (rea
     // Nothing by an open run's ends: a tip that runs on into a wall's rock, or one its rock rounds off.
     const s = cum[best.l][best.k] + best.t * (cum[best.l][best.k + 1] - cum[best.l][best.k]);
     if (s < SIDE_SPAN || s > cum[best.l][segs] - SIDE_SPAN) return null;
+    // Nor a point lying past an end, no nearer anything along the run than to that end (a ramp
+    // running on off a cliff's open end, where the rock bulges just before it).
+    const end = Math.min(len(sub(p, line[0])), len(sub(p, line[line.length - 1])));
+    if (end - best.d < SIDE_PAST_END) return null;
     // Its way there read across SIDE_SPAN either side, so a step where two pieces' seats meet cannot decide it.
     const q = add(line[best.k], mul(sub(line[best.k + 1], line[best.k]), best.t));
     const ahead = walkFrom(line, best.k, best.t, SIDE_SPAN);

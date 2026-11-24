@@ -1158,7 +1158,9 @@ const TIP_HUG = 0.5;
 /** A cliff's corner turning more than this, degrees, is a tip no corner piece turns (a right-angle piece's arms within EXACT_TURN_TOL of their sides). */
 const TIP_TURN_DEG = 90 + 2 * EXACT_TURN_TOL;
 /** The scales a tip's corner piece is tried at, largest first, down to the least. */
-const TIP_SCALE: [number, number, number] = [1, 0.5, 0.05];
+const TIP_SCALE: [number, number, number] = [1, 0.25, 0.05];
+/** A corner turning further than this from square, degrees, is the one of two lapping corner pieces left out. */
+const LAP_OFF_SQUARE = 10;
 
 /**
  * A tip no corner piece turns and sharper than a joint bends (the corner at `V`, come into along
@@ -1197,6 +1199,87 @@ function tipPiece(V: Vec, uIn: Vec, uOut: Vec, turn: number, set: CaveKitPiece[]
     if (hug <= TIP_HUG) return pl;
   }
   return null;
+}
+
+/** How far short of a sharp tip the rock narrowed into its wedge ends, cells. */
+const WEDGE_TIP_NEAR = 0.2;
+/** The least run of side a wedge's narrowing leaves before the side's other corner, cells. */
+const WEDGE_ROOM = 0.5;
+
+/**
+ * Where a piece's middle line lies (what a narrowing piece draws in to, see bandBend.ts), laid at
+ * size 1 along a side: how far into the void from the drawn edge, the side's joint line lying
+ * `2 * out` in. Its measured middle where it has one, else its spine, else half the kit's rock in
+ * from its joints.
+ */
+function middleInto(piece: CaveKitPiece, set: CaveKitPiece[], out: number): number {
+  const [J0, J1] = piece.jointsCells;
+  const d = norm(sub(J1, J0));
+  const floor: Vec = [-d[1], d[0]];
+  const m = piece.middle ?? piece.spine;
+  const toFloor = m && m.length > 0 ? m.reduce((s, q) => s + dot(sub(q as Vec, J0), floor), 0) / m.length : -kitRockWidth(set) / 2;
+  return 2 * out - toFloor;
+}
+
+/** The rock laid into a sharp tip's wedge from either side (see {@link wedgeTip}), and where each side's straights stop for it. */
+interface WedgeTip {
+  /** The pieces narrowing into the tip, in walk order: from the side before it, then out along the side after. */
+  into: WalkPlacement[];
+  outOf: WalkPlacement[];
+  /** How far back from the tip along each side its straights stop. */
+  back: number;
+}
+
+/**
+ * A tip whose wedge lies on the rock's own side (the void's: a cave-wall kit's plateau, a cliff
+ * kit's pit) and is too narrow for the rock either side to turn in it (the corner at `V`, come
+ * into along `uIn` and left along `uOut`, `lenIn` and `lenOut` of its sides free for it). Each
+ * side's straights run on until its rock meets the other's in the wedge's middle (no nearer the tip
+ * than its shortest straight allows, no further back than the side holds), and from there straights
+ * along the line from that rock's middle to just short of the tip (WEDGE_TIP_NEAR, on the wedge's
+ * middle) carry it in, narrowing in a straight line from its full width to none at the tip, so the
+ * two sides' rock meets along the wedge's middle and neither crosses the other's side. Null when
+ * the kit has no straight, or the sides hold too little.
+ */
+function wedgeTip(V: Vec, uIn: Vec, uOut: Vec, lenIn: number, lenOut: number, set: CaveKitPiece[], out: number): WedgeTip | null {
+  const straights = set.filter((p) => p.turnDeg === 0 && p.radius === undefined && !p.flipY);
+  if (straights.length === 0) return null;
+  const overlap = kitOverlap(set);
+  const w = norm(sub(uOut, uIn));
+  const a = Math.acos(Math.max(-1, Math.min(1, -dot(uIn, uOut)))) / 2;
+  if (a < 1e-3) return null;
+  // Where the straights' middles lie, on average: each piece of a chain is laid on its own.
+  const mid = straights.reduce((s, p) => s + middleInto(p, set, out), 0) / straights.length;
+  const meet = (mid + kitRockWidth(set) / 2) / Math.tan(a);
+  const least = (Math.min(...straights.map((p) => p.chordCells)) - overlap) * EXACT_REACH[0] + WEDGE_TIP_NEAR;
+  const back = Math.min(Math.max(meet, least), lenIn - WEDGE_ROOM, lenOut - WEDGE_ROOM);
+  if (back < least) return null;
+  const T = add(V, mul(w, WEDGE_TIP_NEAR));
+  const vIn: Vec = [uIn[1], -uIn[0]];
+  const vOut: Vec = [uOut[1], -uOut[0]];
+  const fromIn = add(sub(V, mul(uIn, back)), mul(vIn, mid));
+  const toOut = add(add(V, mul(uOut, back)), mul(vOut, mid));
+  /** Straights whose middle runs from `m0` to `m1`, their art end to end, the share of width left going from `k0` to `k1`. */
+  const chain = (m0: Vec, m1: Vec, k0: number, k1: number): WalkPlacement[] => {
+    const L = dist(m0, m1);
+    const d = norm(sub(m1, m0));
+    const { pieces, f } = fillStretch(L, straights, overlap, Math.round(m0[0] * 100) * 7919 + Math.round(m0[1] * 100));
+    const drawn = pieces.reduce((sum, p) => sum + (p.chordCells - overlap) * f, 0);
+    let s = (L - drawn) / 2;
+    return pieces.map((piece) => {
+      // Its chord laid where its own middle runs along the line: moved back to where a side's lies.
+      const origin = add(m0, mul([-d[1], d[0]], out - (2 * out - middleInto(piece, set, out)) * f));
+      const P = add(origin, mul(d, s - (overlap / 2) * f));
+      const from = s;
+      s += (piece.chordCells - overlap) * f;
+      const Q = add(origin, mul(d, s + (overlap / 2) * f));
+      const share = (x: number): number => k0 + ((k1 - k0) * Math.min(L, Math.max(0, x))) / L;
+      return { piece, P, Q, i: 0, nudge: 0, branch: 'narrow', at: placePiece(piece, P, Q, out, 0, 0), narrow: [share(from), share(s)] as [number, number] };
+    });
+  };
+  const into = chain(fromIn, T, 1, 0);
+  const outOf = chain(T, toOut, 0, 1);
+  return into.length > 0 && outOf.length > 0 ? { into, outOf, back } : null;
 }
 
 /**
@@ -1378,7 +1461,18 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
   }
   // On a cliff, a side left too short for any straight at its least size between two corner
   // pieces has the larger made smaller, while either can be: the straight would lap both far over.
-  if (cliff) shortSides(m, (k) => [k, (k + 1) % m], (k) => endOf((k + 1) % m) - startOf(k), bendOf, choices, size, set);
+  if (cliff) {
+    shortSides(m, (k) => [k, (k + 1) % m], (k) => endOf((k + 1) % m) - startOf(k), bendOf, choices, size, set);
+    // Two corner pieces still lapping further than a joint laps on a side too short for both, one
+    // of them on a corner well off square: that one is left out (and turned below as a tip is).
+    const offSquare = (k: number): boolean => Math.abs(Math.abs(corners[k].turn) - 90) > LAP_OFF_SQUARE;
+    for (let k = 0; k < m; k++) {
+      const j = (k + 1) % m;
+      if (!bendOf(k) || !bendOf(j) || endOf(j) - startOf(k) >= -kitOverlap(set)) continue;
+      const drop = [k, j].filter(offSquare).sort((p, q) => Math.abs(corners[q].turn) - Math.abs(corners[p].turn))[0];
+      if (drop !== undefined) size[drop] = choices[drop].length;
+    }
+  }
   // On a cave's ring an inner bend rounding wider than BEND_HUG still lapping a bend beside it
   // is left out: two bends lapped that far do not bend to meet.
   else {
@@ -1395,11 +1489,25 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
     }
   }
   const bends = corners.map((_, k) => bendOf(k));
+  // A cliff's tip whose wedge lies on the rock's side, too narrow for its rock to turn in, is
+  // filled by the rock either side narrowing in to it (wedgeTip).
+  const wedges = new Map<number, WedgeTip>();
+  if (cliff && joined.length === 0) {
+    corners.forEach((c, k) => {
+      if (bends[k] !== null || c.turn >= -TIP_TURN_DEG || isPlain(c.p) || paired.has(k)) return;
+      const [p, n] = [(k - 1 + m) % m, (k + 1) % m];
+      const room = (j: number, len: number, from: (j: number) => number): number => (bends[j] ? from(j) : len / 2);
+      const lenIn = sides[p].len - room(p, sides[p].len, (j) => startOf(j));
+      const lenOut = room(n, sides[k].len, (j) => endOf(j));
+      const wedge = wedgeTip(c.p, sides[p].u, sides[k].u, lenIn, lenOut, set, out);
+      if (wedge) wedges.set(k, wedge);
+    });
+  }
   // A cliff's tip sharper than any corner piece turns takes the smallest one across it, where that
   // brings its rock within TIP_HUG of the tip (tipPiece).
   if (cliff) {
     corners.forEach((c, k) => {
-      if (bends[k] !== null || Math.abs(c.turn) <= TIP_TURN_DEG || isPlain(c.p)) return;
+      if (bends[k] !== null || wedges.has(k) || Math.abs(c.turn) <= TIP_TURN_DEG || isPlain(c.p)) return;
       const tip = tipPiece(c.p, sides[(k - 1 + m) % m].u, sides[k].u, c.turn, set, out);
       if (tip) tips.set(k, (bends[k] = tip));
     });
@@ -1407,11 +1515,21 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
   // A cliff's corner no corner piece turns, and too sharp to bend at one joint, is rounded off
   // in two or three bends of at most MITRE_MOST_DEG joined by short sides (see splitTurns).
   if (cliff && plain.length === 0 && joined.length === 0) {
-    const sharp = corners.map((c, k) => bends[k] === null && !paired.has(k) && Math.abs(c.turn) > MITRE_MOST_DEG);
+    const sharp = corners.map((c, k) => bends[k] === null && !paired.has(k) && !wedges.has(k) && Math.abs(c.turn) > MITRE_MOST_DEG);
     if (sharp.some(Boolean)) {
       const split = splitTurns(corners.map((c) => c.p), true, sharp, set);
       if (split) return layExactRing(split.pts as Polygon, gaps, set, cliff, split.plain);
     }
+  }
+  // A cliff's corner still left with no bend that turns more than a joint bends (one whose sides
+  // are too short to round it off) takes the smallest corner piece across it, as a tip does,
+  // rather than two straights crossing there.
+  if (cliff && joined.length === 0) {
+    corners.forEach((c, k) => {
+      if (bends[k] !== null || wedges.has(k) || paired.has(k) || isPlain(c.p) || Math.abs(c.turn) <= MITRE_MOST_DEG) return;
+      const tip = tipPiece(c.p, sides[(k - 1 + m) % m].u, sides[k].u, c.turn, set, out);
+      if (tip) tips.set(k, (bends[k] = tip));
+    });
   }
   const starts = sides.map((_, k) => (bends[k] ? startOf(k) : 0));
   const ends = sides.map((_, k) => (bends[(k + 1) % m] ? endOf((k + 1) % m) : 0));
@@ -1456,16 +1574,21 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
     }
     const after = pairs.get((k - 1 + m) % m);
     const before = pairs.get((k + 1) % m);
-    if (!dropped[k] && !after) seq.push(bends[k]);
-    let cursor = after ? along(k, after.j1) - half : dropped[k] ? -runOn(k) : starts[k];
+    // A wedge's narrowing pieces stand in for the corner's bend; the side's straights stop where they start.
+    const wedge = wedges.get(k);
+    const next = wedges.get((k + 1) % m);
+    if (wedge) seq.push(...wedge.outOf);
+    else if (!dropped[k] && !after) seq.push(bends[k]);
+    let cursor = after ? along(k, after.j1) - half : wedge ? wedge.back : dropped[k] ? -runOn(k) : starts[k];
     let atWall = false;
-    const last = before ? along(k, before.j0) + half : dropped[(k + 1) % m] ? side.len + runOn((k + 1) % m) : ends[k];
+    const last = before ? along(k, before.j0) + half : next ? side.len - next.back : dropped[(k + 1) % m] ? side.len + runOn((k + 1) % m) : ends[k];
     for (const o of onSide[k]) {
       seq.push(...fill(k, cursor, Math.min(o.w0, last), atWall, o.w0 <= last), null);
       atWall = o.w1 >= cursor;
       cursor = Math.max(cursor, o.w1);
     }
     seq.push(...fill(k, cursor, last, atWall, false));
+    if (next) seq.push(...next.into);
   });
   const cut = seq.indexOf(null);
   return [...seq.slice(cut + 1), ...seq.slice(0, Math.max(cut, 0))].filter((pl): pl is WalkPlacement => pl !== null);
@@ -2178,13 +2301,14 @@ export function bandBends(placed: WalkPlacement[], set: CaveKitPiece[], size = 1
   return placed.map((pl, k) => {
     const e = ends[k];
     const [J0, J1] = jointsOf(pl.piece, pl.at);
+    // A piece narrowed to nothing at a sharp tip (wedgeTip) is tapered there too.
     const taper: [boolean, boolean] = [
-      !!taperAt && pl.branch !== 'end' && e.openA && taperAt(J0),
-      !!taperAt && pl.branch !== 'end' && e.openB && taperAt(J1),
+      (!!taperAt && pl.branch !== 'end' && e.openA && taperAt(J0)) || (!e.a && pl.narrow?.[0] === 0),
+      (!!taperAt && pl.branch !== 'end' && e.openB && taperAt(J1)) || (!e.b && pl.narrow?.[1] === 0),
     ];
-    if (!e.a && !e.b && !taper[0] && !taper[1]) return pl;
+    if (!e.a && !e.b && !taper[0] && !taper[1] && !pl.narrow) return pl;
     const unit = pl.size ?? size;
-    const bend: PieceBend = { unit, half: (overlap / 2) * pl.at.scale, rockHalf: rockHalf * unit, ...(e.a && { a: e.a }), ...(e.b && { b: e.b }), ...((taper[0] || taper[1]) && { taper }) };
+    const bend: PieceBend = { unit, half: (overlap / 2) * pl.at.scale, rockHalf: rockHalf * unit, ...(e.a && { a: e.a }), ...(e.b && { b: e.b }), ...((taper[0] || taper[1]) && { taper }), ...(pl.narrow && { narrow: pl.narrow }) };
     // The same piece bent the same way is the same drawing: a rebuild reuses its mesh.
     const key = JSON.stringify(bend);
     const kept = keptBends.get(pl);
@@ -2228,6 +2352,7 @@ function keptMesh(pl: WalkPlacement, laidAs: number[], build: () => ReturnType<t
     end(bend?.a),
     end(bend?.b),
     bend?.taper ? `${bend.taper[0] ? 1 : 0}${bend.taper[1] ? 1 : 0}` : '-',
+    bend?.narrow ? `${r(bend.narrow[0])},${r(bend.narrow[1])}` : '-',
     r(bend?.unit ?? 0),
     r(bend?.half ?? 0),
     r(bend?.rockHalf ?? 0),
@@ -3000,13 +3125,43 @@ export function bandSeat(placed: WalkPlacement[]): Polygon[] {
   return chain.length >= 3 ? clipper2Engine.union([chain], []) : [];
 }
 
+/**
+ * A narrowing piece's line `pts` (world units) as its art is drawn (see PieceBend.narrow): each
+ * point drawn in toward the straight line along the piece's middle (else its spine) on average, by
+ * the share of width left there. Any other piece's as it is.
+ */
+export function narrowedLine(pl: WalkPlacement, pts: Vec[]): Vec[] {
+  const k = pl.narrow;
+  const m = pl.piece.middle ?? pl.piece.spine;
+  if (!k || !m || m.length === 0) return pts;
+  const [J0, J1] = jointsOf(pl.piece, pl.at);
+  const chord = dist(J0, J1);
+  if (chord < 1e-9) return pts;
+  const d = mul(sub(J1, J0), 1 / chord);
+  const n: Vec = [-d[1], d[0]];
+  const c = Math.cos(pl.at.rotation);
+  const s = Math.sin(pl.at.rotation);
+  const mw = m.reduce((sum, [x, y]) => sum + dot([pl.at.position.x + (x * c - y * s) * pl.at.scale - J0[0], pl.at.position.y + (x * s + y * c) * pl.at.scale - J0[1]], n), 0) / m.length;
+  const half = (kitOverlap([pl.piece]) / 2) * pl.at.scale;
+  const art = Math.max(chord - 2 * half, 1e-9);
+  return pts.map((p) => {
+    const r = sub(p, J0);
+    const [u, w] = [dot(r, d), dot(r, n)];
+    const share = k[0] + (k[1] - k[0]) * Math.min(1, Math.max(0, (u - half) / art));
+    return add(p, mul(n, (mw - w) * (1 - share)));
+  });
+}
+
 /** One placement's seat (see {@link bandSeat}), in walk order. */
 function pieceSeat(pl: WalkPlacement): Vec[] {
   if (pl.piece.spine) {
     // Mapped as jointsOf maps the joints: a mirrored piece's spine is already mirrored.
     const c = Math.cos(pl.at.rotation);
     const s = Math.sin(pl.at.rotation);
-    return pl.piece.spine.map(([x, y]): Vec => [pl.at.position.x + (x * c - y * s) * pl.at.scale, pl.at.position.y + (x * s + y * c) * pl.at.scale]);
+    return narrowedLine(
+      pl,
+      pl.piece.spine.map(([x, y]): Vec => [pl.at.position.x + (x * c - y * s) * pl.at.scale, pl.at.position.y + (x * s + y * c) * pl.at.scale]),
+    );
   }
   const [J0, J1] = jointsOf(pl.piece, pl.at);
   const v = sub(J1, J0);

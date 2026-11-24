@@ -266,6 +266,8 @@ export interface WalkPlacement {
   size?: number;
   /** How its art is bent to meet its neighbours, or narrowed at an open end: drawing only (see bandBend.ts). */
   bend?: PieceBend;
+  /** A piece narrowing into a sharp tip: the share of its rock's width left at its art's start and end (see PieceBend.narrow). */
+  narrow?: [number, number];
 }
 
 /** A joint the walk failed to cover: rock that was never laid. */

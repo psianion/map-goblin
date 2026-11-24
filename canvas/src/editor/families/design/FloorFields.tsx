@@ -11,7 +11,7 @@ import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { defaultBorderTexture } from '@dnd/core/src/engine/plateauKit';
 import { SwatchPicker, type Swatch } from '@/editor/SwatchPicker';
 import { swatchLabel } from '@/editor/swatchLabel';
-import { installedWallSets, wallSetLabel, wallSetThumb } from '@/editor/models/assetStrip';
+import { installedWallSets, wallSetLabel, wallSetThumb, wallSetTileLabel } from '@/editor/models/assetStrip';
 import type { SettingProps } from '@/editor/registry/types';
 import { hasStyleOverrides, shortTextureName, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren } from './cardWrites';
@@ -21,7 +21,7 @@ import { pickedFloors, type FillValue } from './floorModel';
 const NO_BAND = '__none__';
 
 /** A band set as a swatch: a stretch of its rock as the picture. */
-const bandSwatch = (id: string): Swatch => ({ value: id, label: wallSetLabel(id), art: wallSetThumb(id) });
+const bandSwatch = (id: string): Swatch => ({ value: id, label: wallSetTileLabel(id), title: wallSetLabel(id), art: wallSetThumb(id) });
 
 /** Edge band: None, or one of the installed band sets. */
 export function EdgeBandField({ def, value: stored, onChange }: SettingProps<string | null>) {
@@ -33,7 +33,7 @@ export function EdgeBandField({ def, value: stored, onChange }: SettingProps<str
   if (value && !ids.includes(value)) ids.push(value);
   const swatches = [{ value: NO_BAND, label: 'None' }, ...ids.map(bandSwatch)];
   return (
-    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_BAND} onPick={(v) => onChange(v === NO_BAND ? null : v)} />
+    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_BAND} onPick={(v) => onChange(v === NO_BAND ? null : v)} compact={def.home === 'dock'} twoLines />
   );
 }
 
@@ -55,7 +55,7 @@ export function WallsField({ def, value, onChange }: SettingProps<string | null>
   // A walled floor whose walls are a plain line has no set to picture: a named tile, shown only for it.
   if (value === PLAIN_WALLS) swatches.push({ value: PLAIN_WALLS, label: 'Plain line' });
   return (
-    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_WALLS} onPick={(v) => onChange(v === NO_WALLS ? null : v)} />
+    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_WALLS} onPick={(v) => onChange(v === NO_WALLS ? null : v)} compact={def.home === 'dock'} twoLines />
   );
 }
 
@@ -75,7 +75,7 @@ export function FloorEdgeField({ def, value: stored, onChange }: SettingProps<st
     { value: PAINTED_EDGE, label: 'Painted border', art: defaultBorderTexture() },
   ];
   return (
-    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_BAND} onPick={(v) => onChange(v === NO_BAND ? null : v)} />
+    <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value ?? NO_BAND} onPick={(v) => onChange(v === NO_BAND ? null : v)} compact={def.home === 'dock'} twoLines />
   );
 }
 

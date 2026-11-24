@@ -15,7 +15,7 @@ vi.mock('../assets/textureLoader', async (importOriginal) => {
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { bandPiecesFor } from '../assets/caveWallKit';
-import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
+import { resetAssetPackManager, seedCaveBandPack, seedPack } from '../testing/seedCatalog';
 import { brokenRules, checkBand, BAND_RULES, pastRockLine, pieceRockLine } from '../testing/bandChecks';
 import { drawnFromOutline, layLayer, type LaidBand } from '../testing/caveLayout';
 import { CAVE_CASES, caseLayer, joinedCaves, plateau, type CaseKits } from '../testing/caveCases';
@@ -48,8 +48,9 @@ const KITS: CaseKits = { cave: SET, cliff: SET, stone: 'Test_Stone' };
  * spine, and corner pieces turning each way in 2, 3 and 4 cells, the inner ones rounding the corner
  * wider than the outer, and two round lumps of rock for connectors.
  */
-function seedCliffKit(): void {
-  const entry = (material: string, gridSize: string, band: BandMeasure): ManifestEntry => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set: SET, tags: ['colored'], band: { ...band, rockWidth: 0.86 } });
+function seedCliffKit(set = SET, faces?: 'floor', thin = false): void {
+  // A thin tier: its rock narrow, its joints well out from its line.
+  const entry = (material: string, gridSize: string, band: BandMeasure): ManifestEntry => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set, tags: ['colored'], band: { ...band, rockWidth: thin ? 0.23 : 0.86, ...(faces && { faces }) } });
   const entries: Record<string, ManifestEntry> = {};
   for (const L of [2, 3, 4, 5]) {
     const spine: V[] = [];
@@ -57,7 +58,7 @@ function seedCliffKit(): void {
       const x = L / 2 - 0.25 - (k * (L - 0.5)) / (L * 4);
       spine.push([+x.toFixed(3), +(0.07 * Math.sin(2.3 * x + L) - 0.01).toFixed(3)]);
     }
-    entries[`edge_${L}x2_A`] = entry('edge', `${L}x2`, { joints: [[L / 2, 0.12], [-L / 2, 0.12]], turnDeg: 0, spine });
+    entries[`edge_${L}x2_A`] = entry('edge', `${L}x2`, { joints: [[L / 2, thin ? 0.47 : 0.12], [-L / 2, thin ? 0.47 : 0.12]], turnDeg: 0, spine });
   }
   for (const N of [2, 3, 4]) {
     const h = N / 2;
@@ -67,7 +68,7 @@ function seedCliffKit(): void {
     entries[`edge_in_${N}x${N}_A`] = entry('edge_in', `${N}x${N}`, { joints: [[-h, inn], [inn - 0.02, -h]], turnDeg: -90 });
   }
   entries.lump_2x2_A = entry('lump', '2x2', { joints: [[0, 0], [0, 0]], turnDeg: 0, connector: true, radius: 0.39 });
-  seedPack('test-cliff-pack', entries);
+  seedPack(`test-cliff-pack-${set}`, entries);
 }
 
 const shift = (pts: V[], dx: number, dy: number): V[] => pts.map(([x, y]) => [x + dx, y + dy]);
@@ -140,6 +141,71 @@ describe('a cliff’s corners', () => {
   });
 });
 
+describe('a sharp tip whose wedge holds the rock', () => {
+  const WALLS = 'Test_Walls';
+  /** A tip of `deg` degrees at (18, 12), drawn as the editor stores a clicked triangle. */
+  const tipOf = (deg: number): V[] => [[12, 12], [18, 12], [12, 12 + 6 * Math.tan((deg * Math.PI) / 180)]];
+  const nearTip = (lines: { line: { runs: number[][][] } }[]): number => Math.min(...lines.flatMap((l) => l.line.runs.flat()).map((p) => Math.hypot(p[0] - 18, p[1] - 12)));
+  // The wedge lies on the rock's side: a cave-wall kit's plateau (its rock on the top) and a cliff kit's pit.
+  const cases: [string, string, number][] = [
+    ['a cave-wall kit’s plateau', WALLS, 1],
+    ['a cliff kit’s pit', SET, -1],
+  ];
+  for (const [name, set, height] of cases) {
+    for (const deg of [12, 20, 27, 40]) {
+      it(`fills ${name} to within half a cell of a ${deg}° tip, narrowing, its top inside the rock, no joint crossing`, () => {
+        seedCliffKit(set, set === WALLS ? 'floor' : undefined);
+        const kits: CaseKits = { cave: set, cliff: set, stone: 'Test_Stone' };
+        const laid = layLayer(caseLayer([plateau('t', tipOf(deg), kits, 'cliff', height)], kits));
+        const [band] = laid.bands.filter((b) => b.kind === 'cliff');
+        const narrow = band.placed.filter((pl) => pl.branch === 'narrow');
+        expect(narrow.length).toBeGreaterThanOrEqual(2);
+        // No two pieces cross in the wedge.
+        const crossedAt = band.check.crossedAt;
+        expect(crossedAt === null || Math.hypot(crossedAt[0] - 18, crossedAt[1] - 12) > 3, `crossed at ${crossedAt}`).toBe(true);
+        // Every joint in the wedge but the tip's two narrowed ends turns no more than the art bends.
+        const n = band.placed.length;
+        for (let k = 0; k < n; k++) {
+          const [a, b] = [band.placed[k], band.placed[(k + 1) % n]];
+          if (a.branch !== 'narrow' && b.branch !== 'narrow') continue;
+          if (a.branch === 'narrow' && b.branch === 'narrow' && turnAt(a, b) > 90) continue;
+          expect(turnAt(a, b)).toBeLessThanOrEqual(MITRE_MOST_DEG + 1e-6);
+        }
+        const { bands } = drawnFromOutline(laid);
+        const drawn = bands.find((b) => b.lines.length > 0)!;
+        expect(nearTip(drawn.lines)).toBeLessThanOrEqual(0.5);
+        expect(drawn.past, `at ${drawn.pastAt}`).toBeLessThanOrEqual(BAND_RULES.rockSide);
+      });
+    }
+  }
+
+  it('narrows the rock toward the tip without a step: each narrowed piece starts as wide as the one before ends', () => {
+    seedCliffKit(WALLS, 'floor');
+    const kits: CaseKits = { cave: WALLS, cliff: WALLS, stone: 'Test_Stone' };
+    const [band] = layLayer(caseLayer([plateau('t', tipOf(12), kits)], kits)).bands.filter((b) => b.kind === 'cliff');
+    const drawn = bandBends(band.placed, bandPiecesFor(WALLS));
+    for (let k = 0; k + 1 < drawn.length; k++) {
+      const [a, b] = [drawn[k], drawn[k + 1]];
+      if (!a.narrow && !b.narrow) continue;
+      if (a.branch === 'narrow' && b.branch === 'narrow' && turnAt(a, b) > 90) continue;
+      expect(a.narrow?.[1] ?? 1).toBeCloseTo(b.narrow?.[0] ?? 1, 6);
+    }
+    // Full at the wide end, nothing at the tip.
+    const shares = drawn.filter((pl) => pl.narrow).flatMap((pl) => pl.narrow!);
+    expect(Math.max(...shares)).toBeCloseTo(1, 6);
+    expect(Math.min(...shares)).toBeCloseTo(0, 6);
+  });
+
+  for (const deg of [12, 20, 27, 40]) {
+    it(`still closes a cliff kit’s plateau at a ${deg}° tip as before`, () => {
+      seedCliffKit();
+      const { bands } = drawnFromOutline(layLayer(caseLayer([plateau('t', tipOf(deg), KITS)], KITS)));
+      const drawn = bands.find((b) => b.lines.length > 0)!;
+      expect(nearTip(drawn.lines)).toBeLessThanOrEqual(0.5);
+    });
+  }
+});
+
 describe('rule 9', () => {
   const shapes: [string, V[], number][] = [
     ['an L-shaped plateau', L_SHAPE, 1],
@@ -163,6 +229,24 @@ describe('rule 9', () => {
     for (const b of bands) expect(b.past, `at ${b.pastAt}`).toBeLessThanOrEqual(BAND_RULES.rockSide);
   });
 
+  describe('on a thin tier', () => {
+    const L_SHAPE_THIN: V[] = L_SHAPE;
+    const cases: [string, () => DungeonLayer][] = [
+      ['an L-shaped plateau', () => caseLayer([plateau('p', shift(L_SHAPE_THIN, 3, 3), KITS)], KITS)],
+      ['plateaus in a cave room’s corners', () => CAVE_CASES[3].layer(KITS)],
+      ['a cliff along a wall with a mouth in it', () => CAVE_CASES[1].layer(KITS)],
+      ['a ramp off a plateau', () => caseLayer([plateau('r', [[3, 3], [13, 3], [13, 9], [3, 9]], KITS), { ...plateau('rs', [[13, 4], [16, 4], [16, 8], [13, 8]], KITS, 'slope'), faceDir: 0 }], KITS)],
+    ];
+    for (const [name, layer] of cases) {
+      it(`keeps ${name}’s top and shade to their side of the rock, by its corners and where it meets a wall`, () => {
+        seedCliffKit(SET, undefined, true);
+        const { bands } = drawnFromOutline(layLayer(layer()));
+        expect(bands.some((b) => b.lines.length > 0)).toBe(true);
+        for (const b of bands) expect(b.past, `${name} at ${b.pastAt}`).toBeLessThanOrEqual(BAND_RULES.rockSide);
+      });
+    }
+  });
+
   it('finds a top drawn past its rock', () => {
     // A square plateau's rock a cell inside it, wound with its top on its right, its top drawn to the outline.
     const rock = [[1, 1], [3, 1], [3, 3], [1, 3], [1, 1]];
@@ -175,6 +259,19 @@ describe('rule 9', () => {
 describe('a cliff meeting a wall', () => {
   /** The case's plateaus in a room's corners: c11 a cell square, c22 two, c13 one by three. */
   const tucked = (): DungeonLayer => CAVE_CASES[3].layer(KITS);
+
+  it('cuts a cliff where the outline crosses a cave wall at a corner drawn on the wall’s line', () => {
+    seedCliffKit();
+    // A cave kit with no measured pieces: its line is the room's drawn edge.
+    seedCaveBandPack('ink-pack', { set: 'Test_Ink', tags: ['cave'] });
+    const room = { id: 'room', name: 'room', childType: 'shape', visible: true, shapeType: 'polygon', contours: [[[0, 0], [10, 0], [10, 8], [0, 8]]], styleOverrides: { wallTextureSetId: 'Test_Ink' } };
+    // A square turned 45°, two of its corners on the room's right wall: it crosses there twice.
+    const { layer } = layLayer(caseLayer([room, plateau('d', [[10, 1], [13, 4], [10, 7], [7, 4]], KITS)], KITS));
+    const [band] = layerPlateaus(layer).bands;
+    const stretches = laidRuns(layer, band).flatMap((r) => r.cliffs ?? []);
+    expect(stretches).toHaveLength(2);
+    expect(stretches.every((s) => !s.run.closed && s.merged[0] && s.merged[1])).toBe(true);
+  });
 
   it('runs no straight on past the corner beside a wall: every piece’s rock stays by its stretch', () => {
     seedCliffKit();

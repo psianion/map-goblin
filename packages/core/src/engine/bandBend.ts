@@ -58,6 +58,8 @@ export interface PieceBend {
   b?: BendEnd;
   /** Each end narrowed to a tip: an open end with no end piece laid there. */
   taper?: [boolean, boolean];
+  /** The share of its rock's width left at its art's start and end, drawn in toward its middle in a straight line between: a piece narrowing into a sharp tip. */
+  narrow?: [number, number];
   /** The size the piece's stretch was laid at: every distance here is cells times this. */
   unit: number;
   /** How far before each joint the piece's art ends: half the kit's overlap at the piece's scale. */
@@ -165,12 +167,14 @@ interface PieceWarp {
   taperLen: number;
   /** Where a taper narrows to when the pack measures no middle. */
   rockHalf: number;
+  /** A narrowing piece's way along (see PieceBend.narrow); null for any other. */
+  narrowDir: Vec | null;
 }
 
 /** {@link bendWarp}'s work, done once per piece; null for a piece drawn unbent. */
 function warpOf(pl: WalkPlacement): PieceWarp | null {
   const bend = pl.bend;
-  if (!bend || (!bend.a && !bend.b && !bend.taper?.some(Boolean))) return null;
+  if (!bend || (!bend.a && !bend.b && !bend.taper?.some(Boolean) && !bend.narrow)) return null;
   const { unit, half } = bend;
   const [J0, J1] = jointsOf(pl.piece, pl.at);
   const tangents = endTangents(pl);
@@ -234,7 +238,7 @@ function warpOf(pl: WalkPlacement): PieceWarp | null {
       along: Math.max(-cap / 2, Math.min(cap / 2, -artEnd)),
     });
   }
-  const middleAt = (e: EndFrame, s: number): number => {
+  const middleAt = (e: Pick<EndFrame, 'middle'>, s: number): number => {
     const m = e.middle;
     if (!m) return -bend.rockHalf;
     if (s <= m[0][0]) return m[0][1];
@@ -246,9 +250,37 @@ function warpOf(pl: WalkPlacement): PieceWarp | null {
   };
   const least = BEND_LEAST * unit;
   const [cx, cy] = centre ?? [0, 0];
+  // A narrowing piece (straight): the share of its width left at a point, from how far along its art it lies.
+  const narrow = bend.narrow ?? null;
+  const nDir: Vec | null = narrow && chord > 1e-9 ? mul(sub(J1, J0), 1 / chord) : null;
+  // It draws in toward the straight line along its middle (else its spine) on average, as
+  // caveBandRenderer's wedgeTip lays it, so two of them meet at a sharp tip on one point.
+  const line = (pl.piece.middle ?? pl.piece.spine)?.map(([x, y]): Vec => {
+    const c = Math.cos(pl.at.rotation);
+    const s = Math.sin(pl.at.rotation);
+    return [pl.at.position.x + (x * c - y * s) * pl.at.scale, pl.at.position.y + (x * s + y * c) * pl.at.scale];
+  });
+  const meanW = nDir && line && line.length > 0 ? line.reduce((sum, p) => sum + dot(sub(p, J0), right(nDir)), 0) / line.length : null;
+  const nFrame = nDir ? { o: J0, out: nDir, n: right(nDir), middle: meanW !== null ? ([[0, meanW], [chord, meanW]] as Vec[]) : null } : null;
+  /** How far across a point lies from what a narrowing piece draws in to; null for any other piece. */
+  const pullOf = (px: number, py: number): number | null => {
+    if (!nFrame) return null;
+    const rx = px - nFrame.o[0];
+    const ry = py - nFrame.o[1];
+    return middleAt(nFrame, rx * nFrame.out[0] + ry * nFrame.out[1]) - (rx * nFrame.n[0] + ry * nFrame.n[1]);
+  };
+  const artLen = Math.max(chord - 2 * half, 1e-9);
+  const shareAt = (px: number, py: number): number => {
+    if (!narrow || !nDir) return 1;
+    const q = Math.min(1, Math.max(0, ((px - J0[0]) * nDir[0] + (py - J0[1]) * nDir[1] - half) / artLen));
+    return narrow[0] + (narrow[1] - narrow[0]) * q;
+  };
   const at: Warp = (px, py, result) => {
     let mx = px;
     let my = py;
+    const share = shareAt(px, py);
+    const pull = pullOf(px, py);
+    let narrowed = share >= 1;
     for (const e of ends) {
       const rx = px - e.o[0];
       const ry = py - e.o[1];
@@ -285,16 +317,23 @@ function warpOf(pl: WalkPlacement): PieceWarp | null {
       if (e.taper && taperLen > 0) {
         const q = 1 - inward / taperLen;
         if (q > 0) {
-          const c = (middleAt(e, s) - w) * (1 - taperWidth(q));
+          // On a narrowing piece the taper narrows what is left of it.
+          const c = (pull ?? middleAt(e, s) - w) * (1 - share * taperWidth(q));
           mx = mx + e.n[0] * c;
           my = my + e.n[1] * c;
+          narrowed = true;
         }
       }
+    }
+    if (!narrowed && nFrame && pull !== null) {
+      const c = pull * (1 - share);
+      mx = mx + nFrame.n[0] * c;
+      my = my + nFrame.n[1] * c;
     }
     result[0] = mx;
     result[1] = my;
   };
-  return { at, ends, cap, tMax, least, taperLen, rockHalf: bend.rockHalf };
+  return { at, ends, cap, tMax, least, taperLen, rockHalf: bend.rockHalf, narrowDir: nDir };
 }
 
 /**
@@ -326,6 +365,9 @@ const MESH_BEND_EVEN = 0.1;
 const MESH_STEP = 3e-4;
 /** Cuts closer than this share of a side are one. */
 const MESH_JOIN = 1e-4;
+/** How far apart a narrowing piece's even cuts lie along it and across it, cells at its size. */
+const MESH_NARROW_ALONG = 0.12;
+const MESH_NARROW_ACROSS = 0.08;
 
 /**
  * Where a bent piece's mesh is cut, as shares of its texture's sides: only where its warp bends.
@@ -406,6 +448,18 @@ function meshCuts(warp: PieceWarp, curved: boolean, tl: Vec, ux: Vec, uy: Vec): 
       const moved = far + (e.middle ? Math.max(...e.middle.map((m) => Math.abs(m[1]))) : warp.rockHalf);
       const steps = Math.max(4, Math.ceil(Math.PI / 2 / ((4 * tol) / Math.max(moved, 1e-9))));
       for (let k = 0; k <= steps; k++) inwardAt(warp.taperLen * (1 - Math.sin(((Math.PI / 2) * k) / steps)));
+    }
+  }
+  // A narrowing piece draws its art in by a share that grows along it and with the offset: a twist
+  // a cell's two triangles draw only so far, so it is cut evenly both ways, as fine as keeps it in.
+  if (warp.narrowDir) {
+    const alongX = Math.abs(dot(warp.narrowDir, ux)) / Math.hypot(...ux) >= Math.abs(dot(warp.narrowDir, uy)) / Math.hypot(...uy);
+    for (const [cuts, side, step] of [
+      [xs, ux, alongX ? MESH_NARROW_ALONG : MESH_NARROW_ACROSS],
+      [ys, uy, alongX ? MESH_NARROW_ACROSS : MESH_NARROW_ALONG],
+    ] as const) {
+      const n = Math.ceil(Math.hypot(side[0], side[1]) / (step * unit));
+      for (let k = 1; k < n; k++) cuts.push(k / n);
     }
   }
   // A bend's zones are read round its arc, so they cross the texture aslant: it is cut evenly

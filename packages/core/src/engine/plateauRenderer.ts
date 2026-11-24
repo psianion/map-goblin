@@ -284,6 +284,12 @@ export interface LaidRun {
    */
   cliff: FloorFit;
   /**
+   * Along its own cliff's line: the ground just past that line (BEYOND_REACH) on its low side
+   * (`low`, its left) and its high side (`high`). What is fitted to the rock (its own, or a wall's
+   * where the two meet) on one side is never left past it on the other. Empty along none.
+   */
+  beyond: { low: Polygon[]; high: Polygon[] };
+  /**
    * A cliff laid with ledge pieces: the stretches of it off every wall (`cliffRuns`), or its
    * whole walk when it meets none; none when it lies wholly on walls. Null for any other edge.
    */
@@ -328,22 +334,56 @@ export function laidRuns(layer: DungeonLayer, band: PlateauBand): LaidRun[] {
     const laid = along.replaced.length === 0 ? run : { ...run, points: along.points, drops: along.segs.map((i) => run.drops[i]) };
     const ledge = run.edge === 'cliff' && !isPaintedBorder(run.owner?.edgeArt);
     const cliffs = ledge ? cliffRuns(run, walk, laid, (cut ??= cliffWalls(layer)), ownLines) : null;
-    if (along.replaced.length === 0) return { run, laid: run, walk, zone: [], cliff: NO_FIT, cliffs };
+    if (along.replaced.length === 0) return { run, laid: run, walk, zone: [], cliff: NO_FIT, beyond: NO_BEYOND, cliffs };
     const between = (replaced: AlongRock['replaced']) => replaced.flatMap(({ drawn, rock }) => clipper2Engine.union([[...drawn, ...[...rock].reverse()]], []));
     const wall = along.replaced.filter((r) => r.line.kind !== 'cliff');
     const lines = wall.flatMap(({ drawn, rock }) => [drawn, rock]);
-    const ownRock = between(along.replaced.filter((r) => r.line.kind === 'cliff'));
+    const own = along.replaced.filter((r) => r.line.kind === 'cliff');
+    const ownRock = between(own);
     return {
       run,
       laid,
       walk,
       zone: wall.length === 0 ? [] : clipper2Engine.union([...between(wall), ...clipper2Engine.inflateOpen(lines, ZONE_PAD)], []),
       cliff: ownRock.length === 0 ? NO_FIT : { tips: clipper2Engine.intersection(ownRock, band.rings), gaps: clipper2Engine.difference(ownRock, band.rings) },
+      beyond: own.length === 0 ? NO_BEYOND : { low: beyondLines([...new Set(own.map((r) => r.line))], true), high: beyondLines([...new Set(own.map((r) => r.line))], false) },
       cliffs,
     };
   });
   laidMemo.set(band, { lines: layer.rockLines, floor: layer.mergedFloor, children: layer.children, openings: layer.caveOpenings, style: layer.style, value });
   return value;
+}
+
+/** How far past a cliff's own line the ground a wall's fit may not grow its top into reaches, cells. */
+const BEYOND_REACH = 0.6;
+
+const NO_BEYOND: LaidRun['beyond'] = { low: [], high: [] };
+
+/** The ground within BEYOND_REACH of each of `lines`' runs (low ground on their left), on their `low` side or their high side. */
+function beyondLines(lines: RockLine[], low: boolean): Polygon[] {
+  const quads: Polygon[] = [];
+  for (const line of lines) {
+    for (const r of line.runs) {
+      let last: Vec | null = null;
+      for (let k = 0; k + 1 < r.length; k++) {
+        const a = r[k] as Vec;
+        const b = r[k + 1] as Vec;
+        const L = vdist(a, b);
+        if (L < 1e-9) continue;
+        // The left of travel, or the right.
+        const n = vmul([(b[1] - a[1]) / L, -(b[0] - a[0]) / L], low ? BEYOND_REACH : -BEYOND_REACH);
+        quads.push([a, b, vadd(b, n), vadd(a, n)]);
+        // Round the turn from the one before, so no corner of the line is left uncovered.
+        if (last) {
+          const mid = vadd(last, n);
+          const m = Math.hypot(mid[0], mid[1]);
+          if (m > 1e-9) quads.push([a, vadd(a, last), vadd(a, vmul(mid, BEYOND_REACH / m)), vadd(a, n)]);
+        }
+        last = n;
+      }
+    }
+  }
+  return quads.length === 0 ? [] : clipper2Engine.union(quads, []);
 }
 
 /**
@@ -421,6 +461,32 @@ function crossings(a: Vec, b: Vec, walls: CliffWalls): { p: Vec; t: number; back
 }
 
 /**
+ * Where the outline's corner `a` (come into from `prev`, left toward `next`) lies on a wall's line
+ * (within CROSS_END) and the outline passes through it there, one side to the other: how far back
+ * from it the cliff stops, as `crossings` says for a crossing; null where it does not.
+ */
+function cornerCrossing(prev: Vec, a: Vec, next: Vec, walls: CliffWalls): number | null {
+  for (const line of walls.lines) {
+    for (const r of line.runs) {
+      for (let k = 0; k + 1 < r.length; k++) {
+        const [p, q] = [r[k] as Vec, r[k + 1] as Vec];
+        if (segDist(a, p, q) > CROSS_END) continue;
+        const e = vsub(q, p);
+        const L = Math.hypot(e[0], e[1]);
+        if (L < 1e-9) continue;
+        const side = (v: Vec): number => (e[0] * (v[1] - p[1]) - e[1] * (v[0] - p[0])) / L;
+        const [s0, s1] = [side(prev), side(next)];
+        if (Math.abs(s0) <= CROSS_END || Math.abs(s1) <= CROSS_END || Math.sign(s0) === Math.sign(s1)) continue;
+        const d = vsub(next, a);
+        const sin = Math.abs(d[0] * e[1] - d[1] * e[0]) / ((Math.hypot(d[0], d[1]) || 1) * L);
+        return (walls.back.get(line) ?? 0) / Math.max(1 / CROSS_SLANT, sin);
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * A ledge cliff's stretches off every wall (`cliffWalls`), each an open run laid on to the wall's
  * line at a tip that meets one (short of it by the line's `back`), and its top drawn along its
  * own cliff's line where it has one (`own`). A cliff is cut where it crosses a wall's rock as
@@ -446,6 +512,13 @@ function cliffRuns(run: EdgeRun, walk: EdgeRun, laid: EdgeRun, walls: CliffWalls
       continue;
     }
     const drop = run.drops[cut.segs[i]];
+    // A corner of the outline drawn on a wall's line, the outline passing through it there, is a
+    // crossing too: `crossings` leaves out what lies at a segment's ends.
+    const p = i > 0 ? i - 1 : run.closed ? cut.on.length - 1 : -1;
+    if (p >= 0 && cut.on[p] < 0) {
+      const back = cornerCrossing(cut.points[p], a, b, walls);
+      if (back !== null) items.push({ back });
+    }
     let from = a;
     for (const x of crossings(a, b, walls)) {
       items.push({ a: from, b: x.p, drop }, { back: x.back });
@@ -533,15 +606,20 @@ export function fittedAlongWalls(region: Polygon[], runs: readonly LaidRun[], fi
   const near = (rings: readonly Polygon[]): Polygon[] => (zoneBox ? rings.filter((r) => boxesOverlap(boxOfRings([r]), zoneBox)) : []);
   const fitTips = near(fit?.tips ?? []);
   const fitGaps = near(fit?.gaps ?? []);
+  // Nothing is left past the band's own cliff's line on the side it does not belong to, at its
+  // corners or where it meets a wall: a raised top's low side; a pit's floor and shade's, and a
+  // raised edge's shade's, high side.
+  const beyond = runs.flatMap((r) => (!outside && r.run.drop > 0 ? r.beyond.low : r.beyond.high));
   // Kept while the region, the runs and the fit's pieces near them (kept with their layings) are.
-  const key = JSON.stringify([region, zone, ownTips, ownGaps, outside]);
+  const key = JSON.stringify([region, zone, ownTips, ownGaps, outside, beyond]);
   const same = (a: readonly Polygon[], b: readonly Polygon[]): boolean => a.length === b.length && a.every((p, i) => p === b[i]);
   const hit = keptAlongWalls.get(key);
   if (hit && same(hit.tips, fitTips) && same(hit.gaps, fitGaps)) return hit.value;
   const keep = (rings: Polygon[]) => (walled && rings.length > 0 ? clipper2Engine.intersection(rings, zone) : []);
   const tips = [...keep(fitTips), ...ownTips];
   const gaps = [...keep(fitGaps), ...ownGaps];
-  const value = fittedFloor(region, outside ? { tips: gaps, gaps: tips } : { tips, gaps });
+  const fitted = fittedFloor(region, outside ? { tips: gaps, gaps: tips } : { tips, gaps });
+  const value = beyond.length > 0 ? clipper2Engine.difference(fitted, beyond) : fitted;
   if (keptAlongWalls.size >= 64) keptAlongWalls.delete(keptAlongWalls.keys().next().value!);
   keptAlongWalls.set(key, { tips: fitTips, gaps: fitGaps, value });
   return value;
@@ -1431,7 +1509,9 @@ export function ledgeRuns(placed: WalkPlacement[], closed: boolean): { run: Walk
     const tb = frames.get(b)!.tangents[0];
     return ta[0] * tb[0] + ta[1] * tb[1] < Math.cos((TIP_TURN_DEG * Math.PI) / 180);
   };
-  const meets = (a: WalkPlacement, b: WalkPlacement): boolean => !sharp(a, b) && (near(b.P, a) || near(a.Q, b));
+  // The two sides' rock narrowed into a sharp tip's wedge (caveBandRenderer's wedgeTip) meets there, end to end: one run.
+  const tip = (a: WalkPlacement, b: WalkPlacement): boolean => a.narrow?.[1] === 0 && b.narrow?.[0] === 0;
+  const meets = (a: WalkPlacement, b: WalkPlacement): boolean => tip(a, b) || (!sharp(a, b) && (near(b.P, a) || near(a.Q, b)));
   const runs: WalkPlacement[][] = [[placed[0]]];
   for (let k = 1; k < placed.length; k++) {
     if (meets(placed[k - 1], placed[k])) runs[runs.length - 1].push(placed[k]);
