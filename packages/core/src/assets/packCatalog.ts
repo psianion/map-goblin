@@ -10,7 +10,7 @@
 import { getAssetPackManager } from '../engine/assetPackInstance';
 import { setBandSetTest } from '../shared/wallLook';
 import type { EntryRect } from '../engine/assetPackManager';
-import type { BandMeasure } from '../engine/packManifest';
+import type { BandMeasure, DoorMeasure } from '../engine/packManifest';
 
 /** Grid cell size in pixels (200px per cell at the pack-standard 200ppi). */
 export const GRID_CELL_PX = 200;
@@ -41,6 +41,8 @@ export interface CatalogEntry {
   band?: BandMeasure;
   /** A prop that blocks on a round footprint rather than its square frame. */
   footprint?: { radius: number };
+  /** A piece of a door kit the pack declares. */
+  door?: DoorMeasure;
 }
 
 interface CatalogState {
@@ -62,6 +64,8 @@ interface CatalogState {
   families: Map<string, CatalogEntry[]>;
   /** Lazily built `propEntries()` answer. */
   props: CatalogEntry[] | null;
+  /** Every door kit piece the packs declare, in pack order. */
+  doorEntries: CatalogEntry[];
 }
 
 let state: CatalogState | null = null;
@@ -80,6 +84,7 @@ function build(): CatalogState {
   const bandSets = new Map<string, CatalogEntry[]>();
   const measured = new Map<string, CatalogEntry[]>();
   const aliases = new Map<string, string>();
+  const doorEntries: CatalogEntry[] = [];
 
   for (const { packId, manifest } of manager.getPackManifests()) {
     for (const [from, to] of Object.entries(manifest.setAliases ?? {})) if (!aliases.has(from)) aliases.set(from, to);
@@ -103,7 +108,9 @@ function build(): CatalogState {
         family: e.family,
         band: e.band,
         ...(e.footprint && { footprint: e.footprint }),
+        ...(e.door && { door: e.door }),
       };
+      if (entry.door) doorEntries.push(entry);
       byId.set(entry.id, entry);
       if (!byLocalId.has(entryId)) byLocalId.set(entryId, entry.id);
       const list = byType.get(entry.type);
@@ -184,6 +191,7 @@ function build(): CatalogState {
     aliases,
     families,
     props: null,
+    doorEntries,
   };
 }
 
@@ -249,6 +257,12 @@ function current(): CatalogState {
 
 export function getCatalogEntry(id: string): CatalogEntry | undefined {
   return current().byId.get(id);
+}
+
+/** Every door kit piece the installed packs declare (`CatalogEntry.door`), and the catalog they were read from. */
+export function getDoorKitEntries(): { entries: readonly CatalogEntry[]; stamp: object } {
+  const c = current();
+  return { entries: c.doorEntries, stamp: c };
 }
 
 function escapeRegExp(s: string): string {

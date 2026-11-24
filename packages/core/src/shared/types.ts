@@ -477,10 +477,10 @@ export interface DoorChild extends LayerChild {
   jamb?: 'fit' | 'one' | 'none';
   /**
    * The door kit a single or double door is built from, whatever its wall is:
-   * 'stone' (Fieldstone), 'wood' (Palisade) or 'cave' (Cave Ink). Absent = the
-   * kit of the wall's own set, or no kit when that set has none.
+   * 'stone' (Fieldstone), 'wood' (Palisade), 'cave' (Cave Ink), or a kit a pack declares,
+   * by its id. Absent = the kit of the wall's own set, or no kit when that set has none.
    */
-  kit?: 'stone' | 'wood' | 'cave';
+  kit?: 'stone' | 'wood' | 'cave' | (string & {});
   /**
    * Placed free rather than on a wall: the door stands on a piece of wall of its own, its
    * width, at its own angle (see `shared/freestandingDoor.ts`). Absent = false.

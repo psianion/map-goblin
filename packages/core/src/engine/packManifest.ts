@@ -34,6 +34,23 @@ export interface ManifestEntry {
   band?: BandMeasure
   /** A prop that blocks on a round footprint rather than its square frame. */
   footprint?: { radius: number }
+  /** One piece of a door kit the pack declares (see doorKits' `packDoorKits`). */
+  door?: DoorMeasure
+}
+
+/**
+ * A door kit piece a pack ships: a whole leaf, painted along the tile's width with its hinge
+ * at the right, or a frame whose two posts close the opening's edges. A kit is every piece
+ * sharing `kit`; it is the default door of each wall set in `walls`.
+ */
+export interface DoorMeasure {
+  kit: string
+  /** The kit's name, as the door card shows it. */
+  label: string
+  part: 'leaf' | 'frame' | 'frame-double'
+  walls?: string[]
+  /** A frame's posts: their inner and outer faces, cells out from the tile's centre along its width. */
+  post?: [number, number]
 }
 
 /** Where a band kit piece's joints are, as `CaveKitPiece` measures them. */

@@ -40,8 +40,9 @@ vi.mock('pixi.js', () => {
 });
 
 // No pack art in a unit run: every door falls back to its vector glyph.
+const MANAGER = vi.hoisted(() => ({ getTextureOrNull: () => null, getInstalledPacks: () => [], getPackManifests: () => [], catalogVersion: 0 }));
 vi.mock('../assetPackInstance', () => ({
-  getAssetPackManager: () => ({ getTextureOrNull: () => null, getInstalledPacks: () => [] }),
+  getAssetPackManager: () => MANAGER,
 }));
 vi.mock('../../assets/textureLoader', () => ({ resolveTexture: () => ({ width: 0 }) }));
 
@@ -269,6 +270,26 @@ describe('DoorTool', () => {
       const piece = layer().standaloneWalls.find((w) => w.id === d.wallId)!;
       expect(piece).toMatchObject({ textureSetId: 'GG_Stone', textureTint: '#aabbcc' });
       expect(Math.abs(piece.points[1][1] - piece.points[0][1])).toBeCloseTo(2.1);
+    });
+
+    it('over an erased mouth the door stands across it, edge to edge, in the ring’s wall set', () => {
+      // A room 10 by 8 at (20, 20) with a mouth two cells wide erased half a cell into its left wall.
+      useStore.getState().updateLayer(layer().id, {
+        mergedFloor: [[[20, 20], [30, 20], [30, 28], [20, 28], [20, 25], [20.5, 25], [20.5, 23], [20, 23]]],
+        caveOpenings: [[[19, 23], [20.5, 23], [20.5, 25], [19, 25]]],
+        style: { ...layer().style, wallTextureSetId: 'GG_Cave_Test' },
+      });
+      // On the mouth's open edge, and just outside it.
+      for (const x of [20.5, 19.6]) {
+        click(tool, x, 24.2);
+        const d = doors()[doors().length - 1];
+        expect(d.freestanding).toBe(true);
+        expect(d.width).toBeCloseTo(2);
+        expect(d.position[0]).toBeCloseTo(20);
+        expect(d.position[1]).toBeCloseTo(24);
+        expect(Math.abs(Math.sin(d.angle))).toBeCloseTo(1);
+        expect(layer().standaloneWalls.find((w) => w.id === d.wallId)?.textureSetId).toBe('GG_Cave_Test');
+      }
     });
 
     it('with the pointer on one of the walls it hangs along that wall', () => {

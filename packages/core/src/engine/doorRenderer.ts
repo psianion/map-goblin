@@ -18,6 +18,7 @@ import {
   leafPoses,
   leafSlices,
   wallRockDepth,
+  wholeDoorFrame,
   type CavePortPiece,
   type DoorJamb,
   type DoorKit,
@@ -361,6 +362,8 @@ function renderKitDoor(
   const wallKit = doorKitFor(look.setId);
   const kit = doorKitOf(door, look.setId);
   if (!kit) return false;
+  // A pack's painted leaf is drawn whole, in its own frame.
+  if (kit.whole) return renderWholeDoor(container, resolved, kit, kit.whole, look.width, wallKit);
   // A kit closes the opening with its own set's end caps, whatever the wall is.
   const setId = kit === wallKit && look.setId ? look.setId : kitWallSet(kit);
 
@@ -399,6 +402,72 @@ function renderKitDoor(
 
 function hexColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
+}
+
+/** A pack entry's texture by its full id; null, and the art marked missed, until it has decoded. */
+function entryTexture(entryId: string): Texture | null {
+  const tex = getAssetPackManager().getTextureOrNull(entryId);
+  if (tex && tex.width > 1) return tex;
+  if (getCatalogEntry(entryId)) doorArtMissed = true;
+  return null;
+}
+
+/**
+ * A pack's whole-leaf door (`DoorKit.whole`): its frame's two posts first, each cut from the
+ * frame's tile with its inner face on an edge of the opening and the rest of it in the wall or
+ * rock beside, so the frame meets the rock's face; then each leaf, the whole painted tile along
+ * the leaf's length (hinge at the hinge end), on its drop shadow. False when the leaf's art is
+ * not in, so the caller falls back as it does for a kit whose slices are not installed.
+ */
+function renderWholeDoor(
+  container: Container,
+  resolved: ResolvedDoor,
+  kit: DoorKit,
+  art: NonNullable<DoorKit['whole']>,
+  wallWidth: number,
+  wallKit: DoorKit | null,
+): boolean {
+  const { door, position, angle } = resolved;
+  const leaf = entryTexture(art.leaf);
+  if (!leaf) return false;
+  const frame = wholeDoorFrame(art, door.width);
+  const frameTex = frame ? entryTexture(frame.entryId) : null;
+  if (frame && frameTex) {
+    const dir: [number, number] = [Math.cos(angle), Math.sin(angle)];
+    // A frame's tile is one cell deep.
+    const perCell = frameTex.height;
+    const [inner, outer] = frame.post;
+    const mid = frameTex.width / 2;
+    const base = frameTex.frame ?? { x: 0, y: 0 };
+    for (const s of [-1, 1] as const) {
+      // The post's own stretch of the frame's tile, on its side of the tile's centre.
+      const x0 = s < 0 ? mid - outer * perCell : mid + inner * perCell;
+      const post = new Texture({ source: frameTex.source, frame: new Rectangle(base.x + x0, base.y, (outer - inner) * perCell, frameTex.height) });
+      const sprite = new Sprite(post);
+      sprite.anchor.set(s < 0 ? 1 : 0, 0.5);
+      const edge = (s * door.width) / 2;
+      sprite.position.set(position[0] + dir[0] * edge, position[1] + dir[1] * edge);
+      sprite.rotation = angle;
+      sprite.width = outer - inner;
+      sprite.height = 1;
+      container.addChild(sprite);
+    }
+  }
+  for (const pose of leafPoses(door, position, angle, kit, wallWidth, wallKit)) {
+    for (const [tint, alpha, offset] of [[0x000000, LEAF_SHADOW_ALPHA, LEAF_SHADOW_OFFSET], [0xffffff, 1, [0, 0]]] as const) {
+      const sprite = new Sprite(leaf);
+      // The art's hinge is at its right end: that end on the hinge.
+      sprite.anchor.set(1, 0.5);
+      sprite.position.set(pose.origin[0] + offset[0], pose.origin[1] + offset[1]);
+      sprite.rotation = pose.rotation;
+      // The leaf's tile is one cell deep, its paint across the middle of it.
+      sprite.scale.set(-pose.length / leaf.width, (pose.flip ? -1 : 1) / leaf.height);
+      sprite.tint = tint;
+      sprite.alpha = alpha;
+      container.addChild(sprite);
+    }
+  }
+  return true;
 }
 
 function buildLeaf(
@@ -484,7 +553,7 @@ function renderKitJambs(
     return;
   }
 
-  if (jamb === 'none') return;
+  if (jamb === 'none' || kit.jamb.kind !== 'art') return;
   // A pack from before the one-rock jamb has the fitted pair only.
   const hit = (jamb === 'one' ? doorSpriteTexture(doorKitKey(kit, 'jamb-one')) : null) ?? doorSpriteTexture(doorKitKey(kit, 'jamb'));
   if (!hit) return;

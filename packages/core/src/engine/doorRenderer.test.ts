@@ -83,9 +83,11 @@ vi.mock('./assetPackInstance', () => ({
   getAssetPackManager: () => ({
     getTextureOrNull,
     getInstalledPacks: () => [{ packId: 'gg-demo' }],
-    getPackManifests: () => [],
+    getPackManifests: () => manifests,
   }),
 }));
+/** The packs' manifests the catalog is read from: none, unless a row seeds a door kit. */
+let manifests: unknown[] = [];
 
 const { renderDoors, doorSpriteFit, doorWallLook } = await import('./doorRenderer');
 
@@ -139,6 +141,34 @@ describe('renderDoors sprite dispatch', () => {
     getTextureOrNull.mockReturnValue(packTexture(200, 200));
     const children = render([resolved(style)]);
     expect(children.some((c) => c instanceof FakeSprite)).toBe(true);
+  });
+
+  it("builds a pack's whole-leaf door: a post on each edge of the opening, then the leaf, whole, edge to edge", () => {
+    const e = (material: string, gridSize: string, door: object) => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', tags: [], set: 'Doors', door });
+    manifests = [{ packId: 'fa', manifest: { entries: {
+      leaf_1x1_A: e('leaf', '1x1', { kit: 'rock', label: 'Rock', part: 'leaf', walls: ['Rock_Cave'] }),
+      frame_2x1_A: e('frame', '2x1', { kit: 'rock', label: 'Rock', part: 'frame', post: [0.49, 0.7] }),
+    } } }];
+    getTextureOrNull.mockImplementation((id) => (id === 'fa:frame_2x1_A' ? packTexture(400, 200) : id === 'fa:leaf_1x1_A' ? packTexture(200, 200) : null));
+    const door = { ...resolved('single'), position: [3, 0] as [number, number], wall: { id: 'w1', kind: 'cave', points: [[0, 0], [6, 0]], textureSetId: 'Rock_Cave' } } as unknown as ResolvedDoor;
+    const out = render([door]) as FakeSprite[];
+    manifests = [];
+    expect(out).toHaveLength(4);
+    const [left, right, shadow, leaf] = out;
+    // Each post cut from its own side of the frame, its inner face on an edge of the opening.
+    for (const [post, x] of [[left, 60], [right, 298]] as const) {
+      const { frame } = post.texture as FakeTexture;
+      expect(frame.x).toBeCloseTo(x, 6);
+      expect(frame.width).toBeCloseTo(42, 6);
+    }
+    expect(left.anchor.set).toHaveBeenCalledWith(1, 0.5);
+    expect(left.position.set).toHaveBeenCalledWith(2.5, 0);
+    expect(right.anchor.set).toHaveBeenCalledWith(0, 0.5);
+    expect(right.position.set).toHaveBeenCalledWith(3.5, 0);
+    // The leaf, hinge end on the start edge, as long as the opening.
+    expect(leaf.texture).toMatchObject({ width: 200 });
+    expect(leaf.scale.set).toHaveBeenCalledWith(-0.98 / 200, 1 / 200);
+    expect(shadow.tint).toBe(0);
   });
 
   it("draws a plain opening as nothing but a cave's jambs: no arch art and no glyph", () => {

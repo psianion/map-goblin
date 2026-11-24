@@ -16,8 +16,10 @@
 // without a GPU; doorRenderer.ts turns it into sprites.
 
 import type { DoorChild } from '../shared/types';
-import { BAND_DRAWN_WIDTH, bandScale } from './packCatalog';
+import { BAND_DRAWN_WIDTH, bandScale, getDoorKitEntries } from './packCatalog';
 
+/** The kits built in, drawn as slices. A pack may declare more (`packDoorKits`), by their own ids. */
+export type BuiltInDoorKitId = 'stone' | 'wood' | 'cave';
 export type DoorKitId = NonNullable<DoorChild['kit']>;
 export type LeafPiece = 'hinge' | 'tile-a' | 'tile-b' | 'latch';
 
@@ -44,7 +46,10 @@ export interface DoorKit {
    * jamb's face (`hingeDepth`). `band`: the cave's, drawn at bandScale 1 and sized
    * with the wall (`kitAt`), turning about the jamb rock's centre (`bandHingeEnd`).
    */
-  hang: 'pin' | 'band';
+  hang: 'pin' | 'band' | 'whole';
+  /** A pack's kit (`whole`, see `packDoorKits`): its name, and the entries of its leaf and frames. */
+  label?: string;
+  whole?: WholeDoorArt;
   /** Multiplied into the grey-master leaf, the way a wall tint is. */
   tint: string;
   /**
@@ -54,10 +59,32 @@ export interface DoorKit {
    * `art`: the kit's own jamb (`doorkit-<id>-jamb`), drawn for the opening's
    * start edge with the edge at (originX, originY) on a w x h cell canvas.
    */
-  jamb: { kind: 'ending'; capPx: number } | { kind: 'art'; w: number; h: number; originX: number; originY: number };
+  jamb: { kind: 'ending'; capPx: number } | { kind: 'art'; w: number; h: number; originX: number; originY: number } | { kind: 'posts' };
 }
 
-const KITS: Record<DoorKitId, DoorKit> = {
+/** A frame a pack ships: its entry, and its posts' inner and outer faces out from the tile's centre, cells. */
+export interface DoorFrameArt {
+  entryId: string;
+  post: [number, number];
+}
+
+/**
+ * A pack's whole-leaf door: the leaf, one tile painted along its width with the hinge at its
+ * right end, and the frames closing an opening of one cell (`frame`) or two (`double`), each
+ * laid as its two posts, one on each edge of the opening.
+ */
+export interface WholeDoorArt {
+  leaf: string;
+  frame?: DoorFrameArt;
+  double?: DoorFrameArt;
+}
+
+/** A whole-leaf door's frame for an opening `width` wide: the double one past a cell and a half, where the pack ships it. */
+export function wholeDoorFrame(art: WholeDoorArt, width: number): DoorFrameArt | undefined {
+  return (width > 1.5 ? art.double : art.frame) ?? art.frame ?? art.double;
+}
+
+const KITS: Record<BuiltInDoorKitId, DoorKit> = {
   stone: {
     id: 'stone', thickness: 0.17, hingeLength: 0.16, latchLength: 0.16, tileLength: 0.5, sliceCells: 0.4, hang: 'pin',
     tint: '#8e6844', jamb: { kind: 'ending', capPx: 46 },
@@ -75,24 +102,78 @@ const KITS: Record<DoorKitId, DoorKit> = {
   },
 };
 
-const KIT_BY_WALL_SET: Record<string, DoorKitId> = {
+const KIT_BY_WALL_SET: Record<string, BuiltInDoorKitId> = {
   GG_Fieldstone: 'stone',
   GG_Palisade: 'wood',
   GG_Cave_Ink: 'cave',
 };
 
-/** The door kit for a wall set, or null when the set has no doors of its own. */
+/** The leaf's paint across a whole-leaf tile, cells: what the leaf is hung by as `pin` hangs it. */
+const WHOLE_LEAF_THICKNESS = 0.25;
+
+const packKitsMemo = new WeakMap<object, { kits: DoorKit[]; byWall: Map<string, DoorKit> }>();
+
+/**
+ * The door kits the installed packs declare: every kit named by an entry's `door` measure, with a
+ * leaf, built `whole`, and the default door of the wall sets its pieces list. Kept per catalog.
+ */
+function packKits(): { kits: DoorKit[]; byWall: Map<string, DoorKit> } {
+  const { entries, stamp } = getDoorKitEntries();
+  const hit = packKitsMemo.get(stamp);
+  if (hit) return hit;
+  const byId = new Map<string, { label: string; art: Partial<WholeDoorArt>; walls: Set<string> }>();
+  for (const e of entries) {
+    const d = e.door!;
+    if (Object.prototype.hasOwnProperty.call(KITS, d.kit)) continue;
+    let k = byId.get(d.kit);
+    if (!k) byId.set(d.kit, (k = { label: d.label, art: {}, walls: new Set() }));
+    for (const w of d.walls ?? []) k.walls.add(w);
+    if (d.part === 'leaf') k.art.leaf ??= e.id;
+    else if (d.post) k.art[d.part === 'frame' ? 'frame' : 'double'] ??= { entryId: e.id, post: d.post };
+  }
+  const kits: DoorKit[] = [];
+  const byWall = new Map<string, DoorKit>();
+  for (const [id, k] of byId) {
+    if (!k.art.leaf) continue;
+    const kit: DoorKit = {
+      id, label: k.label, thickness: WHOLE_LEAF_THICKNESS, hingeLength: 0, latchLength: 0, tileLength: 1, sliceCells: 1, hang: 'whole',
+      tint: '#ffffff', jamb: { kind: 'posts' }, whole: k.art as WholeDoorArt,
+    };
+    kits.push(kit);
+    for (const w of k.walls) if (!byWall.has(w)) byWall.set(w, kit);
+  }
+  const value = { kits, byWall };
+  packKitsMemo.set(stamp, value);
+  return value;
+}
+
+/** The door kits the installed packs declare, in pack order. */
+export function packDoorKits(): readonly DoorKit[] {
+  return packKits().kits;
+}
+
+/** The door kit for a wall set, or null when the set has no doors of its own: a pack's kit for it first, else the built-in one. */
 export function doorKitFor(wallSetId: string | undefined): DoorKit | null {
-  const id = wallSetId ? KIT_BY_WALL_SET[wallSetId] : undefined;
+  if (!wallSetId) return null;
+  const pack = packKits().byWall.get(wallSetId);
+  if (pack) return pack;
+  const id = KIT_BY_WALL_SET[wallSetId];
   return id ? KITS[id] : null;
 }
 
-/** Every kit a door can be built from, in the order a picker offers them. */
-export const DOOR_KIT_IDS: readonly DoorKitId[] = ['stone', 'wood', 'cave'];
+/** The built-in kits a door can be built from, in the order a picker offers them. */
+export const DOOR_KIT_IDS: readonly BuiltInDoorKitId[] = ['stone', 'wood', 'cave'];
 
-/** A kit by its id; null for an id this build does not know (a newer save). */
+/** Every kit a door can be built from: the built-in ones, then the packs'. */
+export function doorKitIds(): string[] {
+  return [...DOOR_KIT_IDS, ...packDoorKits().map((k) => k.id)];
+}
+
+/** A kit by its id, built in or a pack's; null for an id this build or the installed packs do not know. */
 export function doorKitById(id: string | undefined): DoorKit | null {
-  return id && Object.prototype.hasOwnProperty.call(KITS, id) ? KITS[id as DoorKitId] : null;
+  if (!id) return null;
+  if (Object.prototype.hasOwnProperty.call(KITS, id)) return KITS[id as BuiltInDoorKitId];
+  return packDoorKits().find((k) => k.id === id) ?? null;
 }
 
 /**
@@ -114,6 +195,7 @@ export function doorKitOf(
  */
 export function kitWallSet(kit: DoorKit): string {
   for (const [set, id] of Object.entries(KIT_BY_WALL_SET)) if (id === kit.id) return set;
+  for (const [set, k] of packKits().byWall) if (k === kit) return set;
   return '';
 }
 

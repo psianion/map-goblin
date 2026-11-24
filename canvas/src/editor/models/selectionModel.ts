@@ -4,10 +4,10 @@ import { clampDoorWidth, doorStyleLabel, minDoorWidth, PLACEABLE_DOOR_STYLES } f
 import { connectorKindForStyle, connectorStyle } from '@dnd/core/src/shared/authoredRooms';
 import {
   DEFAULT_OPEN_ANGLE,
-  DOOR_KIT_IDS,
   MAX_OPEN_ANGLE,
   doorKitById,
   doorKitFor,
+  doorKitIds,
   doorKitOf,
   doorShowsHinges,
   isKitStyle,
@@ -261,7 +261,10 @@ export interface DoorModel {
 /** A door's kit pick as the card holds it: 'auto' follows the wall's set. */
 export type DoorMaterial = 'auto' | DoorKitId;
 
-const KIT_LABEL: Record<DoorKitId, string> = { stone: 'Stone', wood: 'Wood', cave: 'Cave' };
+const KIT_LABEL: Record<string, string> = { stone: 'Stone', wood: 'Wood', cave: 'Cave' };
+
+/** A kit's name on the card: the built-in kits' own, a pack's as it declares it. */
+const kitLabel = (id: string): string => KIT_LABEL[id] ?? doorKitById(id)?.label ?? id;
 
 /**
  * The Material choices. Auto names what it comes to on this wall, so picking the kit the
@@ -270,8 +273,8 @@ const KIT_LABEL: Record<DoorKitId, string> = { stone: 'Stone', wood: 'Wood', cav
 export function doorMaterialOptions(wallSetId: string | undefined): { value: DoorMaterial; label: string }[] {
   const wallKit = doorKitFor(wallSetId);
   return [
-    { value: 'auto', label: `Auto (${wallKit ? KIT_LABEL[wallKit.id] : 'plain'})` },
-    ...DOOR_KIT_IDS.map((id) => ({ value: id, label: KIT_LABEL[id] })),
+    { value: 'auto', label: `Auto (${wallKit ? kitLabel(wallKit.id) : 'plain'})` },
+    ...doorKitIds().map((id) => ({ value: id, label: kitLabel(id) })),
   ];
 }
 

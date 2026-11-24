@@ -4,7 +4,10 @@ import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingToo
 import type { DoorChild, DungeonLayer, WallSegment } from '../../store/types';
 import type { DoorStyle } from '../../shared/types';
 import { nextAuthoredName } from '../../shared/authoredName';
-import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
+import { projectPointOntoLineSegment, snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
+import { floorEdgeOpenSpans, mouthBridges } from '../../shared/caveFloor';
+import { bandSize, isMeasuredBandSet } from '../../assets/packCatalog';
+import { bandPiecesFor, kitRockWidth } from '../../assets/caveWallKit';
 import {
   doorWallId,
   polylineLength,
@@ -75,6 +78,9 @@ function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): 
   if (settings.doorFreestanding) return { kind: 'free' };
   const at: [number, number] = [point.x, point.y];
   const style = settings.doorStyle ?? 'single';
+  // Over an erased mouth, the door stands across it, edge to edge.
+  const mouth = mouthSpanAt(at, layer, walls, minDoorWidth(style, settings.doorBare), Math.max(MIN_SPAN, settings.doorWidth || 1));
+  if (mouth) return { kind: 'span', span: mouth };
   const holds = walls.filter((w) => polylineLength(w.points) >= minDoorWidth(style, settings.doorBare) - WIDTH_EPSILON);
   const along = (list: ResolvedWall[], reach: number): Placement | null => {
     const snap = snapToNearestWall(at, list, reach);
@@ -87,6 +93,105 @@ function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): 
   const span = spanBetweenWalls(at, walls, style, maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth), settings.doorBare);
   if (span) return { kind: 'span', span };
   return along(holds, ALONG_REACH) ?? along(holds.filter((w) => w.kind === 'standalone'), SNAP_THRESHOLD) ?? { kind: 'free' };
+}
+
+/** A pointer this near the line across an erased mouth is over it, cells. */
+const MOUTH_REACH = 0.75;
+
+/**
+ * The door across the erased mouth nearest `at` (`mouthBridges`), when `at` lies within
+ * MOUTH_REACH of the line across it and the mouth is as wide as the style allows, no wider
+ * than `maxSpan`: from the mouth's one edge to the other, so it fills the gap the rock left.
+ * Its wall is the one its first edge stops, whose look it takes.
+ */
+function mouthSpanAt(at: [number, number], layer: DungeonLayer, walls: ResolvedWall[], min: number, maxSpan: number): DoorSpan | null {
+  let best: { d: number; a: [number, number]; b: [number, number] } | null = null;
+  for (const [a, b] of mouthBridges(layer)) {
+    const v: [number, number] = [b[0] - a[0], b[1] - a[1]];
+    const L2 = v[0] * v[0] + v[1] * v[1];
+    if (L2 < 1e-12) continue;
+    const t = Math.max(0, Math.min(1, ((at[0] - a[0]) * v[0] + (at[1] - a[1]) * v[1]) / L2));
+    const d = Math.hypot(at[0] - a[0] - v[0] * t, at[1] - a[1] - v[1] * t);
+    if (d <= MOUTH_REACH && (!best || d < best.d)) best = { d, a, b };
+  }
+  if (!best) return null;
+  const { a, b } = best;
+  const width = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (width < min - WIDTH_EPSILON || width > maxSpan) return null;
+  // The wall the mouth's first edge stops: the solid one nearest it.
+  let wallA: ResolvedWall | null = null;
+  let near = Infinity;
+  for (const w of walls) {
+    for (let i = 0; i + 1 < w.points.length; i++) {
+      const p = projectPointOntoLineSegment(a, w.points[i], w.points[i + 1]);
+      if (p.distance < near - 1e-9 && !overMouth(w, layer)) {
+        near = p.distance;
+        wallA = w;
+      }
+    }
+  }
+  if (!wallA) return null;
+  return { centre: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], angle: Math.atan2(b[1] - a[1], b[0] - a[0]), width, wallA };
+}
+
+/** A floor edge lying wholly in an erased region: no wall the rock stops at. */
+function overMouth(w: ResolvedWall, layer: DungeonLayer): boolean {
+  if (w.kind !== 'floor') return false;
+  const spans = floorEdgeOpenSpans(w.points[0], w.points[1], layer.caveOpenings);
+  return spans.some(([t0, t1]) => t0 < 1e-9 && t1 > 1 - 1e-9);
+}
+
+/** How far past a gap's drawn edges a door looks for the rock it meets, cells. */
+const ROCK_FACE_REACH = 1;
+
+/**
+ * A door across a gap in a measured kit's rock (`span`, the wall set `setId`), carried or cut
+ * back at each end to the rock's face: where its line first meets a saved rock line (`rockLines`,
+ * the rock's centre) within ROCK_FACE_REACH of the drawn edge, less half the rock's width as laid.
+ * So its frame meets the rock, which may stand in over the drawn edge or out from it. As given
+ * where no rock line is found at an end, or the kit is not measured.
+ */
+export function toRockFaces(span: DoorSpan, layer: DungeonLayer, setId: string | undefined): DoorSpan {
+  const lines = (layer.rockLines ?? []).filter((l) => l.kind !== 'cliff');
+  if (lines.length === 0 || !isMeasuredBandSet(setId)) return span;
+  const half = (kitRockWidth(bandPiecesFor(setId)) * bandSize(setId!, layerDrawStyle(layer).wallWidth)) / 2;
+  const u: [number, number] = [Math.cos(span.angle), Math.sin(span.angle)];
+  const c = span.centre;
+  // Along ±u from the centre, the nearest crossing of a rock line.
+  const meet = (sign: number): number | null => {
+    const far = span.width / 2 + ROCK_FACE_REACH;
+    const b: [number, number] = [c[0] + u[0] * sign * far, c[1] + u[1] * sign * far];
+    let best: number | null = null;
+    for (const l of lines) {
+      for (const run of l.runs) {
+        for (let i = 0; i + 1 < run.length; i++) {
+          const [p, q] = [run[i], run[i + 1]];
+          const d = (b[0] - c[0]) * (q[1] - p[1]) - (b[1] - c[1]) * (q[0] - p[0]);
+          if (Math.abs(d) < 1e-12) continue;
+          const t = ((p[0] - c[0]) * (q[1] - p[1]) - (p[1] - c[1]) * (q[0] - p[0])) / d;
+          const s = ((p[0] - c[0]) * (b[1] - c[1]) - (p[1] - c[1]) * (b[0] - c[0])) / d;
+          if (t <= 0 || t > 1 || s < 0 || s > 1) continue;
+          const at = t * far - half;
+          if (at > 0 && (best === null || at < best)) best = at;
+        }
+      }
+    }
+    return best;
+  };
+  const a = meet(-1) ?? span.width / 2;
+  const b = meet(1) ?? span.width / 2;
+  const mid = (b - a) / 2;
+  return { ...span, centre: [c[0] + u[0] * mid, c[1] + u[1] * mid], width: a + b };
+}
+
+/** The wall set a wall draws with: a floor ring's or edge's look, else its own pin. */
+function wallSetOf(wall: ResolvedWall, layer: DungeonLayer): Pick<WallSegment, 'textureSetId' | 'textureTint'> {
+  if (wall.kind === 'floor' && wall.ring !== undefined) {
+    const look = layerLevelLook(layer);
+    const s = (wall.edge !== undefined ? edgeStyles(layer, look)?.[wall.ring]?.[wall.edge] : undefined) ?? ringStyles(layer, look)[wall.ring] ?? layer.style;
+    return { textureSetId: s.wallTextureSetId, textureTint: s.wallTextureTint };
+  }
+  return { textureSetId: wall.textureSetId, textureTint: wall.textureTint };
 }
 
 /**
@@ -428,12 +533,10 @@ export class DoorTool implements DrawingTool {
     this.snapResult = placement.kind === 'along' ? placement.snap : null;
     if (placement.kind === 'along') return this.plan(layer, walls);
     if (placement.kind === 'span') {
-      const { span } = placement;
-      // The door matches the walls it joins: the near wall's set and tint pins.
-      return this.freePlan(layer, { x: span.centre[0], y: span.centre[1] }, span.angle, span.width, {
-        textureSetId: span.wallA.textureSetId,
-        textureTint: span.wallA.textureTint,
-      });
+      // The door matches the walls it joins: the near wall's set and tint, as it draws, and meets their rock's face.
+      const pins = wallSetOf(placement.span.wallA, layer);
+      const span = toRockFaces(placement.span, layer, pins.textureSetId);
+      return this.freePlan(layer, { x: span.centre[0], y: span.centre[1] }, span.angle, span.width, pins);
     }
     return this.freePlan(layer, point);
   }

@@ -398,6 +398,52 @@ export function ringOpeningGaps(
   return gaps;
 }
 
+/**
+ * Each mouth erased into a layer's floor rings and painted caves, as the straight line across it
+ * from where its rock stops on one side to where it starts again on the other: the open edges of
+ * a ring (`floorEdgeOpenSpans`, or a painted cave's open edges) run together, their first and last
+ * point. Where the Door tool hangs a door across a mouth. None with no openings.
+ */
+export function mouthBridges(layer: { id: string; children: readonly AnyChild[]; mergedFloor?: Polygon[] | null; caveOpenings?: Polygon[] }): [[number, number], [number, number]][] {
+  const openings = layer.caveOpenings;
+  if (!openings || openings.length === 0) return [];
+  const out: [[number, number], [number, number]][] = [];
+  const along = (ring: Polygon, spans: (a: [number, number], b: [number, number]) => [number, number][]): void => {
+    const n = ring.length;
+    // Every open stretch, in ring order: [edge, t0, t1].
+    const open: [number, number, number][] = [];
+    for (let e = 0; e < n; e++) for (const [t0, t1] of spans(ring[e], ring[(e + 1) % n])) open.push([e, t0, t1]);
+    if (open.length === 0 || open.length === n * 1 && open.every(([, t0, t1]) => t0 < 1e-9 && t1 > 1 - 1e-9)) return;
+    // An open stretch reaches FLOOR_OPEN_REACH past the erased region: one ending that near a
+    // corner of the ring ends on the corner, where the rock stops.
+    const at = ([e, t]: [number, number]): [number, number] => {
+      const [a, b] = [ring[e], ring[(e + 1) % n]];
+      const p: [number, number] = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      for (const q of [a, b]) if (Math.hypot(p[0] - q[0], p[1] - q[1]) <= FLOOR_OPEN_REACH + 1e-6) return [q[0], q[1]];
+      return p;
+    };
+    // Join stretches that run on into each other, round the ring's seam too.
+    const runs: { from: [number, number]; to: [number, number] }[] = [];
+    for (const [e, t0, t1] of open) {
+      const last = runs[runs.length - 1];
+      if (last && t0 < 1e-9 && last.to[1] > 1 - 1e-9 && last.to[0] === (e - 1 + n) % n) last.to = [e, t1];
+      else runs.push({ from: [e, t0], to: [e, t1] });
+    }
+    if (runs.length > 1) {
+      const first = runs[0];
+      const last = runs[runs.length - 1];
+      if (first.from[1] < 1e-9 && first.from[0] === 0 && last.to[0] === n - 1 && last.to[1] > 1 - 1e-9) {
+        first.from = last.from;
+        runs.pop();
+      }
+    }
+    for (const r of runs) out.push([at(r.from), at(r.to)]);
+  };
+  for (const ring of layer.mergedFloor ?? []) along(ring, (a, b) => floorEdgeOpenSpans(a, b, openings));
+  for (const cave of caveEdges(layer)) for (const ring of cave.rings) along(ring, (a, b) => (caveEdgeOpen(a, b, openings) ? [[0, 1]] : []));
+  return out;
+}
+
 /** Signed area of a ring, by the shoelace sum. */
 function signedArea(ring: Polygon): number {
   let a = 0;

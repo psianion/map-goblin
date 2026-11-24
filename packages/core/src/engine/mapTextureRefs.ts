@@ -72,6 +72,11 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
     for (const wallSet of wallSets) {
       const kit = doorKitById(door.kit) ?? doorKitFor(wallSet);
       if (!kit) continue;
+      // A pack's whole-leaf kit: its leaf and its frames.
+      if (kit.whole) {
+        for (const id of [kit.whole.leaf, kit.whole.frame?.entryId, kit.whole.double?.entryId]) if (id) ids.add(id);
+        continue;
+      }
       for (const piece of DOOR_KIT_PIECES) ids.add(doorKitKey(kit, piece));
       for (const ending of getWallPieces(kitWallSet(kit), 'ending')) ids.add(ending.id);
     }

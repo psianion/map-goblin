@@ -7,7 +7,7 @@ import { doorStyleLabel } from '@dnd/core/src/engine/tools/DoorTool';
 import { doorOpeningLimit, resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { doorwayRoom } from '@dnd/core/src/shared/doorwaySeal';
 import { doorWallLook } from '@dnd/core/src/engine/doorRenderer';
-import { DOOR_KIT_IDS, doorKitKey, doorKitById, doorKitOf, isKitStyle, type DoorKitId } from '@dnd/core/src/assets/doorKits';
+import { doorKitIds, doorKitKey, doorKitById, doorKitOf, isKitStyle, type DoorKit, type DoorKitId } from '@dnd/core/src/assets/doorKits';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { edgeStyles, ringStyles } from '@dnd/core/src/shared/wallLook';
 import { layerDrawStyle, layerLevelLook } from '@dnd/core/src/engine/levelLook';
@@ -58,12 +58,20 @@ export function doorHost(s: MapBuilderStore, doorId: string): DoorHost | null {
   };
 }
 
+/** The entry a kit's swatch pictures: a pack kit's whole leaf, else a slice of its leaf from the first installed pack that ships it. */
+function kitArt(kit: DoorKit, packs: readonly { packId: string }[]): string | undefined {
+  if (kit.whole) return getCatalogEntry(kit.whole.leaf) ? kit.whole.leaf : undefined;
+  const key = doorKitKey(kit, 'tile-a');
+  const pack = packs.find((p) => getCatalogEntry(`${p.packId}:${key}`) !== undefined);
+  return pack ? `${pack.packId}:${key}` : undefined;
+}
+
 /** The door kits an installed pack ships the leaf art for. */
 export function installedDoorKits(s: Pick<MapBuilderStore, 'packs'> = state()): DoorKitId[] {
   const packs = s.packs.installedPacks;
-  return DOOR_KIT_IDS.filter((id) => {
+  return doorKitIds().filter((id) => {
     const kit = doorKitById(id);
-    return kit !== null && packs.some((p) => getCatalogEntry(`${p.packId}:${doorKitKey(kit, 'tile-a')}`) !== undefined);
+    return kit !== null && kitArt(kit, packs) !== undefined;
   });
 }
 
@@ -79,8 +87,8 @@ export const doorDeg = (rad: number) => ((Math.round((rad * 180) / Math.PI) % 18
 
 /**
  * The kit swatches: Auto (the wall's kit, a plain tile), then each kit an installed pack
- * ships, pictured by a slice of its leaf. The slices are grey masters, so the kit's tint is
- * laid over the picture: without it stone and wood look the same.
+ * ships, pictured by a slice of its leaf (a pack's kit by its whole leaf). The slices are grey
+ * masters, so the kit's tint is laid over the picture: without it stone and wood look the same.
  */
 export function doorKitSwatches(s: Pick<MapBuilderStore, 'packs'>, wallSetId: string | undefined): Swatch[] {
   const kits = installedDoorKits(s);
@@ -89,9 +97,7 @@ export function doorKitSwatches(s: Pick<MapBuilderStore, 'packs'>, wallSetId: st
     .map((o) => {
       const kit = doorKitById(o.value);
       if (!kit) return { value: o.value, label: o.label };
-      const key = doorKitKey(kit, 'tile-a');
-      const pack = s.packs.installedPacks.find((p) => getCatalogEntry(`${p.packId}:${key}`) !== undefined);
-      return { value: o.value, label: o.label, art: pack ? `${pack.packId}:${key}` : undefined, tint: kit.tint };
+      return { value: o.value, label: o.label, art: kitArt(kit, s.packs.installedPacks), tint: kit.tint };
     });
 }
 
