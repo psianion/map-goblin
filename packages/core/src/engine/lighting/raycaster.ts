@@ -2,7 +2,7 @@ import type { DungeonLayer, RockLine } from '../../store/types'
 import type { DoorChild, WallDirection } from '../../shared/types'
 import { buildOcclusionSegments, WALL_TYPE_OCCLUSION, type OcclusionSegment } from '../../shared/occlusion'
 import { connectorChildren } from '../../shared/authoredRooms'
-import { propSegments } from '../../shared/propOcclusion'
+import { propSegments, roundPropSegments } from '../../shared/propOcclusion'
 import { cliffOccluders } from '../../shared/plateaus'
 import { caveEdges } from '../../shared/caveFloor'
 import { laidFor, onRockEdge, wallLines } from '../../shared/rockLines'
@@ -172,6 +172,8 @@ export function extractMoveSegments(dungeonLayers: DungeonLayer[]): MoveSegment[
         out.push({ x1: pts[i][0], y1: pts[i][1], x2: pts[i + 1][0], y2: pts[i + 1][1], ...extra })
       }
     }
+    // A blocking prop with a round footprint (a rock pillar) stops walking round its ring.
+    for (const e of roundPropSegments(layer.children ?? [])) out.push({ ...e })
   }
   return out
 }

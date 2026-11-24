@@ -17,8 +17,24 @@ export function blocksLightProp(child: AnyChild): child is AssetChild {
   return child.childType === 'asset' && child.visible !== false && child.blocksLight === true;
 }
 
-/** The four edges of one prop's rotated footprint (`width × scale` by `height × scale` about its centre). */
+/** How many sides the ring of a round footprint is blocked along. */
+const ROUND_SIDES = 12;
+
+/**
+ * The edges of one prop's footprint: the four of its rotated rectangle (`width × scale` by
+ * `height × scale` about its centre), or a ring of ROUND_SIDES round a round one (`footprintRadius`).
+ */
 export function propEdges(prop: AssetChild): PropEdge[] {
+  if (prop.footprintRadius) {
+    const r = prop.footprintRadius * prop.scale;
+    const { x, y } = prop.position;
+    const at = (k: number): [number, number] => [x + r * Math.cos((2 * Math.PI * k) / ROUND_SIDES), y + r * Math.sin((2 * Math.PI * k) / ROUND_SIDES)];
+    return Array.from({ length: ROUND_SIDES }, (_, k) => {
+      const [x1, y1] = at(k);
+      const [x2, y2] = at(k + 1);
+      return { x1, y1, x2, y2 };
+    });
+  }
   const hw = (prop.width * prop.scale) / 2;
   const hh = (prop.height * prop.scale) / 2;
   const c = Math.cos(prop.rotation);
@@ -48,6 +64,11 @@ function pathEdges(path: PathwayChild): PropEdge[] {
   return edges;
 }
 
+/** The edges of every blocking prop among `children` with a round footprint: those stop movement too. */
+export function roundPropSegments(children: readonly AnyChild[]): PropEdge[] {
+  return children.filter((c): c is AssetChild => blocksLightProp(c) && !!c.footprintRadius).flatMap(propEdges);
+}
+
 /** Every blocking prop's edges among `children`, and every blocking path's line. */
 export function propSegments(children: readonly AnyChild[]): PropEdge[] {
   const out: PropEdge[] = [];
@@ -70,7 +91,7 @@ export function propOccluderKey(children: readonly AnyChild[]): string {
       continue;
     }
     if (!blocksLightProp(c)) continue;
-    parts.push(`${c.id}|${c.position.x}|${c.position.y}|${c.width * c.scale}|${c.height * c.scale}|${c.rotation}|${c.flipX}|${c.flipY}`);
+    parts.push(`${c.id}|${c.position.x}|${c.position.y}|${c.width * c.scale}|${c.height * c.scale}|${c.rotation}|${c.flipX}|${c.flipY}|${c.footprintRadius ?? ''}`);
   }
   return parts.join(',');
 }

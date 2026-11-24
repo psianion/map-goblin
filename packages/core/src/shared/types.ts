@@ -373,6 +373,11 @@ export interface AssetChild extends LayerChild {
   standHeight?: number;
   /** Blocks light and sight along the four edges of its footprint. Absent = false. */
   blocksLight?: boolean;
+  /**
+   * A round footprint's radius, cells at scale 1 (a rock pillar): it blocks round that ring
+   * instead of its four edges, and blocks movement too. Absent = the square footprint.
+   */
+  footprintRadius?: number;
   /** Stored for table movement, not read yet. Absent = false. */
   blocksMovement?: boolean;
   /** Its own sprite reads lit in the dark, never the cells around it. Absent = false. */
