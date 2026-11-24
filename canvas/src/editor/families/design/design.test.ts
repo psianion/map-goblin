@@ -10,7 +10,7 @@ import { SHARED_SETTINGS } from '@/editor/registry/shared';
 import { validateRegistry } from '@/editor/registry/validate';
 import { createSettings } from '@/editor/registry/settings';
 import { design, DESIGN_CARDS } from './index';
-import { doorKitSwatches, installedDoorKits, pickDoorKit } from './doorModel';
+import { doorKitSwatches, installedDoorKits, kitTileLabels, pickDoorKit } from './doorModel';
 import { directionAt, directionWords, snapDirection } from './plateauModel';
 
 vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
@@ -833,6 +833,22 @@ describe('the door card', () => {
     expect(d1().kit).toBeUndefined();
     pickDoorKit('auto');
     expect(st().tools.settings.doorKit).toBeUndefined();
+    useStore.setState((s) => {
+      s.packs.installedPacks = [];
+    });
+  });
+
+  it('names each kit tile without the start every kit shares, the full name in its tip', () => {
+    expect(kitTileLabels(['FA Earthy stone', 'FA Slate stone', 'FA Light wood'])).toEqual(['Earthy stone', 'Slate stone', 'Light wood']);
+    expect(kitTileLabels(['Earthy stone', 'Sandstone stone', 'Gray metal'])).toEqual(['Earthy stone', 'Sandstone stone', 'Gray metal']);
+    // A name that is all shared start keeps itself; one kit alone is named in full.
+    expect(kitTileLabels(['Stone', 'Stone cave'])).toEqual(['Stone', 'Stone cave']);
+    expect(kitTileLabels(['FA Earthy stone'])).toEqual(['FA Earthy stone']);
+    useStore.setState((s) => {
+      s.packs.installedPacks = [{ packId: 'p', name: 'P', version: '1', sizeBytes: 0, bundled: true, installedAt: 0 }];
+    });
+    const [, stone] = doorKitSwatches(st(), undefined);
+    expect(stone).toMatchObject({ value: 'stone', label: 'Stone', title: 'Stone' });
     useStore.setState((s) => {
       s.packs.installedPacks = [];
     });

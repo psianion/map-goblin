@@ -86,19 +86,33 @@ export function liveKit(o: DoorChild): DoorKitId | null {
 export const doorDeg = (rad: number) => ((Math.round((rad * 180) / Math.PI) % 180) + 180) % 180;
 
 /**
+ * Kit names as their tiles show them: the words every one of them starts with dropped, so the
+ * tiles tell the kits apart. A name that is nothing but those words, and a lone name, keep all of it.
+ */
+export function kitTileLabels(labels: readonly string[]): string[] {
+  if (labels.length < 2) return [...labels];
+  const words = labels.map((l) => l.split(/\s+/));
+  let shared = 0;
+  while (words.every((w) => w.length > shared + 1 && w[shared] === words[0][shared])) shared++;
+  return words.map((w, i) => (shared > 0 ? w.slice(shared).join(' ') : labels[i]));
+}
+
+/**
  * The kit swatches: Auto (the wall's kit, a plain tile), then each kit an installed pack
  * ships, pictured by a slice of its leaf (a pack's kit by its whole leaf). The slices are grey
  * masters, so the kit's tint is laid over the picture: without it stone and wood look the same.
+ * Each kit's tile is named as `kitTileLabels` shortens it, its full name in the tip.
  */
 export function doorKitSwatches(s: Pick<MapBuilderStore, 'packs'>, wallSetId: string | undefined): Swatch[] {
   const kits = installedDoorKits(s);
-  return doorMaterialOptions(wallSetId)
-    .filter((o) => o.value === 'auto' || kits.includes(o.value as DoorKitId))
-    .map((o) => {
-      const kit = doorKitById(o.value);
-      if (!kit) return { value: o.value, label: o.label };
-      return { value: o.value, label: o.label, art: kitArt(kit, s.packs.installedPacks), tint: kit.tint };
-    });
+  const options = doorMaterialOptions(wallSetId).filter((o) => o.value === 'auto' || kits.includes(o.value as DoorKitId));
+  const short = kitTileLabels(options.filter((o) => o.value !== 'auto').map((o) => o.label));
+  let k = 0;
+  return options.map((o) => {
+    const kit = doorKitById(o.value);
+    if (!kit) return { value: o.value, label: o.label };
+    return { value: o.value, label: short[k++], title: o.label, art: kitArt(kit, s.packs.installedPacks), tint: kit.tint };
+  });
 }
 
 /** The picked doors a kit can build (single and double), as the Kit column writes them. */
