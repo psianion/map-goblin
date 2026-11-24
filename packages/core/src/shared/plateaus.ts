@@ -593,9 +593,8 @@ export interface CliffOccluder {
 
 /**
  * The raised edges of a layer that hide what is above them from below (`edgeHides`), counting
- * cliffs from `minDrop` cells up, as one-way segments blocking from the low side. Sight
- * passes the map's `sightDropCells`; light passes
- * 1, so a lamp below never lights a top. A plateau's ring has its low side on the left of
+ * cliffs from `minDrop` cells up, as one-way segments blocking from the low side. Sight and
+ * light both pass the map's `sightDropCells`, so a lamp below lights the tops an eye sees. A plateau's ring has its low side on the left of
  * travel (outside); a pit's on the right. Where a ring runs along a measured kit's rock line
  * (`DungeonLayer.rockLines`) it blocks on the rock (`alongRock`), each piece as its drawn edge would.
  */

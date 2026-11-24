@@ -58,8 +58,8 @@ export interface OccluderOptions {
 /**
  * Every occluding segment on `dungeonLayers` for one kind of sweep: walls split at their doors,
  * blocking props, and the cliffs that hide their tops, which block one way only (from the low
- * side: an eye or a light on top sees and lights down over the edge). Light is stopped by any
- * cliff a cell or more tall; sight by those of the map's `sightDropCells` and up.
+ * side: an eye or a light on top sees and lights down over the edge). Light and sight are both
+ * stopped by those of the map's `sightDropCells` and up: a lamp lights the tops an eye beside it sees.
  */
 export function extractWallSegments(
   dungeonLayers: DungeonLayer[],
@@ -106,9 +106,9 @@ export function extractWallSegments(
         })
       }
     }
-    // Cliffs: one-way; light from a drop of one cell, sight from the threshold.
+    // Cliffs: one-way, from the map's threshold, light as sight: a lamp below lights the top it can see.
     if (options.cliffs !== false) {
-      for (const c of cliffOccluders(layer, kind === 'light' ? 1 : options.sightDropCells)) {
+      for (const c of cliffOccluders(layer, options.sightDropCells)) {
         segments.push({ ...c, blocksLight: true, blocksSight: true })
       }
     }
