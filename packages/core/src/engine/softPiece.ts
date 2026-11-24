@@ -406,26 +406,24 @@ export function paintRamp(parent: Container, ramp: Ramp, fill: RampFill): void {
         console.warn('[softPiece] ramp tile failed, masking by sprite:', err);
       }
     }
-    const mask = texelTexture(rampPixels(field), grid, false);
     if (!tile) {
-      maskedBySprite(parent, clip ?? [boxRing(grid)], mask, grid, fill.texture, fill.look);
+      maskedBySprite(parent, clip ?? [boxRing(grid)], texelTexture(rampPixels(field), grid, false), grid, fill.texture, fill.look);
       return;
     }
-    const mesh = maskedMesh(mask, rectOf(grid), tile, fill.texture, fill.look, true);
+    const mesh = maskedMesh(fieldTexture(field, 'mask'), rectOf(grid), tile, fill.texture, fill.look, true);
     mesh.label = 'ramp';
-    mesh.once('destroyed', () => mask.destroy(true));
+    heldBy(field, 'mask', mesh);
     if (clip) clipped(parent, clip, mesh);
     else parent.addChild(mesh);
     return;
   }
-  const texture = texelTexture(colorPixels(field), grid, true);
-  const sprite = new Sprite(texture);
+  const sprite = new Sprite(fieldTexture(field, 'color'));
   sprite.label = 'ramp';
   sprite.position.set(grid.x, grid.y);
   sprite.scale.set(1 / grid.res);
   sprite.tint = fill.color;
   sprite.alpha = fill.alpha ?? 1;
-  sprite.once('destroyed', () => texture.destroy(true));
+  heldBy(field, 'color', sprite);
   if (clip) clipped(parent, clip, sprite);
   else parent.addChild(sprite);
 }
@@ -433,11 +431,45 @@ export function paintRamp(parent: Container, ramp: Ramp, fill: RampFill): void {
 
 /** A sprite of a ramp's field laid over its box, for a container to be masked by: it shows that much of what it masks. */
 export function rampMaskSprite(field: RampField): Sprite {
-  const texture = texelTexture(rampPixels(field), field.grid, false);
-  const sprite = new Sprite(texture);
+  const sprite = new Sprite(fieldTexture(field, 'mask'));
   sprite.label = 'ramp-mask';
   sprite.position.set(field.grid.x, field.grid.y);
   sprite.scale.set(1 / field.grid.res);
-  sprite.once('destroyed', () => texture.destroy(true));
+  heldBy(field, 'mask', sprite);
   return sprite;
+}
+
+/**
+ * Each ramp's textures, while something draws them: a rebuild draws a kept ramp (rampMask.ts's
+ * `keptRamp`) again, and it is uploaded once, not on every rebuild. A texture nothing draws any
+ * more is let go once the rebuild that dropped it is over.
+ */
+const fieldTextures = new WeakMap<RampField, Partial<Record<'mask' | 'color', { texture: Texture; users: number }>>>();
+
+/** A ramp's field as mask texels (`mask`) or as a sprite's own colour (`color`), kept with it. */
+function fieldTexture(field: RampField, kind: 'mask' | 'color'): Texture {
+  let byKind = fieldTextures.get(field);
+  if (!byKind) fieldTextures.set(field, (byKind = {}));
+  let held = byKind[kind];
+  if (!held || held.texture.destroyed) {
+    held = { texture: kind === 'mask' ? texelTexture(rampPixels(field), field.grid, false) : texelTexture(colorPixels(field), field.grid, true), users: 0 };
+    byKind[kind] = held;
+  }
+  return held.texture;
+}
+
+/** `user` draws `field`'s texture of `kind` until it is destroyed. */
+function heldBy(field: RampField, kind: 'mask' | 'color', user: Container): void {
+  const byKind = fieldTextures.get(field)!;
+  const held = byKind[kind]!;
+  held.users++;
+  user.once('destroyed', () => {
+    held.users--;
+    if (held.users > 0) return;
+    queueMicrotask(() => {
+      if (held.users > 0 || byKind[kind] !== held) return;
+      held.texture.destroy(true);
+      delete byKind[kind];
+    });
+  });
 }

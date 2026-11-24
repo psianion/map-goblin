@@ -7,7 +7,8 @@
 // store, so the band follows every edit of the ring it rides, and a door on
 // the ring simply splits the walk into the spans the opening leaves.
 
-import { Graphics, MeshSimple, Sprite, type Container, type Texture } from 'pixi.js';
+import { Graphics, Mesh, MeshGeometry, Sprite, Texture, type Container } from 'pixi.js';
+import { swapWhenLanded } from './lateArt';
 import { bentMesh, endTangents, MITRE_MOST_DEG, type BendEnd, type PieceBend } from './bandBend';
 import { layerFloorFallback } from './levelLook';
 import { resolveTexture } from '../assets/textureLoader';
@@ -477,16 +478,17 @@ const CURVE_KEEP = 0.3;
 function keepsToOutline(base: Curve, closed: boolean, set: CaveKitPiece[]): WalkOptions['accept'] {
   if (!set.some((p) => p.exact)) return undefined;
   const out = kitOut(set);
-  // The outline's segments by the cell they cross, so a point looks at those near it only.
-  const cells = new Map<string, number[]>();
-  const cell = (x: number, y: number): string => `${Math.floor(x)},${Math.floor(y)}`;
+  // The outline's segments by every cell within CURVE_KEEP of them, so a point looks at its own
+  // cell's only: any segment that near it is listed there.
+  const cells = new Map<number, number[]>();
+  const cellKey = (x: number, y: number): number => (x + 32768) * 65536 + (y + 32768);
   const segs = closed ? base.length : base.length - 1;
   for (let i = 0; i < segs; i++) {
     const a = base[i];
     const b = base[(i + 1) % base.length];
-    for (let x = Math.floor(Math.min(a[0], b[0])); x <= Math.floor(Math.max(a[0], b[0])); x++) {
-      for (let y = Math.floor(Math.min(a[1], b[1])); y <= Math.floor(Math.max(a[1], b[1])); y++) {
-        const k = `${x},${y}`;
+    for (let x = Math.floor(Math.min(a[0], b[0]) - CURVE_KEEP); x <= Math.floor(Math.max(a[0], b[0]) + CURVE_KEEP); x++) {
+      for (let y = Math.floor(Math.min(a[1], b[1]) - CURVE_KEEP); y <= Math.floor(Math.max(a[1], b[1]) + CURVE_KEEP); y++) {
+        const k = cellKey(x, y);
         const list = cells.get(k);
         if (list) list.push(i);
         else cells.set(k, [i]);
@@ -494,12 +496,17 @@ function keepsToOutline(base: Curve, closed: boolean, set: CaveKitPiece[]): Walk
     }
   }
   const near = (p: Vec): boolean => {
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (const i of cells.get(cell(p[0] + dx, p[1] + dy)) ?? []) {
-          if (segmentDist(p, base[i], base[(i + 1) % base.length]) <= CURVE_KEEP) return true;
-        }
-      }
+    const list = cells.get(cellKey(Math.floor(p[0]), Math.floor(p[1])));
+    if (!list) return false;
+    const [px, py] = p;
+    for (const i of list) {
+      // segmentDist, in numbers.
+      const [ax, ay] = base[i];
+      const [bx, by] = base[(i + 1) % base.length];
+      const [vx, vy] = [bx - ax, by - ay];
+      const L2 = vx * vx + vy * vy;
+      const s = L2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / L2)) : 0;
+      if (Math.hypot(px - (ax + vx * s), py - (ay + vy * s)) <= CURVE_KEEP) return true;
     }
     return false;
   };
@@ -841,6 +848,7 @@ function keptLaying(kind: string, line: Polygon, gaps: DoorGap[], set: CaveKitPi
   const key = `${kind}|${size}|${JSON.stringify(line)}|${JSON.stringify(gaps.map((g) => [g.position, g.width]))}`;
   const hit = kept.get(key);
   if (hit) return hit;
+  bandWork.layings++;
   const laid = lay();
   if (kept.size >= KEPT_LAYINGS) kept.delete(kept.keys().next().value!);
   kept.set(key, laid);
@@ -1750,7 +1758,54 @@ export function bandBends(placed: WalkPlacement[], set: CaveKitPiece[], size = 1
 }
 
 const keptBends = new WeakMap<WalkPlacement, { key: string; value: WalkPlacement }>();
-const keptMeshes = new WeakMap<WalkPlacement, { key: string; value: ReturnType<typeof bentMesh> }>();
+
+/**
+ * Bent pieces' meshes, by what each is: the piece, how its texture is laid on it, where it was
+ * laid and how both its ends bend or taper, all rounded far below a pixel. A relay that lays
+ * the same piece the same way gets the same geometry, already on the GPU, and works out nothing.
+ */
+const keptMeshes = new Map<string, MeshGeometry>();
+const KEPT_MESHES = 1024;
+/** A number for each kit piece, so two kits' same-named pieces are told apart. */
+const pieceIds = new WeakMap<CaveKitPiece, number>();
+let nextPieceId = 0;
+
+/** What is counted of the work a rebuild does: the rings and runs it laid, and the meshes it worked out. Tests read it. */
+export const bandWork = { layings: 0, meshes: 0 };
+
+function keptMesh(pl: WalkPlacement, laidAs: number[], build: () => ReturnType<typeof bentMesh>): MeshGeometry {
+  let id = pieceIds.get(pl.piece);
+  if (id === undefined) pieceIds.set(pl.piece, (id = nextPieceId++));
+  const r = (v: number): number => Math.round(v * 1e5) / 1e5;
+  const end = (e: BendEnd | undefined): string => (e ? `${r(e.at[0])},${r(e.at[1])},${r(e.turn)}` : '-');
+  const { bend, at } = pl;
+  const key = [
+    id,
+    ...laidAs.map((v) => r(v * 1e3)),
+    r(at.position.x),
+    r(at.position.y),
+    r(at.rotation),
+    r(at.scale),
+    at.flipY ? 1 : 0,
+    end(bend?.a),
+    end(bend?.b),
+    bend?.taper ? `${bend.taper[0] ? 1 : 0}${bend.taper[1] ? 1 : 0}` : '-',
+    r(bend?.unit ?? 0),
+    r(bend?.half ?? 0),
+    r(bend?.rockHalf ?? 0),
+  ].join('|');
+  const hit = keptMeshes.get(key);
+  if (hit) {
+    keptMeshes.delete(key);
+    keptMeshes.set(key, hit);
+    return hit;
+  }
+  bandWork.meshes++;
+  const geometry = new MeshGeometry(build());
+  if (keptMeshes.size >= KEPT_MESHES) keptMeshes.delete(keptMeshes.keys().next().value!);
+  keptMeshes.set(key, geometry);
+  return geometry;
+}
 
 /** The art turns less than the ring's corners do, or a piece stood in where none fit. */
 function cutsCorner(placed: WalkPlacement[], turn: number): boolean {
@@ -2302,8 +2357,8 @@ export function drawBandFill(g: Graphics, spec: BandFillSpec, span?: [number, nu
  * straight is drawn mirrored about that same centre, which is what its joints
  * already assume (caveWallKit.ts).
  *
- * `waitFor` is told each piece whose art has not decoded yet, so the host can redraw
- * once it lands (as `placeNodes` does for stones).
+ * A piece whose art has not decoded yet is laid hidden and shows its art when it lands
+ * (`swapWhenLanded`, lateArt.ts): the host draws nothing again for it.
  */
 export function placeBand(
   parent: Container,
@@ -2312,7 +2367,6 @@ export function placeBand(
   tint: number,
   from: number,
   fill?: BandFillSpec,
-  waitFor?: (textureId: string) => void,
 ): number {
   let at = from;
   if (fill && placed.length > 0) {
@@ -2328,59 +2382,46 @@ export function placeBand(
     const entry = art.get(pl.piece.key);
     if (!entry) continue;
     const tex = resolveTexture(entry.id);
-    if (tex.width <= 1) {
-      waitFor?.(entry.id);
-      continue;
-    }
-
+    // Art not decoded yet: the piece is laid all the same, hidden, and takes its art in place
+    // when it lands (lateArt.ts), with nothing laid or drawn again.
+    const late = tex.width <= 1;
     const slot = parent.children[at];
+    const cr = entry.contentRect;
+    const px = cr ? cr.w : entry.naturalWidth;
     if (pl.bend) {
       // Bent where it meets a neighbour, or tapered: the sprite's own rectangle, drawn as a mesh.
-      const cr = entry.contentRect;
+      // The texture is served at the content rect, so until it lands the entry's own size stands in.
+      const [tw, th] = late ? [px, cr ? cr.h : entry.naturalHeight] : [tex.width, tex.height];
       const [ax, ay] = cr ? [(entry.naturalWidth / 2 - cr.x) / cr.w, (entry.naturalHeight / 2 - cr.y) / cr.h] : [0.5, 0.5];
-      const px = cr ? cr.w : entry.naturalWidth;
-      const s = ((px / tex.width) * pl.at.scale) / GRID_CELL_PX;
+      const s = ((px / tw) * pl.at.scale) / GRID_CELL_PX;
       const sy = pl.at.flipY ? -s : s;
       const c = Math.cos(pl.at.rotation);
       const sn = Math.sin(pl.at.rotation);
       const corner = (x: number, y: number): Vec => {
-        const lx = (x - ax) * tex.width * s;
-        const ly = (y - ay) * tex.height * sy;
+        const lx = (x - ax) * tw * s;
+        const ly = (y - ay) * th * sy;
         return [pl.at.position.x + lx * c - ly * sn, pl.at.position.y + lx * sn + ly * c];
       };
-      const meshKey = `${tex.width}|${tex.height}|${ax}|${ay}|${s}`;
-      let kept = keptMeshes.get(pl);
-      if (kept?.key !== meshKey) {
-        kept = { key: meshKey, value: bentMesh(pl, [corner(0, 0), corner(1, 0), corner(1, 1), corner(0, 1)]) };
-        keptMeshes.set(pl, kept);
-      }
-      const { positions, uvs, indices } = kept.value;
-      let mesh: MeshSimple;
-      if (slot instanceof MeshSimple) {
-        mesh = slot;
-        mesh.texture = tex;
-        if (mesh.geometry.positions !== positions) {
-          mesh.geometry.positions = positions;
-          mesh.geometry.uvs = uvs;
-          mesh.geometry.indices = indices;
-        }
+      const geometry = keptMesh(pl, [tw, th, ax, ay, s], () => bentMesh(pl, [corner(0, 0), corner(1, 0), corner(1, 1), corner(0, 1)]));
+      let mesh: Mesh<MeshGeometry>;
+      if (slot instanceof Mesh) {
+        mesh = slot as Mesh<MeshGeometry>;
+        if (mesh.geometry !== geometry) mesh.geometry = geometry;
       } else {
-        mesh = new MeshSimple({ texture: tex, vertices: positions, uvs, indices });
+        mesh = new Mesh({ geometry, texture: Texture.EMPTY });
         parent.addChildAt(mesh, at);
       }
       mesh.tint = tint;
+      showArt(mesh, entry.id, late ? null : tex, (t) => (mesh.texture = t));
       at++;
       continue;
     }
     let sprite: Sprite;
-    if (slot instanceof Sprite) {
-      sprite = slot;
-      sprite.texture = tex;
-    } else {
-      sprite = new Sprite(tex);
+    if (slot instanceof Sprite) sprite = slot;
+    else {
+      sprite = new Sprite(Texture.EMPTY);
       parent.addChildAt(sprite, at);
     }
-    const cr = entry.contentRect;
     if (cr) {
       sprite.anchor.set((entry.naturalWidth / 2 - cr.x) / cr.w, (entry.naturalHeight / 2 - cr.y) / cr.h);
     } else {
@@ -2388,16 +2429,40 @@ export function placeBand(
     }
     sprite.position.set(pl.at.position.x, pl.at.position.y);
     sprite.rotation = pl.at.rotation;
+    sprite.tint = tint;
     // World units per texture pixel: the art is authored at GRID_CELL_PX per
     // cell, scaled by what the walk needed; a texture served at another
     // resolution is brought back to the authored size first.
-    const px = cr ? cr.w : entry.naturalWidth;
-    const s = ((px / tex.width) * pl.at.scale) / GRID_CELL_PX;
-    sprite.scale.set(s, pl.at.flipY ? -s : s);
-    sprite.tint = tint;
+    showArt(sprite, entry.id, late ? null : tex, (t) => {
+      sprite.texture = t;
+      const s = ((px / t.width) * pl.at.scale) / GRID_CELL_PX;
+      sprite.scale.set(s, pl.at.flipY ? -s : s);
+    });
     at++;
   }
   return at;
+}
+
+/** What each pooled piece waits on, so a piece reused for another before its art lands is not handed the old art. */
+const waitingOn = new WeakMap<Container, symbol>();
+
+/** Shows `texture` on `piece` with `apply`; with none yet, hides it until `textureId` lands, then shows that. */
+function showArt(piece: Container, textureId: string, texture: Texture | null, apply: (texture: Texture) => void): void {
+  if (texture) {
+    waitingOn.delete(piece);
+    apply(texture);
+    piece.visible = true;
+    return;
+  }
+  const token = Symbol(textureId);
+  waitingOn.set(piece, token);
+  piece.visible = false;
+  swapWhenLanded(textureId, (landed) => {
+    if (piece.destroyed || waitingOn.get(piece) !== token) return;
+    waitingOn.delete(piece);
+    apply(landed);
+    piece.visible = true;
+  });
 }
 
 /* ── Any outline ──────────────────────────────────────────────────────
@@ -2421,8 +2486,9 @@ export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandP
  * Draws `setId`'s border units round `rings` into `parent`, after what it holds, with the
  * ground under the rock shaded `fillColor` the way a floor's band strip is. The rock and
  * the strip stop at `gaps` (a painted cave's doors), and are laid at `size`. A measured
- * kit's rock is drawn to its own floor line, so it gets no strip. `waitFor` is told each
- * piece whose art has not decoded yet; `onLaid` each ring as the walk took it, with what it laid.
+ * kit's rock is drawn to its own floor line, so it gets no strip. A piece whose art has not
+ * decoded yet shows it when it lands (see {@link placeBand}). `onLaid` is told each ring as the
+ * walk took it, with what it laid.
  * `laid` is what {@link layOutlineBand} laid for these rings already, when the caller has it.
  */
 export function drawOutlineBand(
@@ -2432,7 +2498,6 @@ export function drawOutlineBand(
   fillColor: number,
   gaps: DoorGap[] = [],
   size = 1,
-  waitFor?: (textureId: string) => void,
   onLaid?: (ring: Polygon, placed: WalkPlacement[]) => void,
   laid: WalkPlacement[][] = layOutlineBand(rings, bandPiecesFor(setId), gaps, size),
 ): void {
@@ -2443,7 +2508,7 @@ export function drawOutlineBand(
   let at = parent.children.length;
   oriented.forEach((edge, i) => {
     onLaid?.(edge, laid[i]);
-    at = placeBand(parent, withConnectors(laid[i], set, size, mouthEnds(gaps, size)), art, 0xffffff, at, strip ? { edge, closed: true, gaps, color: fillColor, size } : undefined, waitFor);
+    at = placeBand(parent, withConnectors(laid[i], set, size, mouthEnds(gaps, size)), art, 0xffffff, at, strip ? { edge, closed: true, gaps, color: fillColor, size } : undefined);
   });
 }
 
@@ -2607,6 +2672,18 @@ function disc(c: Vec, r: number): Polygon {
  * the authored edge, and clear of each door opening on the ring by FIT_DOOR_PAD (times `size`).
  */
 export function bandFloorFit(ring: Polygon, placed: WalkPlacement[], doors: DoorGap[] = [], size = 1): FloorFit {
+  // A kept laying (see keptLaying) keeps its fit: the same ring, doors and size fit the same.
+  const key = `${size}|${JSON.stringify(ring)}|${JSON.stringify(doors.map((g) => [g.position, g.width]))}`;
+  const hit = keptFits.get(placed);
+  if (hit?.key === key) return hit.value;
+  const value = fitBand(ring, placed, doors, size);
+  keptFits.set(placed, { key, value });
+  return value;
+}
+
+const keptFits = new WeakMap<WalkPlacement[], { key: string; value: FloorFit }>();
+
+function fitBand(ring: Polygon, placed: WalkPlacement[], doors: DoorGap[], size: number): FloorFit {
   const seat = ring.length < 3 ? [] : bandSeat(placed);
   if (seat.length === 0) return { tips: [], gaps: [] };
   // A hole's floor is outside it, so what lies past the rock is the other way round.
@@ -2634,6 +2711,59 @@ const FIT_SEAM = 0.01;
 /** A walled floor's `region` as painted under a fitted rock: `(region − tips) ∪ (grown region ∩ gaps)`. */
 export function fittedFloor(region: Polygon[], fit: FloorFit | undefined): Polygon[] {
   if (!fit || (fit.tips.length === 0 && fit.gaps.length === 0)) return region;
+  // Floors too far apart for the fit to join them are fitted one by one, each kept while it and
+  // the fit's pieces near it are: painting one cave fits that cave again, not the whole map.
+  const groups = apart(region, FIT_GROW + 4 * FIT_SEAM);
+  const touching = (rings: Polygon[], box: FitBox): Polygon[] => rings.filter((r) => fitBoxesMeet(fitBoxOf([r]), box));
+  return groups.flatMap((g) => keptFit(g.rings, touching(fit.tips, g.box), touching(fit.gaps, g.box)));
+}
+
+type FitBox = [number, number, number, number];
+const fitBoxOf = (rings: Polygon[]): FitBox => {
+  const b: FitBox = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of rings) for (const [x, y] of r) [b[0], b[1], b[2], b[3]] = [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)];
+  return b;
+};
+const fitBoxesMeet = (a: FitBox, b: FitBox): boolean => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+
+/** `region`'s rings in groups whose boxes, grown by `margin`, overlap no other group's: each with its grown box. */
+function apart(region: Polygon[], margin: number): { rings: Polygon[]; box: FitBox }[] {
+  const groups = region.map((r) => {
+    const [x0, y0, x1, y1] = fitBoxOf([r]);
+    return { rings: [r], box: [x0 - margin, y0 - margin, x1 + margin, y1 + margin] as FitBox };
+  });
+  for (let merged = true; merged; ) {
+    merged = false;
+    for (let i = 0; i < groups.length; i++) {
+      for (let j = groups.length - 1; j > i; j--) {
+        if (!fitBoxesMeet(groups[i].box, groups[j].box)) continue;
+        const [a, b] = [groups[i], groups[j]];
+        groups[i] = { rings: [...a.rings, ...b.rings], box: [Math.min(a.box[0], b.box[0]), Math.min(a.box[1], b.box[1]), Math.max(a.box[2], b.box[2]), Math.max(a.box[3], b.box[3])] };
+        groups.splice(j, 1);
+        merged = true;
+      }
+    }
+  }
+  // In the region's own order, so a floor drawn alone comes out as it always did.
+  return groups.map((g) => ({ ...g, rings: region.filter((r) => g.rings.includes(r)) }));
+}
+
+/** {@link fitFloor}, kept while the region and the fit's pieces (each kept with its laying, see bandFloorFit) are. */
+function keptFit(region: Polygon[], tips: Polygon[], gaps: Polygon[]): Polygon[] {
+  const key = JSON.stringify(region);
+  const same = (a: Polygon[], b: Polygon[]): boolean => a.length === b.length && a.every((p, i) => p === b[i]);
+  const hit = keptFitted.get(key);
+  if (hit && same(hit.tips, tips) && same(hit.gaps, gaps)) return hit.value;
+  const value = fitFloor(region, { tips, gaps });
+  if (keptFitted.size >= KEPT_FITTED) keptFitted.delete(keptFitted.keys().next().value!);
+  keptFitted.set(key, { tips, gaps, value });
+  return value;
+}
+
+const keptFitted = new Map<string, { tips: Polygon[]; gaps: Polygon[]; value: Polygon[] }>();
+const KEPT_FITTED = 128;
+
+function fitFloor(region: Polygon[], fit: FloorFit): Polygon[] {
   const cut = fit.tips.length > 0 ? clipper2Engine.difference(region, fit.tips) : region;
   const add = fit.gaps.length > 0 ? clipper2Engine.intersection(clipper2Engine.inflate(region, FIT_GROW), fit.gaps) : [];
   const joined = add.length > 0 ? clipper2Engine.union(cut, add) : cut;

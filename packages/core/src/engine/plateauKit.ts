@@ -128,14 +128,25 @@ export function cliffArt(edgeArt: string | undefined): Map<string, CatalogEntry>
   return art;
 }
 
-/** The kit pieces a cliff can lay with `art`: its family's, only those with a picture to show. */
+/**
+ * The kit pieces a cliff can lay with `art`: its family's, only those with a picture to show.
+ * The same list while the kit and its art are, so a cliff walked before is not walked again
+ * (a kept laying is kept per kit list).
+ */
 export function cliffPieces(art: Map<string, CatalogEntry>, edgeArt?: string): CaveKitPiece[] {
   const { setId, family } = cliffChoice(edgeArt);
   const kit = isMeasuredBandSet(setId) ? bandPiecesFor(setId) : ledgePieces(family);
+  const keys = [...art.keys()].join('|');
+  const hit = keptCliffPieces.get(kit);
+  if (hit?.keys === keys) return hit.value;
   const pieces = kit.filter((p) => art.has(p.key));
   // Straights alone can fence a ring; bends alone cannot run.
-  return pieces.some((p) => p.turnDeg === 0) ? pieces : [];
+  const value = pieces.some((p) => p.turnDeg === 0) ? pieces : [];
+  keptCliffPieces.set(kit, { keys, value });
+  return value;
 }
+
+const keptCliffPieces = new WeakMap<CaveKitPiece[], { keys: string; value: CaveKitPiece[] }>();
 
 /** The pieces that end an open ledge run of the family `edgeArt` names, with art in `art`. */
 export function ledgeEndPieces(art: Map<string, CatalogEntry>, edgeArt?: string): CaveKitPiece[] {

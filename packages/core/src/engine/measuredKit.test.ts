@@ -1,14 +1,15 @@
-// A measured band kit as drawn: its art redraws when it lands late, it is laid at its
+// A measured band kit as drawn: its art shows in place when it lands late, it is laid at its
 // drawn size, its coloured cliffs are not shaded, and it has no ground strip: the floor's
 // paint is fitted to its rock instead (bandFloorFit).
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+const { landed } = vi.hoisted(() => ({ landed: new Set<string>() }));
 vi.mock('../assets/textureLoader', async (importOriginal) => {
   const { Texture, TextureSource } = await import('pixi.js');
   const loaded = new Texture({ source: new TextureSource({ width: 200, height: 200 }) });
   const late = new Texture({ source: new TextureSource({ width: 1, height: 1 }) });
   const actual = await importOriginal<typeof import('../assets/textureLoader')>();
-  return { ...actual, resolveTexture: (id: string) => (id.includes('late') ? late : loaded) };
+  return { ...actual, resolveTexture: (id: string) => (id.includes('late') && !landed.has(id) ? late : loaded) };
 });
 
 import { Container, Graphics, Sprite } from 'pixi.js';
@@ -17,6 +18,7 @@ import { setClipperModule } from '../geometry/Clipper2Engine';
 import { bandPiecesFor, jointsOf, mirrorPiece, type CaveKitPiece } from '../assets/caveWallKit';
 import { bandScale, bandSetArt, bandSize } from '../assets/packCatalog';
 import { resetAssetPackManager, seedCaveBandPack, seedPack } from '../testing/seedCatalog';
+import { getAssetPackManager } from './assetPackInstance';
 import {
   bandFloorFit,
   bandSeat,
@@ -102,16 +104,25 @@ const bandStyle = (setId: string) => ({ wallTextureSetId: setId, wallTextureTint
 const square: Polygon = [[0, 0], [10, 0], [10, 10], [0, 10]];
 
 describe('band art that loads late', () => {
-  it('asks for a redraw for each piece whose texture is not loaded yet', () => {
+  it('lays each piece whose texture is not loaded yet hidden, and shows its art in place when it lands', () => {
     const [ring] = orientRings([square]);
     seedMeasuredKit();
     const placed = layBandRing(ring, [], bandPiecesFor(SET));
     const art = new Map([...bandSetArt(SET)].map(([key, e]) => [key, key === 'run_2x4' ? { ...e, id: 'late-run' } : e]));
-    const waitFor = vi.fn();
-    placeBand(new Container(), placed, art, 0xffffff, 0, undefined, waitFor);
-    expect(placed.some((pl) => pl.piece.key === 'run_2x4')).toBe(true);
-    expect(waitFor).toHaveBeenCalledWith('late-run');
-    expect(waitFor.mock.calls.every(([id]) => id === 'late-run')).toBe(true);
+    const parent = new Container();
+    placeBand(parent, placed, art, 0xffffff, 0);
+    const late = placed.filter((pl) => pl.piece.key === 'run_2x4').length;
+    expect(late).toBeGreaterThan(0);
+    const hidden = () => parent.children.filter((c) => !c.visible).length;
+    expect(hidden()).toBe(late);
+    const laid = [...parent.children];
+    // The art lands, and the manager says so: nothing is laid again, the hidden pieces show it.
+    landed.add('late-run');
+    for (const cb of (getAssetPackManager() as unknown as { textureSubs: Set<() => void> }).textureSubs) cb();
+    expect(hidden()).toBe(0);
+    expect(parent.children).toEqual(laid);
+    expect(parent.children.every((c) => (c as Sprite).texture.width > 1)).toBe(true);
+    landed.clear();
   });
 });
 

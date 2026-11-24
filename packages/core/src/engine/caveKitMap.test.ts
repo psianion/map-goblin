@@ -18,7 +18,7 @@ import { setClipperModule } from '../geometry/Clipper2Engine';
 import { bandPiecesFor, caveBandPieces, jointsOf, KIT_SHADOW, kitRockWidth, kitShadow } from '../assets/caveWallKit';
 import { BAND_DRAWN_WIDTH } from '../assets/packCatalog';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
-import { brokenRules, checkBand, type BandCheck } from '../testing/bandChecks';
+import { artCorners, bentMeshStray, brokenRules, checkBand, type BandCheck } from '../testing/bandChecks';
 import { layLayer, type LaidBand } from '../testing/caveLayout';
 import { BRUSH_CAVE, CAVE_CASES, caseLayer, joinedCaves, type CaseKits } from '../testing/caveCases';
 import { useStore } from '../store/store';
@@ -310,6 +310,27 @@ describe('pieces bent to meet at a joint', () => {
       expect(bendWarp(pl)(p)).toEqual(p);
     }
   });
+
+  it('cuts each bent piece’s mesh so it draws its warp within three hundredths of a cell, where the warp itself steps included, and no finer than that asks', () => {
+    seedKit();
+    let pieces = 0;
+    let vertices = 0;
+    for (const layer of [joinedCaves(KITS), caseLayerOf([BENT, PENTAGON]), ...CAVE_CASES.map((c) => c.layer(KITS))]) {
+      for (const b of layLayer(layer).bands) {
+        const set = b.placed.map((pl) => pl.piece);
+        for (const pl of bandBends(b.placed, set, b.size, b.kind === 'cliff' ? undefined : mouthEnds(b.gaps, b.size))) {
+          if (!pl.bend) continue;
+          const stray = bentMeshStray(pl, artCorners(pl));
+          expect(stray.worst, `${pl.piece.key} at ${pl.at.position.x.toFixed(2)},${pl.at.position.y.toFixed(2)}`).toBeLessThanOrEqual(0.03);
+          pieces++;
+          vertices += stray.vertices;
+        }
+      }
+    }
+    expect(pieces).toBeGreaterThan(10);
+    // Finer than this a piece on average is more than any bend here asks.
+    expect(vertices / pieces).toBeLessThan(2500);
+  }, 60_000);
 });
 
 describe('a run tapered at a mouth', () => {

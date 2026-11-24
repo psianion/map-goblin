@@ -1,7 +1,7 @@
 // Plateau rendering: what lands in the plateaus sublayer for a cliff, a slope and a pit, the
 // cliff kit the ledge art makes, the lit and shaded faces, and the cliff shadows.
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { BufferImageSource, Container, Graphics, MeshSimple, Sprite, Texture, TilingSprite } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, Mesh, Sprite, Texture, TilingSprite } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 
 const art = new Texture({ source: new BufferImageSource({ resource: new Uint8Array(8 * 8 * 4), width: 8, height: 8 }) });
@@ -285,7 +285,7 @@ describe('renderPlateaus', () => {
     // No contour art and no slope sprites: it is drawn, not laid. (The drop shade's ramp is a sprite of its own.)
     const sprites: Container[] = [];
     const walk = (c: Container) => {
-      if ((c instanceof Sprite && c.label !== 'ramp') || c instanceof MeshSimple) sprites.push(c);
+      if ((c instanceof Sprite && c.label !== 'ramp') || (c instanceof Mesh && c.label !== 'ramp')) sprites.push(c);
       for (const k of c.children) walk(k as Container);
     };
     walk(parent);

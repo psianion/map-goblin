@@ -215,9 +215,7 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
     // The rock rim of a ground piece: the band walk a cave gets, with no wall behind it.
     for (const e of bandSetArt(shape.edgeMaterial).values()) artOf(layer.id, e.id);
     const size = bandSize(shape.edgeMaterial, wallWidthPin(shape) ?? ctx.style.wallWidth);
-    drawOutlineBand(piece, outline, shape.edgeMaterial, bandFillColor({ floorColor: ctx.style.floorColor, textureId: shape.textureId }), [], size, (id) =>
-      armLateTextureRebuild(layer.id, id),
-    );
+    drawOutlineBand(piece, outline, shape.edgeMaterial, bandFillColor({ floorColor: ctx.style.floorColor, textureId: shape.textureId }), [], size);
   }
   host.addChild(piece);
 }

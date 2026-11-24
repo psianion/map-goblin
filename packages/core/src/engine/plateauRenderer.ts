@@ -240,7 +240,7 @@ export function renderPlateaus(
     for (const { run, cliffs } of laid) {
       if (!cliffs) continue;
       const walks = options.cliffs?.get(band)?.get(cliffKey(run));
-      cliffs.forEach((c, i) => sprites.push(...drawCliff(holder, c, walks?.[i] ?? walkCliff(c.run), options)));
+      cliffs.forEach((c, i) => sprites.push(...drawCliff(holder, c, walks?.[i] ?? walkCliff(c.run))));
     }
     // A painted border's Edge line rides on the card's Contour lines switch: on unless set off.
     for (const run of runs) if (painted(run) && run.owner?.contourLines !== false) drawEdgeLine(holder, run);
@@ -523,11 +523,21 @@ export function fittedAlongWalls(region: Polygon[], runs: readonly LaidRun[], fi
   const ownGaps = runs.flatMap((r) => r.cliff.gaps);
   const walled = !!fit && zone.length > 0;
   if (region.length === 0 || (!walled && ownTips.length + ownGaps.length === 0)) return region;
+  // Kept while the region, the runs and the layer's fit (its pieces kept with their layings) are.
+  const key = JSON.stringify([region, zone, ownTips, ownGaps, outside]);
+  const same = (a: readonly Polygon[], b: readonly Polygon[]): boolean => a.length === b.length && a.every((p, i) => p === b[i]);
+  const hit = keptAlongWalls.get(key);
+  if (hit && same(hit.tips, fit?.tips ?? []) && same(hit.gaps, fit?.gaps ?? [])) return hit.value;
   const keep = (rings: Polygon[]) => (walled && rings.length > 0 ? clipper2Engine.intersection(rings, zone) : []);
   const tips = [...keep(fit?.tips ?? []), ...ownTips];
   const gaps = [...keep(fit?.gaps ?? []), ...ownGaps];
-  return fittedFloor(region, outside ? { tips: gaps, gaps: tips } : { tips, gaps });
+  const value = fittedFloor(region, outside ? { tips: gaps, gaps: tips } : { tips, gaps });
+  if (keptAlongWalls.size >= 64) keptAlongWalls.delete(keptAlongWalls.keys().next().value!);
+  keptAlongWalls.set(key, { tips: fit?.tips ?? [], gaps: fit?.gaps ?? [], value });
+  return value;
 }
+
+const keptAlongWalls = new Map<string, { tips: readonly Polygon[]; gaps: readonly Polygon[]; value: Polygon[] }>();
 
 /**
  * A plateau's top texture region (`face` false) or its slope's face texture region, fitted along
@@ -1131,10 +1141,13 @@ export function dropShadeField(runs: EdgeRun[]): RampField | null {
   const lines = runs.map((run) => ({ pts: run.closed ? [...run.points, run.points[0]] : run.points, closed: false }));
   const widths = runs.map((run) => dropShadeWidth(run.drop));
   const reach = Math.max(0, ...widths);
-  const grid = rampGrid(lines.map((l) => l.pts), reach + 0.1);
-  if (!grid) return null;
-  const { d, owner } = distanceToLines(lines, grid, reach);
-  return fieldOf(grid, (_x, _y, k) => (owner[k] < 0 ? 0 : DROP_SHADE_ALPHA * fallOff(d[k], 0, widths[owner[k]])));
+  const kept = keptRamp('drop-shade', [lines, widths], () => {
+    const grid = rampGrid(lines.map((l) => l.pts), reach + 0.1);
+    if (!grid) return null;
+    const { d, owner } = distanceToLines(lines, grid, reach);
+    return { field: fieldOf(grid, (_x, _y, k) => (owner[k] < 0 ? 0 : DROP_SHADE_ALPHA * fallOff(d[k], 0, widths[owner[k]]))), clip: null };
+  });
+  return kept?.field ?? null;
 }
 
 /**
@@ -1356,7 +1369,7 @@ export function cliffFreeTips(stretch: CliffRun, drawn: WalkPlacement[]): ((end:
  * One stretch of a cliff: the top-edge ink line along its `top` (on its rock line where it has
  * one), then its ledge (`cliffLedge`) from the pieces `placed` by its walk (`walkCliff`).
  */
-function drawCliff(parent: Container, stretch: CliffRun, placed: WalkPlacement[], options: PlateauRenderOptions): CliffSprite[] {
+function drawCliff(parent: Container, stretch: CliffRun, placed: WalkPlacement[]): CliffSprite[] {
   const run = stretch.top;
   // Drawn the way the walk goes, so a pit's backwards.
   const pts = run.drop > 0 ? run.points : [...run.points].reverse();
@@ -1370,7 +1383,7 @@ function drawCliff(parent: Container, stretch: CliffRun, placed: WalkPlacement[]
   }
 
   const art = cliffArt(run.owner?.edgeArt);
-  for (const e of art.values()) if (resolveTexture(e.id).width <= 1) options.waitFor?.(e.id);
+  // Pieces whose art has not landed take it in place when it does (placeBand).
   const sprites: CliffSprite[] = [];
 
   const rock = new Container();

@@ -15,7 +15,7 @@ import type { DungeonLayer, RockLine } from '../../store/types';
 import type { Polygon } from '../../types/geometry';
 import { getLayerEntry } from '../sceneGraph';
 import { bandFillColor, drawOutlineBand, layOutlineBand, orientRings } from '../caveBandRenderer';
-import { bandSetArt, bandSize, isBandSet, isMeasuredBandSet } from '../../assets/packCatalog';
+import { bandSize, isBandSet, isMeasuredBandSet } from '../../assets/packCatalog';
 import { bandPiecesFor } from '../../assets/caveWallKit';
 import { rockLineOf, storeRockLines } from '../rockLines';
 import type { WalkPlacement } from '../caveWalk';
@@ -33,6 +33,7 @@ import { caveEdges, caveOpeningGaps, type CaveEdge } from '../../shared/caveFloo
 import { resolveDoors, resolveWalls, type ResolvedDoor } from '../../shared/wallResolve';
 import type { DoorGap } from '../wallNodeRenderer';
 import { getAssetPackManager } from '../assetPackInstance';
+import { afterArtSettles } from '../lateArt';
 
 /** Layers waiting on art to load, so one redraw follows however many textures land. */
 const waiting = new Set<string>();
@@ -40,6 +41,14 @@ const waiting = new Set<string>();
 const asked = new Set<string>();
 /** The art each layer's rock was last drawn without, by layer id. */
 const bare = new Map<string, string[]>();
+
+/** Draws the layer `id`'s caves again once the art landing now has settled (lateArt.ts). */
+function redrawOnceSettled(id: string): void {
+  afterArtSettles(`materials:${id}`, () => {
+    const now = useStore.getState().layers.find((l): l is DungeonLayer => l.id === id && l.type === 'dungeon');
+    if (now) drawLayerMaterials(now);
+  });
+}
 
 /**
  * Art can land later than one wait: a decode clears `asked` so the next draw asks again,
@@ -54,20 +63,22 @@ function watchTextures(): void {
     for (const [id, art] of [...bare]) {
       if (!art.some((t) => resolveTexture(t).width > 1)) continue;
       bare.delete(id);
-      const now = useStore.getState().layers.find((l): l is DungeonLayer => l.id === id && l.type === 'dungeon');
-      if (now) drawLayerMaterials(now);
+      redrawOnceSettled(id);
     }
   });
 }
 
-/** Each art id the caves' rock needs that has not loaded; loads them and redraws the layer once they have. */
+/**
+ * Each art id the caves' fill needs that has not loaded (the ink kit's strip takes its tone
+ * from it); loads them and redraws the layer once they have. The rock's own pieces take their
+ * art in place when it lands (`placeBand`), with nothing drawn again.
+ */
 function awaitArt(layer: DungeonLayer, materials: readonly string[]): void {
   watchTextures();
   const ids = new Set<string>();
   for (const material of materials) {
     const fill = materialFillId(material);
     if (fill) ids.add(fill);
-    for (const e of bandSetArt(material).values()) ids.add(e.id);
   }
   const unloaded = [...ids].filter((id) => resolveTexture(id).width <= 1);
   if (unloaded.length > 0) bare.set(layer.id, [...(bare.get(layer.id) ?? []), ...unloaded]);
@@ -77,8 +88,7 @@ function awaitArt(layer: DungeonLayer, materials: readonly string[]): void {
   for (const id of missing) asked.add(id);
   void Promise.all(missing.map((id) => load(id))).then(() => {
     waiting.delete(layer.id);
-    const now = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layer.id && l.type === 'dungeon');
-    if (now) drawLayerMaterials(now);
+    redrawOnceSettled(layer.id);
   });
 }
 
@@ -308,7 +318,6 @@ function drawCave(host: Container, layer: DungeonLayer, laid: LaidCave, lines: R
     bandFillColor({ floorColor: layer.style.floorColor, textureId: materialFillId(cave.material) }),
     laid.gaps,
     laid.size,
-    () => awaitArt(layer, [cave.material]),
     onLaid,
     laid.placed,
   );

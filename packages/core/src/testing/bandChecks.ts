@@ -7,7 +7,7 @@
 
 import { jointsOf, kitRockWidth } from '../assets/caveWallKit';
 import { bandBends, SEAT_IN, seatLine } from '../engine/caveBandRenderer';
-import { endTangents, unbend } from '../engine/bandBend';
+import { bendWarp, bentMesh, endTangents, unbend } from '../engine/bandBend';
 import type { WalkPlacement } from '../engine/caveWalk';
 import { ledgeRuns } from '../engine/plateauRenderer';
 import type { DoorGap } from '../engine/wallNodeRenderer';
@@ -468,4 +468,94 @@ export function checkBand(input: BandCheckInput): BandCheck {
     bareRim,
     bareRimAt,
   };
+}
+
+/**
+ * How far a bent piece's mesh (`bentMesh`) strays from its warp: each of its cells cut ten
+ * times finer, each point of that finer mesh warped exactly and read off the mesh as the GPU
+ * draws it (across the cell's two triangles). Only points `drawn` says the art shows count (by
+ * their texture coordinates; all of them by default), and no cell the warp jumps across. The
+ * worst distance, cells, the mesh's size, and how many cells were passed over as jumps.
+ */
+export function bentMeshStray(pl: WalkPlacement, corners: [V, V, V, V], drawn: (u: number, v: number) => boolean = () => true): { worst: number; vertices: number; jumps: number; worstAt: number[] } {
+  const mesh = bentMesh(pl, corners);
+  const warp = bendWarp(pl);
+  const [tl, tr, , bl] = corners;
+  const xs: number[] = [];
+  for (let i = 0; i < mesh.uvs.length && (i === 0 || mesh.uvs[i] > mesh.uvs[i - 2]); i += 2) xs.push(mesh.uvs[i]);
+  const cols = xs.length;
+  const ys: number[] = [];
+  for (let k = 0; k * cols * 2 < mesh.uvs.length; k++) ys.push(mesh.uvs[k * cols * 2 + 1]);
+  const P = (c: number, r: number): V => [mesh.positions[(r * cols + c) * 2], mesh.positions[(r * cols + c) * 2 + 1]];
+  const src = (x: number, y: number): V => [tl[0] + (tr[0] - tl[0]) * x + (bl[0] - tl[0]) * y, tl[1] + (tr[1] - tl[1]) * x + (bl[1] - tl[1]) * y];
+  let worst = 0;
+  let worstAt: number[] = [];
+  let jumps = 0;
+  for (let r = 0; r + 1 < ys.length; r++) {
+    for (let c = 0; c + 1 < cols; c++) {
+      const [a, b, d, e] = [P(c, r), P(c + 1, r), P(c, r + 1), P(c + 1, r + 1)];
+      const exact: V[][] = [];
+      for (let i = 0; i <= 10; i++) {
+        exact.push([]);
+        for (let j = 0; j <= 10; j++) exact[i].push(warp(src(xs[c] + ((xs[c + 1] - xs[c]) * i) / 10, ys[r] + ((ys[r + 1] - ys[r]) * j) / 10)));
+      }
+      // A cell the warp jumps across (a bend's art past its centre, none of the rock, is measured
+      // straight back) is no cut's to close: two samples drawn three times further apart than they lie.
+      const far = (p: V, q: V, sp: V, sq: V): boolean => Math.hypot(p[0] - q[0], p[1] - q[1]) > 3 * Math.hypot(sp[0] - sq[0], sp[1] - sq[1]) + 1e-9;
+      // …or one it steps at, on a corner: the warp just inside the corner far from the corner's own.
+      const inside = (x: number, y: number, dx: number, dy: number): boolean => {
+        const [p, q] = [warp(src(x, y)), warp(src(x + dx * 1e-6, y + dy * 1e-6))];
+        return Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-3;
+      };
+      let jumped =
+        inside(xs[c], ys[r], 1, 1) || inside(xs[c + 1], ys[r], -1, 1) || inside(xs[c], ys[r + 1], 1, -1) || inside(xs[c + 1], ys[r + 1], -1, -1);
+      for (let i = 0; i <= 10 && !jumped; i++) {
+        for (let j = 0; j <= 10 && !jumped; j++) {
+          const s0 = src(xs[c] + ((xs[c + 1] - xs[c]) * i) / 10, ys[r] + ((ys[r + 1] - ys[r]) * j) / 10);
+          if (i < 10 && far(exact[i][j], exact[i + 1][j], s0, src(xs[c] + ((xs[c + 1] - xs[c]) * (i + 1)) / 10, ys[r] + ((ys[r + 1] - ys[r]) * j) / 10))) jumped = true;
+          if (j < 10 && far(exact[i][j], exact[i][j + 1], s0, src(xs[c] + ((xs[c + 1] - xs[c]) * i) / 10, ys[r] + ((ys[r + 1] - ys[r]) * (j + 1)) / 10))) jumped = true;
+        }
+      }
+      if (jumped) {
+        jumps++;
+        continue;
+      }
+      for (let i = 0; i <= 10; i++) {
+        for (let j = 0; j <= 10; j++) {
+          const [fx, fy] = [i / 10, j / 10];
+          if (!drawn(xs[c] + (xs[c + 1] - xs[c]) * fx, ys[r] + (ys[r + 1] - ys[r]) * fy)) continue;
+          const want = exact[i][j];
+          // The cell's triangles are (a, b, e) and (a, e, d).
+          const got: V =
+            fx >= fy
+              ? [a[0] + (b[0] - a[0]) * (fx - fy) + (e[0] - a[0]) * fy, a[1] + (b[1] - a[1]) * (fx - fy) + (e[1] - a[1]) * fy]
+              : [a[0] + (e[0] - a[0]) * fx + (d[0] - a[0]) * (fy - fx), a[1] + (e[1] - a[1]) * fx + (d[1] - a[1]) * (fy - fx)];
+          const err = Math.hypot(want[0] - got[0], want[1] - got[1]);
+          if (err > worst) {
+            worst = err;
+            worstAt = [xs[c] + (xs[c + 1] - xs[c]) * fx, ys[r] + (ys[r + 1] - ys[r]) * fy, xs[c + 1] - xs[c], ys[r + 1] - ys[r]];
+          }
+        }
+      }
+    }
+  }
+  return { worst, vertices: mesh.positions.length / 2, jumps, worstAt };
+}
+
+/**
+ * The four corners of `pl`'s art, as `placeBand` lays its texture: `w` by `h` pixels at 200 a
+ * cell, centred, nothing trimmed; by default the size its key names (`run_3x2`: 3 cells by 2).
+ */
+export function artCorners(pl: WalkPlacement, w?: number, h?: number): [V, V, V, V] {
+  const named = [...pl.piece.key.matchAll(/(\d+)x(\d+)/g)].pop();
+  w ??= named ? Number(named[1]) * 200 : 200;
+  h ??= named ? Number(named[2]) * 200 : 200;
+  const s = pl.at.scale / 200;
+  const sy = pl.at.flipY ? -s : s;
+  const [c, sn] = [Math.cos(pl.at.rotation), Math.sin(pl.at.rotation)];
+  const corner = (x: number, y: number): V => {
+    const [lx, ly] = [(x - 0.5) * w * s, (y - 0.5) * h * sy];
+    return [pl.at.position.x + lx * c - ly * sn, pl.at.position.y + lx * sn + ly * c];
+  };
+  return [corner(0, 0), corner(1, 0), corner(1, 1), corner(0, 1)];
 }

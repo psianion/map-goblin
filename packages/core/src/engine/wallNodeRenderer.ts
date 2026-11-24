@@ -955,7 +955,6 @@ export function renderNodeWalls(
             bandTint(look.setId, look.tint),
             pools.get(wallsContainer) ?? 0,
             fill,
-            options.waitFor,
           ),
         );
         continue;
@@ -1001,7 +1000,7 @@ export function renderNodeWalls(
       if (measured) options.onRockLaid?.({ placed, closed: true, size });
       pools.set(
         wallsContainer,
-        placeBand(wallsContainer, withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill, options.waitFor),
+        placeBand(wallsContainer, withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill),
       );
       continue;
     }
@@ -1061,7 +1060,7 @@ export function renderNodeWalls(
         const laid = run.closed ? layBandRing(run.points, gaps, pieces, size) : layBandChain(run.points, gaps, pieces, size);
         const fill = strip ? { edge: run.points, closed: run.closed, gaps, color, size } : undefined;
         if (!strip) options.onRockLaid?.({ placed: laid, closed: run.closed, size });
-        at = placeBand(target, withConnectors(laid, pieces, size), band, bandTint(look.setId, look.tint), at, fill, options.waitFor);
+        at = placeBand(target, withConnectors(laid, pieces, size), band, bandTint(look.setId, look.tint), at, fill);
       }
       pools.set(target, at);
       continue;

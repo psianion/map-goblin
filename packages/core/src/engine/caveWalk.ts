@@ -600,6 +600,13 @@ const CLOSE_BACK = 3;
  * back inside the one before, the last ending on `i1`. The fewest pieces, then the least stretched
  * and best fitting. Null when no fill keeps to all of that.
  */
+/**
+ * What {@link fillClose} worked out for each piece between two samples of a curve: a close is
+ * filled from several starts and at several sizes (`nearestClose`), and a ring from several
+ * starts, over the same samples. Pure, so what is kept is what would be worked out again.
+ */
+const keptFills = new WeakMap<Curve, Map<CaveKitPiece, Map<number, { f: ArcFit; by?: WalkOptions['accept']; ok?: boolean }>>>();
+
 function fillClose(
   curve: Curve,
   set: CaveKitPiece[],
@@ -628,6 +635,8 @@ function fillClose(
   const cost = new Map<number, number>([[first, 0]]);
   let done: Step | null = null;
   const pieces = set.filter((p, k) => set.findIndex((q) => q.key === p.key && !!q.flipY === !!p.flipY) === k);
+  let fits = keptFills.get(curve);
+  if (!fits) keptFills.set(curve, (fits = new Map()));
   for (let s = first; s < last; s++) {
     const c0 = cost.get(s);
     if (c0 === undefined) continue;
@@ -643,9 +652,21 @@ function fillClose(
         if (d < lo || d > hi) continue;
         if (e < last && e - backOff <= s) continue;
         if (wrongFamilyFor(piece, turnDeg(tS, tangentAt(curve, e)), gate)) continue;
-        const f = fitArc(curve, s, e, P, Q, piece);
+        // The same piece between the same two samples fits the same, and is accepted or not the same.
+        let byPiece = fits.get(piece);
+        if (!byPiece) fits.set(piece, (byPiece = new Map()));
+        const key = (s % n) * 4 * n + (e - s);
+        let hit = byPiece.get(key);
+        if (!hit) byPiece.set(key, (hit = { f: fitArc(curve, s, e, P, Q, piece) }));
+        const f = hit.f;
         if (f.miss > BAND_FIT) continue;
-        if (accept && !accept(piece, P, Q, f.nudge)) continue;
+        if (accept) {
+          if (hit.by !== accept) {
+            hit.by = accept;
+            hit.ok = accept(piece, P, Q, f.nudge);
+          }
+          if (!hit.ok) continue;
+        }
         // Spread, the size error costs by its square, so it is shared out rather than put on one piece.
         const off = Math.log(d / piece.chordCells);
         const c = c0 + 1 + (spread ? 30 * off * off : 3 * Math.abs(off)) + f.miss;

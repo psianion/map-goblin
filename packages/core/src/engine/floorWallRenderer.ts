@@ -34,6 +34,7 @@ import { mouthLines, mouthRamp } from './softEdge';
 import type { Ramp } from './rampMask';
 import { wallShadowRamp, type LaidRock } from './wallShadow';
 import { laidCaves } from './material/materialRenderer';
+import { afterArtSettles } from './lateArt';
 
 /** A '#rrggbb' as a number; NaN for anything else, missing included. */
 function parseColor(hex: string | undefined): number {
@@ -73,9 +74,10 @@ export function armLateTextureRebuild(layerId: string, textureId: string): void 
       for (const [id, waiting] of [...lateTextures]) {
         // Asking again also starts a decode the first ask could not (its pack not read yet).
         if (![...waiting].some((t) => manager.getTextureOrNull(t))) continue;
-        // The bake that follows arms again whatever is still missing.
+        // The bake that follows arms again whatever is still missing. One bake once the art
+        // landing now has settled, not one per batch (lateArt.ts).
         lateTextures.delete(id);
-        useStore.getState().bumpFloorTextureEpoch(id);
+        afterArtSettles(`floor:${id}`, () => useStore.getState().bumpFloorTextureEpoch(id));
       }
     });
   }
@@ -96,8 +98,11 @@ function watchCatalog(): void {
   if (catalogWatched === manager) return;
   catalogWatched = manager;
   manager.subscribeCatalog(() => {
-    const store = useStore.getState();
-    for (const layer of store.layers) if (layer.type === 'dungeon') store.bumpFloorTextureEpoch(layer.id);
+    // Once the packs being read now have settled, as late art is (lateArt.ts).
+    afterArtSettles('catalog', () => {
+      const store = useStore.getState();
+      for (const layer of store.layers) if (layer.type === 'dungeon') store.bumpFloorTextureEpoch(layer.id);
+    });
   });
 }
 
