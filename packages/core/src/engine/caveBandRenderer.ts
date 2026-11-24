@@ -396,21 +396,20 @@ const ON_EDGE = 0.05;
  * left bare. Null when no gap lies on the line; none for a ring open all round.
  */
 function layWallRuns(line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], closed: boolean, opts: WalkOptions): WalkPlacement[] | null {
-  const { pts, cum, joined, mouth } = openingArcs(line, gaps, closed);
+  const { pts, cum, joined } = openingArcs(line, gaps, closed);
   if (joined.length === 0) return null;
   const total = cum[cum.length - 1];
   if (closed && joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN) return [];
   const half = kitOverlap(set) / 2;
-  // Each stretch from where it opens to where it closes, whether an opening bounds each end, and
-  // whether that end is capped (see mouthCap).
-  const stretches: [number, number, boolean, boolean, boolean, boolean][] = joined.slice(1).map((o, k) => [joined[k][1], o[0], true, true, mouth[k], mouth[k + 1]]);
+  // Each stretch from where it opens to where it closes, and whether an opening bounds each end.
+  const stretches: [number, number, boolean, boolean][] = joined.slice(1).map((o, k) => [joined[k][1], o[0], true, true]);
   if (closed) {
-    stretches.push([joined[joined.length - 1][1], joined[0][0] + total, true, true, mouth[joined.length - 1], mouth[0]]);
+    stretches.push([joined[joined.length - 1][1], joined[0][0] + total, true, true]);
   } else {
-    stretches.unshift([0, joined[0][0], false, true, false, mouth[0]]);
-    stretches.push([joined[joined.length - 1][1], total, true, false, mouth[joined.length - 1], false]);
+    stretches.unshift([0, joined[0][0], false, true]);
+    stretches.push([joined[joined.length - 1][1], total, true, false]);
   }
-  return stretches.flatMap(([from, to, open0, open1, mouth0, mouth1]) => {
+  return stretches.flatMap(([from, to, open0, open1]) => {
     if (to - from < EXACT_SLIVER) return [];
     const run = subLine(pts, cum, from, to, closed);
     const n = run.length;
@@ -418,17 +417,10 @@ function layWallRuns(line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], closed
     const t0 = norm(sub(run[1], run[0]));
     const t1 = norm(sub(run[n - 1], run[n - 2]));
     // A stretch of straight sides is laid corner by corner, its art ending at the wall ends itself.
-    const exact = layExactRun(run as Polygon, set, false, [], [false, false], [mouth0, mouth1]);
+    const exact = layExactRun(run as Polygon, set);
     if (exact) return exact;
-    // Any other: a capped end's cap is laid square to the stretch's end, the stretch cut back to it.
-    const length = to - from;
-    const head = mouth0 ? mouthCap(set, run[0], t0, true, length / 2) : null;
-    const tail = mouth1 ? mouthCap(set, run[n - 1], t1, false, length / 2) : null;
-    const cut = subLine(pts, cum, from + (head?.t ?? 0), to + (tail?.t ?? 0), closed);
-    const m = cut.length;
-    if (m < 2) return [];
-    const carried: Vec[] = [...(open0 && !head ? [sub(cut[0], mul(t0, half))] : []), ...cut, ...(open1 && !tail ? [add(cut[m - 1], mul(t1, half))] : [])];
-    return [...(head ? [head.pl] : []), ...layChain(carried, [], set, opts), ...(tail ? [tail.pl] : [])];
+    const carried: Vec[] = [...(open0 ? [sub(run[0], mul(t0, half))] : []), ...run, ...(open1 ? [add(run[n - 1], mul(t1, half))] : [])];
+    return layChain(carried, [], set, opts);
   });
 }
 
@@ -437,7 +429,7 @@ function layWallRuns(line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], closed
  * (the line, its first point repeated at the end when `closed`), in order, touching ones
  * joined and one across a ring's seam running on past its end.
  */
-function openingArcs(line: Polygon, gaps: DoorGap[], closed: boolean): { pts: Vec[]; cum: number[]; joined: [number, number][]; mouth: boolean[] } {
+function openingArcs(line: Polygon, gaps: DoorGap[], closed: boolean): { pts: Vec[]; cum: number[]; joined: [number, number][] } {
   const pts: Vec[] = line.map(([x, y]) => [x, y]);
   if (closed) pts.push(pts[0]);
   const cum = arcLengths(pts);
@@ -468,43 +460,7 @@ function openingArcs(line: Polygon, gaps: DoorGap[], closed: boolean): { pts: Ve
   if (closed && joined.length > 1 && joined[0][0] <= WALL_END_JOIN && joined[joined.length - 1][1] >= total - WALL_END_JOIN) {
     joined[joined.length - 1][1] = total + joined.shift()![1];
   }
-  // Every opening's rock ends are capped (mouthCap): an erased mouth's, an Opening's, and a door's,
-  // whose posts or frames stand against the caps' tips.
-  return { pts, cum, joined, mouth: joined.map(() => true) };
-}
-
-/**
- * The painted cap a cave wall's rock ends in at an opening (an erased mouth, an Opening or a door): a measured kit's narrowest rock
- * spur tip (a dead end turning -180), laid as a spur's tip is (see {@link pairPiece}) on a spur as
- * wide as its joints span plus the joint lines either side, so its floor line runs round the end
- * of the rock and its tip lies on the mouth's edge `E`: the opening keeps its width. The rock
- * arrives at `E` along `u` (`head` false) or leaves it along `u` (`head` true). Picked among the
- * narrowest and shortest by where the mouth is, from those `room` cells of wall leave a straight's
- * sliver beside.
- * The cap and where the wall's straights now run to along `u` from `E`; null when none fits, and
- * then the rock is tapered into the mouth as before.
- */
-function mouthCap(set: CaveKitPiece[], E: Vec, u: Vec, head: boolean, room: number): { pl: WalkPlacement; t: number } | null {
-  const spurs = kitDeadEnds(set).filter((p) => p.turnDeg < 0);
-  if (spurs.length === 0) return null;
-  const narrowest = Math.min(...spurs.map((p) => p.chordCells));
-  const thin = spurs.filter((p) => p.chordCells <= narrowest + 0.05);
-  // The shortest of them: a longer tongue runs its far side on along the wall's back.
-  const shortest = Math.min(...thin.map((p) => p.reach ?? 0));
-  const half = kitOverlap(set) / 2;
-  const fits = thin.filter((p) => (p.reach ?? 0) <= shortest + 0.1 && room - ((p.reach ?? 0) - half) >= EXACT_SLIVER);
-  if (fits.length === 0) return null;
-  const piece = fits[((Math.imul(Math.round(E[0] * 100), 7919) ^ Math.round(E[1] * 100)) >>> 0) % fits.length];
-  const out = kitOut(set);
-  const reach = piece.reach ?? 0;
-  const n: Vec = [u[1], -u[0]];
-  const s = head ? 1 : -1;
-  const near = add(add(E, mul(n, 2 * out)), mul(u, s * reach));
-  const far = add(add(E, mul(n, piece.chordCells + 2 * out)), mul(u, s * reach));
-  const [j0, j1] = head ? [far, near] : [near, far];
-  const P = add(j0, mul(u, s * -out));
-  const Q = add(j1, mul(u, s * -out));
-  return { pl: { piece, P, Q, i: 0, nudge: 0, branch: 'mouth', at: placePiece(piece, P, Q, out, 0, 0) }, t: s * (reach - half) };
+  return { pts, cum, joined };
 }
 
 /**
@@ -1357,7 +1313,7 @@ function wedgeTip(V: Vec, uIn: Vec, uOut: Vec, lenIn: number, lenOut: number, se
  * bridged ring has a curve in it (a vertex turning between 5 and EXACT_CORNER_DEG).
  */
 function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff = false, plain: readonly Vec[] = []): WalkPlacement[] | null {
-  const { pts, cum, joined, mouth } = openingArcs(poly, gaps, true);
+  const { pts, cum, joined } = openingArcs(poly, gaps, true);
   const total = cum[cum.length - 1];
   if (joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN) return null;
   const at = (s: number): Vec => pointAtArc(pts, cum, s % total);
@@ -1434,35 +1390,13 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
     }
     return sizes;
   });
-  const onSide: { w0: number; w1: number; mouth: boolean }[][] = corners.map(() => []);
-  for (const [o, [W0, W1]] of openings.entries()) {
+  const onSide: { w0: number; w1: number }[][] = corners.map(() => []);
+  for (const [W0, W1] of openings) {
     const k = sides.findIndex((s, j) => [W0, W1].every((W) => segmentDist(W, s.V, corners[(j + 1) % m].p) <= ON_EDGE));
     if (k < 0) return null;
-    onSide[k].push({ w0: along(k, W0), w1: along(k, W1), mouth: mouth[o] });
+    onSide[k].push({ w0: along(k, W0), w1: along(k, W1) });
   }
   onSide.forEach((list) => list.sort((p, q) => p.w0 - q.w0));
-  // A mouth across a corner is bridged as a side of its own: the sides either side of it end at its
-  // corners, each capped there (mouthCap), the corners taking no bend. Where either cap does not fit,
-  // it is laid as any opening is.
-  const wholeMouth = new Set<number>();
-  const tailCaps = new Map<number, { pl: WalkPlacement; t: number }>();
-  const headCaps = new Map<number, { pl: WalkPlacement; t: number }>();
-  if (!cliff) {
-    onSide.forEach((list, k) => {
-      const o = list[0];
-      if (list.length !== 1 || !o.mouth || o.w0 > WALL_END_JOIN || o.w1 < sides[k].len - WALL_END_JOIN) return;
-      const [p, n] = [(k - 1 + m) % m, (k + 1) % m];
-      if (p === n || tailCaps.has(p) || headCaps.has(n) || wholeMouth.has(p) || wholeMouth.has(n)) return;
-      const tail = mouthCap(set, corners[k].p, sides[p].u, false, sides[p].len / 2);
-      const head = mouthCap(set, corners[n].p, sides[n].u, true, sides[n].len / 2);
-      if (!tail || !head) return;
-      wholeMouth.add(k);
-      tailCaps.set(p, tail);
-      headCaps.set(n, head);
-      choices[k] = [];
-      choices[n] = [];
-    });
-  }
   // A jog or a dead end (two corners and the short side between them) one painted piece turns, by
   // its first corner: its two corners take no bend. None beside an opening, and none on a ring of
   // fewer than four corners.
@@ -1638,10 +1572,6 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
       seq.push(pair.pl);
       return;
     }
-    if (wholeMouth.has(k)) {
-      seq.push(null);
-      return;
-    }
     const after = pairs.get((k - 1 + m) % m);
     const before = pairs.get((k + 1) % m);
     // A wedge's narrowing pieces stand in for the corner's bend; the side's straights stop where they start.
@@ -1649,29 +1579,15 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
     const next = wedges.get((k + 1) % m);
     if (wedge) seq.push(...wedge.outOf);
     else if (!dropped[k] && !after) seq.push(bends[k]);
-    const headCap = headCaps.get(k);
-    const tailCap = tailCaps.get(k);
-    if (headCap) seq.push(headCap.pl);
-    let cursor = headCap ? headCap.t : after ? along(k, after.j1) - half : wedge ? wedge.back : dropped[k] ? -runOn(k) : starts[k];
-    let atWall = !!headCap;
-    const last = tailCap ? side.len + tailCap.t : before ? along(k, before.j0) + half : next ? side.len - next.back : dropped[(k + 1) % m] ? side.len + runOn((k + 1) % m) : ends[k];
-    onSide[k].forEach((o, i) => {
-      // A cave wall's end at an erased mouth is capped with its painted spur tip where one fits.
-      const tail = o.mouth && !cliff && o.w0 <= last ? mouthCap(set, add(side.V, mul(side.u, o.w0)), side.u, false, o.w0 - cursor) : null;
-      if (tail) seq.push(...fill(k, cursor, o.w0 + tail.t, atWall, true), tail.pl, null);
-      else seq.push(...fill(k, cursor, Math.min(o.w0, last), atWall, o.w0 <= last), null);
+    let cursor = after ? along(k, after.j1) - half : wedge ? wedge.back : dropped[k] ? -runOn(k) : starts[k];
+    let atWall = false;
+    const last = before ? along(k, before.j0) + half : next ? side.len - next.back : dropped[(k + 1) % m] ? side.len + runOn((k + 1) % m) : ends[k];
+    for (const o of onSide[k]) {
+      seq.push(...fill(k, cursor, Math.min(o.w0, last), atWall, o.w0 <= last), null);
       atWall = o.w1 >= cursor;
       cursor = Math.max(cursor, o.w1);
-      const room = (onSide[k][i + 1]?.w0 ?? last) - o.w1;
-      const head = o.mouth && !cliff && atWall && o.w1 < last ? mouthCap(set, add(side.V, mul(side.u, o.w1)), side.u, true, onSide[k][i + 1]?.mouth ? room / 2 : room) : null;
-      if (head) {
-        seq.push(head.pl);
-        cursor = o.w1 + head.t;
-        atWall = true;
-      }
-    });
-    seq.push(...fill(k, cursor, last, atWall, !!tailCap));
-    if (tailCap) seq.push(tailCap.pl);
+    }
+    seq.push(...fill(k, cursor, last, atWall, false));
     if (next) seq.push(...next.into);
   });
   const cut = seq.indexOf(null);
@@ -1692,7 +1608,7 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
  * Null when the run has a curve in it (a vertex turning between SIDE_TURN_DEG and EXACT_CORNER_DEG,
  * or on a cliff between sides too short to bend at).
  */
-function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: readonly Vec[] = [], merged: [boolean, boolean] = [false, false], caps: [boolean, boolean] = [false, false]): WalkPlacement[] | null {
+function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: readonly Vec[] = [], merged: [boolean, boolean] = [false, false]): WalkPlacement[] | null {
   const pts: Vec[] = [];
   for (const p of line) {
     const last = pts[pts.length - 1];
@@ -1818,7 +1734,7 @@ function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: r
     const sharp = verts.map((_, k) => k > 0 && k < verts.length - 1 && bends[k - 1] === null && !paired.has(k - 1) && Math.abs(turns[k - 1]) > MITRE_MOST_DEG);
     if (sharp.some(Boolean)) {
       const split = splitTurns(verts, false, sharp, set);
-      if (split) return layExactRun(split.pts as Polygon, set, cliff, split.plain, merged, caps);
+      if (split) return layExactRun(split.pts as Polygon, set, cliff, split.plain, merged);
     }
   }
   const runOn = (c: number): number => {
@@ -1864,33 +1780,14 @@ function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: r
     let t1 = k === m ? side.len : next ? along(k, next.j0) + half : bends[k] ? endOf(k) : side.len + runOn(k);
     const { origin, u } = side;
     let tail: WalkPlacement | null = null;
-    // A cave wall's end at an erased mouth is capped with its painted spur tip where one fits.
-    let capped0 = false;
-    let capped1 = false;
-    if (!cliff && k === 0 && caps[0]) {
-      const cap = mouthCap(set, side.V, u, true, k === m ? (t1 - t0) / 2 : t1 - t0);
-      if (cap) {
-        seq.push(cap.pl);
-        t0 = cap.t;
-        capped0 = true;
-      }
-    }
-    if (!cliff && k === m && caps[1]) {
-      const cap = mouthCap(set, add(side.V, mul(u, side.len)), u, false, k === 0 ? (t1 - t0) / 2 : t1 - t0);
-      if (cap) {
-        tail = cap.pl;
-        t1 = side.len + cap.t;
-        capped1 = true;
-      }
-    }
-    if (k === 0 && !merged[0] && !capped0) {
+    if (k === 0 && !merged[0]) {
       const head = runEnding(endings, origin, u, 0, (k === m ? (t1 - t0) / 2 : t1 - t0), true, out);
       if (head) {
         seq.push(head.pl);
         t0 = head.t;
       }
     }
-    if (k === m && !merged[1] && !capped1) {
+    if (k === m && !merged[1]) {
       const end = runEnding(endings, origin, u, side.len, t1 - t0, false, out);
       if (end) {
         tail = end.pl;
@@ -1909,8 +1806,8 @@ function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: r
         return;
       }
     }
-    const held0 = k === 0 ? !merged[0] && (seq.length === 0 || capped0) : k === m && merged[1] && m > 0;
-    const held1 = k === m ? !merged[1] && (!tail || capped1) : k === 0 && merged[0] && m > 0;
+    const held0 = k === 0 ? !merged[0] && seq.length === 0 : k === m && merged[1] && m > 0;
+    const held1 = k === m ? !merged[1] && !tail : k === 0 && merged[0] && m > 0;
     seq.push(...fill(k, t0, t1, held0, held1));
     if (tail) seq.push(tail);
   });
@@ -2364,13 +2261,12 @@ export function mitredJoints(placed: WalkPlacement[], set: CaveKitPiece[], size 
 const TAPER_GAP_REACH = 0.5;
 
 /**
- * Where a run of `gaps` stops at an erased mouth (and at no door): the ends `withConnectors`
- * tapers. Doors keep their jambs.
+ * Where a run of `gaps` stops at an opening (an erased mouth, an Opening or a door): the ends
+ * `withConnectors` tapers. A door's posts stand against the tapered tips.
  */
 export function mouthEnds(gaps: readonly DoorGap[], size = 1): ((end: Vec) => boolean) | undefined {
-  if (!gaps.some((g) => g.mouth)) return undefined;
-  const near = (p: Vec, g: DoorGap): boolean => dist(p, g.position) <= g.width / 2 + TAPER_GAP_REACH * size;
-  return (p) => gaps.some((g) => g.mouth && near(p, g)) && !gaps.some((g) => !g.mouth && near(p, g));
+  if (gaps.length === 0) return undefined;
+  return (p) => gaps.some((g) => dist(p, g.position) <= g.width / 2 + TAPER_GAP_REACH * size);
 }
 
 /**
@@ -2406,8 +2302,8 @@ export function bandBends(placed: WalkPlacement[], set: CaveKitPiece[], size = 1
     const [J0, J1] = jointsOf(pl.piece, pl.at);
     // A piece narrowed to nothing at a sharp tip (wedgeTip) is tapered there too.
     const taper: [boolean, boolean] = [
-      (!!taperAt && pl.branch !== 'end' && pl.branch !== 'mouth' && e.openA && taperAt(J0)) || (!e.a && pl.narrow?.[0] === 0),
-      (!!taperAt && pl.branch !== 'end' && pl.branch !== 'mouth' && e.openB && taperAt(J1)) || (!e.b && pl.narrow?.[1] === 0),
+      (!!taperAt && pl.branch !== 'end' && e.openA && taperAt(J0)) || (!e.a && pl.narrow?.[0] === 0),
+      (!!taperAt && pl.branch !== 'end' && e.openB && taperAt(J1)) || (!e.b && pl.narrow?.[1] === 0),
     ];
     if (!e.a && !e.b && !taper[0] && !taper[1] && !pl.narrow) return pl;
     const unit = pl.size ?? size;

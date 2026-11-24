@@ -60,7 +60,9 @@ describe('soft edges are ramps, not steps', () => {
   it('a floor fading out across a cave mouth', () => {
     // A mouth two cells wide on the room's left wall.
     const ramp = mouthRamp([ROOM], [[[0, 5], [0, 3]]], 7)!;
-    holdsRamp((p) => rampAlphaAt(ramp, p), [1.5, 4], [0.001, 4], 1, stepFor(MOUTH_FADE));
+    // Out from the mouth onto the ground, and past the rock's end beside it.
+    holdsRamp((p) => rampAlphaAt(ramp, p), [-0.001, 4], [-1.4, 4], 1, stepFor(MOUTH_FADE));
+    holdsRamp((p) => rampAlphaAt(ramp, p), [-0.001, 2.6], [-1.4, 2.6], rampAlphaAt(ramp, [-0.001, 2.6]), stepFor(MOUTH_FADE));
   });
 
   it('a soft-edged ground or Material brush patch, as its edge mask', () => {

@@ -1,6 +1,6 @@
-// A door or an Opening the Door tool hangs on a measured kit's cave rock: the rock ends either
-// side in the kit's painted caps, a door's frame posts sit against the caps' tips, an Opening's
-// floor fades out across it as a carved mouth's does, and deleting it closes the rock again.
+// A door or an Opening the Door tool hangs on a measured kit's cave rock: the rock runs straight
+// to each side and tapers there, a door's frame posts sit against the tapered ends, an Opening's
+// floor runs out across it as a carved mouth's does, and deleting it closes the rock again.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../assets/textureLoader', async (importOriginal) => {
@@ -17,6 +17,8 @@ import type { WalkPlacement } from './caveWalk';
 import type { BandMeasure, DoorMeasure, ManifestEntry } from './packManifest';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import { caseLayer, type CaseKits } from '../testing/caveCases';
+import { mouthEnds, withConnectors } from './caveBandRenderer';
+import { kitOverlap } from './caveWalk';
 import { drawnFromOutline, layLayer } from '../testing/caveLayout';
 import { openingLines } from './doorGaps';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
@@ -85,19 +87,22 @@ const doorAt = (at: Pt, width: number, style: DoorStyle | 'opening', patch: obje
 
 const roomWith = (children: unknown[] = [], set = SET): DungeonLayer => caseLayer([floor('room', ROOM, set), ...children], KITS);
 const floorBands = (layer: DungeonLayer) => layLayer(layer).bands.filter((b) => b.kind === 'floor');
-const caps = (layer: DungeonLayer): WalkPlacement[] => floorBands(layer).flatMap((b) => b.placed.filter((p) => p.branch === 'mouth'));
+/** Pieces that turn back at an opening: a dead end or a cap laid there. */
+const turned = (layer: DungeonLayer): WalkPlacement[] => floorBands(layer).flatMap((b) => b.placed.filter((p) => p.branch === 'mouth' || p.branch === 'dead-end'));
 const placements = (layer: DungeonLayer): string[] =>
   floorBands(layer).flatMap((b) => b.placed.map((p) => `${p.piece.key} ${p.at.position.x.toFixed(4)} ${p.at.position.y.toFixed(4)} ${p.at.rotation.toFixed(4)}`));
 
-/** Where a laid cap's floor line turns round its tip: the middle of its joints carried its reach on, toward `to`. */
-const tipOf = (pl: WalkPlacement, to: Pt): Pt => {
-  const [J0, J1] = jointsOf(pl.piece, pl.at);
-  const M: Pt = [(J0[0] + J1[0]) / 2, (J0[1] + J1[1]) / 2];
-  const L = Math.hypot(J1[0] - J0[0], J1[1] - J0[1]);
-  let n: Pt = [-(J1[1] - J0[1]) / L, (J1[0] - J0[0]) / L];
-  if ((to[0] - M[0]) * n[0] + (to[1] - M[1]) * n[1] < 0) n = [-n[0], -n[1]];
-  return [M[0] + n[0] * pl.piece.reach!, M[1] + n[1] * pl.piece.reach!];
-};
+/** Where each tapered end of the rock's art ends, as drawn (`withConnectors`): its tip, along the wall. */
+const taperTips = (layer: DungeonLayer): Pt[] =>
+  floorBands(layer).flatMap((b) =>
+    withConnectors(b.placed, b.placed.map((p) => p.piece), b.size, mouthEnds(b.gaps, b.size)).flatMap((pl) => {
+      const [J0, J1] = jointsOf(pl.piece, pl.at);
+      const L = Math.hypot(J1[0] - J0[0], J1[1] - J0[1]);
+      const u: Pt = [(J1[0] - J0[0]) / L, (J1[1] - J0[1]) / L];
+      const half = pl.bend?.half ?? 0;
+      return ([0, 1] as const).filter((k) => pl.bend?.taper?.[k]).map((k): Pt => (k === 0 ? [J0[0] + u[0] * half, J0[1] + u[1] * half] : [J1[0] - u[0] * half, J1[1] - u[1] * half]));
+    }),
+  );
 
 /** Whether the straight from `a` to `b` crosses any of `segs`. */
 const crosses = (segs: readonly { x1: number; y1: number; x2: number; y2: number }[], a: Pt, b: Pt): boolean =>
@@ -110,15 +115,16 @@ const crosses = (segs: readonly { x1: number; y1: number; x2: number; y2: number
   });
 
 describe('an Opening the Door tool makes in cave rock', () => {
-  it.each([1, 2, 3])('opens the rock %i cells wide, capped at both edges, the opening keeping its width', (w) => {
+  it.each([1, 2, 3])('opens the rock %i cells wide, the rock running straight to each edge and tapered there, the opening keeping its width', (w) => {
     seed();
-    const laid = caps(roomWith([doorAt([6, 0], w, 'opening')]));
-    expect(laid).toHaveLength(2);
-    const tips = laid.map((p) => tipOf(p, [6, 0])[0]).sort((a, b) => a - b);
-    expect(tips[0]).toBeCloseTo(6 - w / 2, 2);
-    expect(tips[1]).toBeCloseTo(6 + w / 2, 2);
-    // Its gaps are a mouth's: tapered where no cap fits, never a door's jambs.
-    const gaps = floorBands(roomWith([doorAt([6, 0], w, 'opening')])).flatMap((b) => b.gaps);
+    const layer = roomWith([doorAt([6, 0], w, 'opening')]);
+    expect(turned(layer)).toEqual([]);
+    const tips = taperTips(layer).sort((a, b) => a[0] - b[0]);
+    expect(tips).toHaveLength(2);
+    expect(tips[0][0]).toBeCloseTo(6 - w / 2, 2);
+    expect(tips[1][0]).toBeCloseTo(6 + w / 2, 2);
+    // Its gaps are a mouth's, never a door's jambs.
+    const gaps = floorBands(layer).flatMap((b) => b.gaps);
     expect(gaps.length).toBeGreaterThan(0);
     expect(gaps.every((g) => g.mouth === true)).toBe(true);
   });
@@ -126,9 +132,21 @@ describe('an Opening the Door tool makes in cave rock', () => {
   it('opens the rock at a corner, with no rock left across it', () => {
     seed();
     const layer = roomWith([doorAt([1, 0], 2, 'opening')]);
-    expect(caps(layer).length).toBeGreaterThan(0);
-    // The side wall's rock may run on past the corner by half the kit's overlap, as at a carved mouth.
-    for (const b of floorBands(layer)) for (const pl of b.placed) for (const J of jointsOf(pl.piece, pl.at)) expect(J[0] > 0.2 && J[0] < 1.99 && J[1] < 0 && J[1] > -1.5).toBe(false);
+    expect(turned(layer)).toEqual([]);
+    expect(taperTips(layer).length).toBeGreaterThan(0);
+    // Where each piece's art ends (its joints carried half the kit's overlap back in): none across the opening.
+    for (const b of floorBands(layer)) {
+      for (const pl of b.placed) {
+        const [J0, J1] = jointsOf(pl.piece, pl.at);
+        const L = Math.hypot(J1[0] - J0[0], J1[1] - J0[1]);
+        const h = (kitOverlap(b.placed.map((p) => p.piece)) / 2) * pl.at.scale;
+        const ends: Pt[] = [
+          [J0[0] + ((J1[0] - J0[0]) / L) * h, J0[1] + ((J1[1] - J0[1]) / L) * h],
+          [J1[0] - ((J1[0] - J0[0]) / L) * h, J1[1] - ((J1[1] - J0[1]) / L) * h],
+        ];
+        for (const E of ends) expect(E[0] > 0.2 && E[0] < 1.99 && E[1] < 0 && E[1] > -1.5, `art end at ${E}`).toBe(false);
+      }
+    }
   });
 
   it('changes no rock across a passage, where there is none to open', () => {
@@ -177,19 +195,21 @@ describe('an Opening the Door tool makes in cave rock', () => {
 });
 
 describe('a door on cave rock', () => {
-  it.each(['single', 'double', 'portcullis', 'archway'] as const)('keeps the caps either side of a %s', (style) => {
+  it.each(['single', 'double', 'portcullis', 'archway'] as const)('tapers the rock either side of a %s, with no piece turning back', (style) => {
     seed();
-    expect(caps(roomWith([doorAt([6, 0], 2, style)]))).toHaveLength(2);
+    const layer = roomWith([doorAt([6, 0], 2, style)]);
+    expect(turned(layer)).toEqual([]);
+    expect(taperTips(layer)).toHaveLength(2);
   });
 
-  it("widens its gap by its frame's posts, so they sit against the caps' tips; an Opening has no posts", () => {
+  it("widens its gap by its frame's posts, so they sit against the tapered ends' tips; an Opening has no posts", () => {
     seed();
     const widest = (style: DoorStyle | 'opening', width: number) => Math.max(...floorBands(roomWith([doorAt([6, 0], width, style)])).flatMap((b) => b.gaps.map((g) => g.width)));
     // A single's frame posts are 0.21 deep, a double's too: each edge moves out by one.
     expect(widest('single', 1)).toBeCloseTo(1.42, 6);
     expect(widest('double', 2)).toBeCloseTo(2.42, 6);
     expect(widest('opening', 2)).toBeLessThanOrEqual(2 + 1e-6);
-    const tips = caps(roomWith([doorAt([6, 0], 1, 'single')])).map((p) => tipOf(p, [6, 0])[0]).sort((a, b) => a - b);
+    const tips = taperTips(roomWith([doorAt([6, 0], 1, 'single')])).map((p) => p[0]).sort((a, b) => a - b);
     expect(tips[0]).toBeCloseTo(5.5 - 0.21, 2);
     expect(tips[1]).toBeCloseTo(6.5 + 0.21, 2);
   });

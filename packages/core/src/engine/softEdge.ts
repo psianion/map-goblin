@@ -10,8 +10,7 @@ import { BORDER_FADE, BORDER_WOBBLE, wobbleNoise } from '../shared/plateauShade'
 import { floorEdgeOpenSpans } from '../shared/caveFloor';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { fittedFloor, type FloorFit } from './caveBandRenderer';
-import { ease } from './softMask';
-import { distanceOut, distanceToLines, fallOff, fieldOf, insideOf, keptRamp, rampGrid, unit, type Ramp } from './rampMask';
+import { distanceOut, distanceToLines, fallOff, fieldOf, insideOf, keptRamp, rampGrid, type Ramp } from './rampMask';
 
 /** How far past the region a fade's grid reaches, cells: its edge texels filter down to its outline. */
 const RAMP_PAD = 0.1;
@@ -64,9 +63,9 @@ export function innerBandRamp(rings: Polygon[], width: number, seed: number, fit
   });
 }
 
-/** How far in from a cave mouth its floor fades from nothing to full, cells. */
+/** How far past a cave mouth its floor runs out onto the ground, fading from full to nothing, cells. */
 export const MOUTH_FADE = 1;
-/** How far a mouth's fade wanders either way, as a share of how far in it reaches. */
+/** How far a mouth's run-out wanders either way, as a share of how far out it reaches. */
 const MOUTH_WOBBLE = 0.15;
 
 /**
@@ -90,32 +89,65 @@ export function mouthLines(rings: readonly Polygon[], openings: readonly Polygon
 }
 
 /**
- * How a floor `region` is painted where it meets cave mouths (`mouths`): nothing at a mouth's
- * line, full MOUTH_FADE in from it, eased between, how far in wandering a little (the same
- * way every time for `seed`). Only ever less floor than `region`: nothing is added outside the
- * cave, and the floor beside the rock either side of a mouth keeps its fitted edge. Paint
- * only. Null when no mouth comes near the region's box: it is painted whole, as it always was.
+ * How a floor `region` is painted where it meets cave mouths (`mouths`): full up to a mouth's
+ * line, then run out past it onto the ground, fading from full at the region's edge to nothing
+ * about MOUTH_FADE out, how far wandering a little (the same way every time for `seed`). Beside
+ * a mouth, past the rock's tapered ends, the run-out shortens back to the region's own edge
+ * over the next MOUTH_FADE, so nowhere round it does the floor stop on a hard edge. Inside the
+ * region nothing changes. Paint only. Null when no mouth comes near the region's box: it is
+ * painted as it always was.
  */
 export function mouthRamp(region: Polygon[], mouths: readonly Polygon[], seed: number): Ramp | null {
   if (mouths.length === 0 || region.length === 0) return null;
-  const reach = MOUTH_FADE * (1 + MOUTH_WOBBLE);
-  // The fade is worked out over the region's box alone (its texels and their distance to the
-  // mouths): kept while the box is, so painting elsewhere on the floor works none of it out again.
+  const long = MOUTH_FADE * (1 + MOUTH_WOBBLE);
+  // Past this from every mouth the floor keeps its own edge.
+  const side = MOUTH_FADE + long;
   const box = boxOfRings(region);
-  const near = mouths.some((m) => m.some(([x, y]) => x >= box[0] - reach && x <= box[2] + reach && y >= box[1] - reach && y <= box[3] + reach));
-  if (!near) return null;
-  const kept = keptRamp('mouth', [box, mouths, seed], () => {
-    const grid = rampGrid(region, RAMP_PAD);
+  const close = mouths.filter((m) => m.some(([x, y]) => x >= box[0] - side && x <= box[2] + side && y >= box[1] - side && y <= box[3] + side));
+  if (close.length === 0) return null;
+  // The run-out reads the region only near the mouths: kept while that and the region's box are,
+  // so painting elsewhere on the floor works none of it out again.
+  const mbox = boxOfRings(close as Polygon[]);
+  const pad = side + long + 2 * RAMP_PAD;
+  const near: Polygon = [
+    [mbox[0] - pad, mbox[1] - pad],
+    [mbox[2] + pad, mbox[1] - pad],
+    [mbox[2] + pad, mbox[3] + pad],
+    [mbox[0] - pad, mbox[3] + pad],
+  ];
+  const local = clipper2Engine.intersection(region, [near]);
+  return keptRamp('mouth', [box, close, seed, local], () => {
+    const reach = clipper2Engine.inflateOpen(close as Polygon[], side);
+    const clip = clipper2Engine.union(region, reach);
+    const grid = rampGrid(clip, RAMP_PAD);
     if (!grid) return null;
     const noise = wobbleNoise(seed);
+    // A texel or two past `side` too, so the field is nothing at the run-out's outline.
     const { d, qx, qy } = distanceToLines(
-      mouths.map((m) => ({ pts: m, closed: false })),
+      close.map((m) => ({ pts: m, closed: false })),
       grid,
-      reach,
+      side + 2 / grid.res,
     );
-    return { field: fieldOf(grid, (_x, _y, k) => (d[k] === Infinity ? 1 : ease(unit(d[k] / (MOUTH_FADE * (1 + MOUTH_WOBBLE * noise(qx[k], qy[k]))))))), clip: null };
+    // How far each texel near the mouths lies outside the region, worked out over that corner of the grid only.
+    const i0 = Math.max(0, Math.floor((near[0][0] - grid.x) * grid.res));
+    const j0 = Math.max(0, Math.floor((near[0][1] - grid.y) * grid.res));
+    const i1 = Math.min(grid.width, Math.ceil((near[2][0] - grid.x) * grid.res));
+    const j1 = Math.min(grid.height, Math.ceil((near[2][1] - grid.y) * grid.res));
+    const sub = { x: grid.x + i0 / grid.res, y: grid.y + j0 / grid.res, res: grid.res, width: Math.max(1, i1 - i0), height: Math.max(1, j1 - j0) };
+    const out = distanceOut(local, sub);
+    return {
+      field: fieldOf(grid, (_x, _y, k) => {
+        if (d[k] === Infinity) return 1;
+        const i = (k % grid.width) - i0;
+        const j = Math.floor(k / grid.width) - j0;
+        if (i < 0 || j < 0 || i >= sub.width || j >= sub.height) return 1;
+        // Full out to MOUTH_FADE from the mouth, then shortening to nothing by `side`.
+        const length = MOUTH_FADE * (1 + MOUTH_WOBBLE * noise(qx[k], qy[k])) * fallOff(d[k], MOUTH_FADE, side - MOUTH_FADE);
+        return fallOff(out[j * sub.width + i], 0, length);
+      }),
+      clip,
+    };
   });
-  return kept ? { field: kept.field, clip: region } : null;
 }
 
 /** The box round `rings`: min x, min y, max x, max y. */

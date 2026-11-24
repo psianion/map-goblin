@@ -31,7 +31,7 @@ import { kitOverlap, type WalkPlacement } from './caveWalk';
 import { layerSlopes, ledgeRuns, plateauAlongWalls } from './plateauRenderer';
 import { mouthLines, mouthRamp } from './softEdge';
 import { wallShadowRamp } from './wallShadow';
-import { rampAlphaAt } from './rampMask';
+import { insideRings, rampAlphaAt } from './rampMask';
 import type { BandMeasure, ManifestEntry } from './packManifest';
 import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
@@ -336,7 +336,7 @@ describe('pieces bent to meet at a joint', () => {
 });
 
 describe('a run tapered at a mouth', () => {
-  it('narrows each end stopping at a mouth to nothing at its tip, never widening on the way, and leaves doors’ jambs alone', () => {
+  it('narrows each end stopping at a mouth or a door to nothing at its tip, never widening on the way', () => {
     seedKit();
     const { bands } = layLayer(joinedCaves(KITS));
     let tapers = 0;
@@ -345,19 +345,18 @@ describe('a run tapered at a mouth', () => {
         tapers++;
         expect(widths[widths.length - 1], `tip at ${at}`).toBeLessThan(1e-6);
         for (let i = 1; i < widths.length; i++) expect(widths[i]).toBeLessThanOrEqual(widths[i - 1] + 1e-9);
-        // Never at a door.
-        for (const g of b.gaps.filter((x) => !x.mouth)) expect(Math.hypot(at[0] - g.position[0], at[1] - g.position[1])).toBeGreaterThan(g.width / 2);
       }
-      // Each tip at a mouth.
-      for (const { at } of taperProfiles(b)) expect(b.gaps.some((g) => g.mouth && Math.hypot(at[0] - g.position[0], at[1] - g.position[1]) <= g.width / 2 + 0.5 * b.size)).toBe(true);
+      // Each tip at a mouth or a door.
+      for (const { at } of taperProfiles(b)) expect(b.gaps.some((g) => Math.hypot(at[0] - g.position[0], at[1] - g.position[1]) <= g.width / 2 + 0.5 * b.size)).toBe(true);
     }
     // The mouth's two sides.
     expect(tapers).toBeGreaterThanOrEqual(2);
   });
 
-  it('tapers nothing on a map with no mouths', () => {
+  it('tapers nothing on a map with no mouths or doors', () => {
     seedKit();
-    const { bands } = layLayer({ ...joinedCaves(KITS), caveOpenings: [] });
+    const plain = joinedCaves(KITS);
+    const { bands } = layLayer({ ...plain, caveOpenings: [], children: plain.children.filter((c) => c.childType !== 'door') });
     for (const b of bands) expect(taperProfiles(b)).toEqual([]);
   });
 });
@@ -525,7 +524,7 @@ describe('open runs with corners', () => {
 });
 
 describe('a cave mouth', () => {
-  it('fades the floor in from nothing at the mouth to full a cell in, keeping the fitted edge beside the rock', () => {
+  it('keeps the floor full up to the mouth, and runs it out about a cell past it, fading into the ground', () => {
     seedKit();
     const { layer, fit } = layLayer(joinedCaves(KITS));
     const region = fittedFloor(layer.mergedFloor!, fit);
@@ -534,19 +533,60 @@ describe('a cave mouth', () => {
     const ramp = mouthRamp(region, mouths, 7)!;
     expect(ramp).not.toBeNull();
     const alpha = (p: V): number => rampAlphaAt(ramp, p);
-    // In from the mouth's inner line, the notch's right side.
+    // Across the mouth's inner line, the notch's right side: the floor is in from it, the ground
+    // out, through the notch (its top and bottom are mouth too) and past it.
     const at = (d: number): V => [4.719 + d, 6.83];
-    expect(alpha(at(1.2))).toBeCloseTo(1, 2);
-    expect(alpha(at(0.001))).toBeLessThan(0.01);
-    let last = 0;
-    for (let d = 0; d <= 1.2; d += 0.05) {
-      expect(alpha(at(d))).toBeGreaterThanOrEqual(last - 1e-9);
+    for (const d of [0.05, 0.5, 1.2]) expect(alpha(at(d))).toBeCloseTo(1, 2);
+    expect(alpha(at(-0.02))).toBeGreaterThan(0.95);
+    expect(alpha(at(-2.8))).toBeLessThan(0.01);
+    let last = 1;
+    // A ramp all the way: no jump between steps 0.05 apart.
+    for (let d = 0; d >= -2.8; d -= 0.05) {
+      expect(Math.abs(alpha(at(d)) - last), `at ${d.toFixed(2)}`).toBeLessThan(0.1);
       last = alpha(at(d));
     }
-    expect(alpha(at(0.5))).toBeGreaterThan(0);
-    expect(alpha(at(0.5))).toBeLessThan(1);
-    // Never more floor than the fitted floor, its outline the fitted floor's own, so its edge beside the rock either side of the mouth is as it was.
-    expect(ramp.clip).toBe(region);
+    expect(alpha(at(-0.5))).toBeGreaterThan(0.05);
+    expect(alpha(at(-0.5))).toBeLessThan(0.95);
+    // Painted out there: the floor's outline grows by the run-out.
+    expect(insideRings(ramp.clip!, at(-0.5))).toBe(true);
+    expect(insideRings(region, at(-0.5))).toBe(false);
+  });
+
+  it('leaves no hard edge anywhere round a mouth: across it, beside it and past the rock either side', () => {
+    seedKit();
+    const { layer, fit } = layLayer(joinedCaves(KITS));
+    const region = fittedFloor(layer.mergedFloor!, fit);
+    const mouths = mouthLines(layer.mergedFloor!, layer.caveOpenings);
+    const ramp = mouthRamp(region, mouths, 7)!;
+    const near = (p: V): number =>
+      Math.min(
+        ...mouths.map(([a, b]) => {
+          const [vx, vy] = [b[0] - a[0], b[1] - a[1]];
+          const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / (vx * vx + vy * vy || 1)));
+          return Math.hypot(p[0] - a[0] - vx * t, p[1] - a[1] - vy * t);
+        }),
+      );
+    // What is painted: the field where the clip keeps it, nothing where it cuts.
+    const shown = (p: V): number => (insideRings(ramp.clip!, p) ? rampAlphaAt(ramp, p) : 0);
+    const step = 0.02;
+    let checked = 0;
+    for (const [a, b] of mouths) {
+      const [x0, x1] = [Math.min(a[0], b[0]) - 1.2, Math.max(a[0], b[0]) + 1.2];
+      const [y0, y1] = [Math.min(a[1], b[1]) - 1.2, Math.max(a[1], b[1]) + 1.2];
+      for (let y = y0; y <= y1; y += step) {
+        for (let x = x0; x <= x1; x += step) {
+          const p: V = [x, y];
+          // Within a cell of the mouth, where the run-out is its full length.
+          if (near(p) > 1) continue;
+          for (const q of [[x + step, y], [x, y + step]] as V[]) {
+            if (near(q) > 1) continue;
+            checked++;
+            expect(Math.abs(shown(q) - shown(p)), `at ${x.toFixed(2)}, ${y.toFixed(2)}`).toBeLessThan(0.08);
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
   });
 
   it('paints a map with no openings as it always did', () => {

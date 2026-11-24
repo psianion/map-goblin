@@ -1,7 +1,7 @@
 // What the doors on a layer take out of its cave rock, in one place, so a floor ring's rock, a
 // painted cave's rock and the floor's fade agree. On cave rock (a band set) an Opening is a mouth:
 // the rock ends round it as at a carved mouth and the floor fades out across it. A whole-leaf
-// door's gap reaches past its edges by its frame's posts, so the rock's caps end against them.
+// door's gap reaches past its edges by its frame's posts, so the rock's tapered ends stop against them.
 
 import type { Polygon } from '../types/geometry';
 import type { DoorChild } from '../shared/types';
