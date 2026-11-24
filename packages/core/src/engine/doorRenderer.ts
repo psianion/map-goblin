@@ -336,6 +336,22 @@ const SLICE_SEAM = 0.003;
 const LEAF_SHADOW_ALPHA = 0.32;
 const LEAF_SHADOW_OFFSET: [number, number] = [0.05, 0.06];
 const LEAF_PIECES: LeafPiece[] = ['hinge', 'tile-a', 'tile-b', 'latch'];
+/**
+ * A whole-leaf door's leaf and posts each lie on a dark rim of their own shape, this much past
+ * their every side, cells: at normal zoom (about 15 px a cell) the painted leaf, a quarter of a
+ * cell thick, and its posts read as a door against the floor and the rock. Their paint keeps its
+ * painted size; an offset drop shadow lay under a pixel away and did not show.
+ */
+const WHOLE_DOOR_RIM = 0.07;
+const WHOLE_DOOR_RIM_ALPHA = 0.6;
+/** How far across its one-cell tile a whole-leaf frame's post is painted, cells: what its rim grows from. */
+const POST_PAINT = 0.35;
+
+/** A sprite turned into the dark rim drawn under the art it copies. */
+function rimmed(sprite: Sprite): void {
+  sprite.tint = 0x000000;
+  sprite.alpha = WHOLE_DOOR_RIM_ALPHA;
+}
 
 /**
  * A single or double door built from its wall kit (assets/doorKits.ts): jambs
@@ -429,38 +445,43 @@ function renderWholeDoor(
   if (!leaf) return false;
   const frame = wholeDoorFrame(art, door.width);
   const frameTex = frame ? entryTexture(frame.entryId) : null;
+  const dir: [number, number] = [Math.cos(angle), Math.sin(angle)];
   if (frame && frameTex) {
-    const dir: [number, number] = [Math.cos(angle), Math.sin(angle)];
     // A frame's tile is one cell deep.
     const perCell = frameTex.height;
     const [inner, outer] = frame.post;
     const mid = frameTex.width / 2;
     const base = frameTex.frame ?? { x: 0, y: 0 };
-    for (const s of [-1, 1] as const) {
-      // The post's own stretch of the frame's tile, on its side of the tile's centre.
-      const x0 = s < 0 ? mid - outer * perCell : mid + inner * perCell;
-      const post = new Texture({ source: frameTex.source, frame: new Rectangle(base.x + x0, base.y, (outer - inner) * perCell, frameTex.height) });
-      const sprite = new Sprite(post);
-      sprite.anchor.set(s < 0 ? 1 : 0, 0.5);
-      const edge = (s * door.width) / 2;
-      sprite.position.set(position[0] + dir[0] * edge, position[1] + dir[1] * edge);
-      sprite.rotation = angle;
-      sprite.width = outer - inner;
-      sprite.height = 1;
-      container.addChild(sprite);
+    // Each post on its rim first, then the posts.
+    for (const rim of [WHOLE_DOOR_RIM, 0]) {
+      for (const s of [-1, 1] as const) {
+        // The post's own stretch of the frame's tile, on its side of the tile's centre.
+        const x0 = s < 0 ? mid - outer * perCell : mid + inner * perCell;
+        const post = new Texture({ source: frameTex.source, frame: new Rectangle(base.x + x0, base.y, (outer - inner) * perCell, frameTex.height) });
+        const sprite = new Sprite(post);
+        sprite.anchor.set(s < 0 ? 1 : 0, 0.5);
+        // The rim reaches `rim` past the post's every side: its inner face moved into the opening.
+        const edge = (s * door.width) / 2 - s * rim;
+        sprite.position.set(position[0] + dir[0] * edge, position[1] + dir[1] * edge);
+        sprite.rotation = angle;
+        sprite.width = outer - inner + 2 * rim;
+        sprite.height = 1 + (2 * rim) / POST_PAINT;
+        if (rim > 0) rimmed(sprite);
+        container.addChild(sprite);
+      }
     }
   }
   for (const pose of leafPoses(door, position, angle, kit, wallWidth, wallKit)) {
-    for (const [tint, alpha, offset] of [[0x000000, LEAF_SHADOW_ALPHA, LEAF_SHADOW_OFFSET], [0xffffff, 1, [0, 0]]] as const) {
+    for (const rim of [WHOLE_DOOR_RIM, 0]) {
       const sprite = new Sprite(leaf);
-      // The art's hinge is at its right end: that end on the hinge.
+      // The art's hinge is at its right end: that end on the hinge, the rim reaching past both ends.
       sprite.anchor.set(1, 0.5);
-      sprite.position.set(pose.origin[0] + offset[0], pose.origin[1] + offset[1]);
+      const along: [number, number] = [Math.cos(pose.rotation), Math.sin(pose.rotation)];
+      sprite.position.set(pose.origin[0] - along[0] * rim, pose.origin[1] - along[1] * rim);
       sprite.rotation = pose.rotation;
-      // The leaf's tile is one cell deep, its paint across the middle of it.
-      sprite.scale.set(-pose.length / leaf.width, (pose.flip ? -1 : 1) / leaf.height);
-      sprite.tint = tint;
-      sprite.alpha = alpha;
+      // The leaf's tile is one cell deep, its paint (the kit's thickness) across the middle of it.
+      sprite.scale.set(-(pose.length + 2 * rim) / leaf.width, ((pose.flip ? -1 : 1) * (1 + (2 * rim) / kit.thickness)) / leaf.height);
+      if (rim > 0) rimmed(sprite);
       container.addChild(sprite);
     }
   }

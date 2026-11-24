@@ -153,8 +153,17 @@ describe('renderDoors sprite dispatch', () => {
     const door = { ...resolved('single'), position: [3, 0] as [number, number], wall: { id: 'w1', kind: 'cave', points: [[0, 0], [6, 0]], textureSetId: 'Rock_Cave' } } as unknown as ResolvedDoor;
     const out = render([door]) as FakeSprite[];
     manifests = [];
-    expect(out).toHaveLength(4);
-    const [left, right, shadow, leaf] = out;
+    expect(out).toHaveLength(6);
+    const [leftHalo, rightHalo, left, right, halo, leaf] = out;
+    // Each post and the leaf on a dark rim of their own shape, centred, so they read at normal zoom.
+    for (const h of [leftHalo, rightHalo, halo]) {
+      expect(h.tint).toBe(0);
+      expect(h.alpha).toBeCloseTo(0.6, 6);
+    }
+    expect((leftHalo as unknown as { width: number }).width).toBeCloseTo(0.21 + 0.14, 6);
+    expect(leftHalo.position.set).toHaveBeenCalledWith(2.5 + 0.07, 0);
+    expect(halo.scale.set).toHaveBeenCalledWith(-(0.98 + 0.14) / 200, (1 + 0.14 / 0.25) / 200);
+    expect(halo.position.set).toHaveBeenCalledWith(2.5 - 0.07, 0);
     // Each post cut from its own side of the frame, its inner face on an edge of the opening.
     for (const [post, x] of [[left, 60], [right, 298]] as const) {
       const { frame } = post.texture as FakeTexture;
@@ -168,7 +177,7 @@ describe('renderDoors sprite dispatch', () => {
     // The leaf, hinge end on the start edge, as long as the opening.
     expect(leaf.texture).toMatchObject({ width: 200 });
     expect(leaf.scale.set).toHaveBeenCalledWith(-0.98 / 200, 1 / 200);
-    expect(shadow.tint).toBe(0);
+    expect(leaf.tint).toBe(0xffffff);
   });
 
   it('draws a plain opening as nothing, in cave rock too: the rock ends round it as at a carved mouth', () => {
