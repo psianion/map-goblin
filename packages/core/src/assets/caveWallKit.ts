@@ -20,7 +20,7 @@
 // never laid on these numbers (see bandSetArt in packCatalog.ts).
 
 import kit from './caveWallKit.json';
-import { BAND_DRAWN_WIDTH, getBandSet, getCatalogEntry, isMeasuredBandSet, type CatalogEntry } from './packCatalog';
+import { BAND_DRAWN_WIDTH, getBandSet, getCatalogEntry, isMeasuredBandSet, isRunPiece, type CatalogEntry } from './packCatalog';
 
 /** One measured kit piece. Lengths are in grid cells, angles in degrees. */
 export interface CaveKitPiece {
@@ -42,6 +42,28 @@ export interface CaveKitPiece {
   exact?: boolean;
   /** A connector's solid body, cells: a round lump laid over a joint, never inside a run. */
   radius?: number;
+  /** A straight whose rock steps sideways between its ends: its art runs square to its joints' sides, not along its chord. */
+  step?: boolean;
+  /** A dead end's cap: how far past its joints' chord the floor line round it lies, cells. */
+  reach?: number;
+  /** An entrance across a doorway in a cliff; `shadow` when it is dark inside. */
+  entrance?: boolean;
+  shadow?: boolean;
+  /** Rock turning into a cut-stone wall, and which joint lies on the wall's centre line. */
+  transition?: 'straight' | 'corner';
+  wallJoint?: 0 | 1;
+}
+
+/**
+ * How far a step piece's chord is turned off its art's run, radians: what its joints' sides are
+ * turned back by from the chord. Nothing for any other piece.
+ */
+export function pieceSkew(p: CaveKitPiece): number {
+  if (!p.step) return 0;
+  const [a, b] = p.jointsCells;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  return dx >= 0 ? Math.atan2(dy, dx) : Math.atan2(-dy, -dx);
 }
 
 interface RawPiece {
@@ -124,7 +146,14 @@ export function caveBandPieces(): CaveKitPiece[] {
 
 interface MeasuredKit {
   pool: CaveKitPiece[];
+  /** A cliff's free tip: a straight end tapering into the ground. */
   ends: CaveKitPiece[];
+  /** Caps turning 180 degrees: a narrow passage's closed end (+180), a rock spur's tip (-180). */
+  deadEnds: CaveKitPiece[];
+  /** Step pieces, mirrors included. */
+  steps: CaveKitPiece[];
+  entrances: CaveKitPiece[];
+  transitions: CaveKitPiece[];
   connectors: CaveKitPiece[];
   /** How wide the kit's rock is across, cells at its drawn size. */
   rockWidth: number;
@@ -182,6 +211,10 @@ function measuredKit(setId: string): MeasuredKit {
         ...(e.band.spine && { spine: e.band.spine.map(([x, y]): [number, number] => [x, y]) }),
         ...(e.band.middle && { middle: e.band.middle.map(([x, y]): [number, number] => [x, y]) }),
         ...(e.band.connector && { radius: e.band.radius ?? 0 }),
+        ...(e.band.step && { step: true }),
+        ...(e.band.reach !== undefined && { reach: e.band.reach }),
+        ...(e.band.entrance && { entrance: true, ...(e.band.shadow && { shadow: true }) }),
+        ...(e.band.transition && { transition: e.band.transition, wallJoint: e.band.wallJoint ?? 0 }),
         exact: true,
       },
       end: !!e.band.end,
@@ -191,23 +224,29 @@ function measuredKit(setId: string): MeasuredKit {
     });
   }
   const measuredPieces = [...byKey.values()];
-  const base = measuredPieces.filter((m) => !m.end && !m.connector).map((m) => m.piece);
+  const inRun = measuredPieces.filter((m) => isRunPiece(m.band));
+  const base = inRun.map((m) => m.piece);
   // The rock's width as the straights measure it, the middle one where they differ; a kit that
   // carries none is taken to be as wide as the built-in kit's rock.
-  const widths = measuredPieces
-    .filter((m) => !m.end && !m.connector && m.piece.turnDeg === 0 && (m.rockWidth ?? 0) > 0)
+  const widths = inRun
+    .filter((m) => m.piece.turnDeg === 0 && (m.rockWidth ?? 0) > 0)
     .map((m) => m.rockWidth!)
     .sort((a, b) => a - b);
+  const steps = measuredPieces.filter((m) => m.band.step).map((m) => m.piece);
   kit = {
     pool: [...base, ...base.filter((p) => p.turnDeg === 0).map(mirrorPiece)],
-    ends: measuredPieces.filter((m) => m.end).map((m) => m.piece),
+    ends: measuredPieces.filter((m) => m.end && Math.abs(m.piece.turnDeg) < 90).map((m) => m.piece),
+    deadEnds: measuredPieces.filter((m) => m.end && Math.abs(m.piece.turnDeg) >= 179 && m.piece.reach !== undefined).map((m) => m.piece),
+    steps: [...steps, ...steps.map(mirrorPiece)],
+    entrances: measuredPieces.filter((m) => m.band.entrance).map((m) => m.piece),
+    transitions: measuredPieces.filter((m) => m.band.transition).map((m) => m.piece),
     // Smallest first: a joint takes the smallest that covers it.
     connectors: measuredPieces
       .filter((m) => m.connector && (m.piece.radius ?? 0) > 0)
       .map((m) => m.piece)
       .sort((a, b) => a.radius! - b.radius!),
     rockWidth: widths.length > 0 ? widths[(widths.length - 1) >> 1] : BAND_DRAWN_WIDTH,
-    shadow: shadowOf(measuredPieces.filter((m) => !m.end && !m.connector).map((m) => m.band)),
+    shadow: shadowOf(inRun.map((m) => m.band)),
   };
   for (const p of kit.pool) pieceKits.set(p, kit);
   measuredKits.set(entries, kit);
@@ -240,6 +279,21 @@ export function kitConnectors(set: readonly CaveKitPiece[]): CaveKitPiece[] {
   return kitOf(set)?.connectors ?? [];
 }
 
+/** The tapering ends of the measured kit `set`'s pieces come from. Empty for any other set. */
+export function kitEnds(set: readonly CaveKitPiece[]): CaveKitPiece[] {
+  return kitOf(set)?.ends ?? [];
+}
+
+/** The dead ends (caps turning 180 degrees) of the measured kit `set`'s pieces come from. Empty for any other set. */
+export function kitDeadEnds(set: readonly CaveKitPiece[]): CaveKitPiece[] {
+  return kitOf(set)?.deadEnds ?? [];
+}
+
+/** The step pieces of the measured kit `set`'s pieces come from, mirrors included. Empty for any other set. */
+export function kitSteps(set: readonly CaveKitPiece[]): CaveKitPiece[] {
+  return kitOf(set)?.steps ?? [];
+}
+
 /** How wide the rock of the kit `set`'s pieces come from is across, cells at its drawn size: the built-in kit's for any other set. */
 export function kitRockWidth(set: readonly CaveKitPiece[]): number {
   return kitOf(set)?.rockWidth ?? BAND_DRAWN_WIDTH;
@@ -262,7 +316,6 @@ export function bandPiecesFor(setId: string | undefined): CaveKitPiece[] {
 export function bandEndPiecesFor(setId: string): CaveKitPiece[] {
   return isMeasuredBandSet(setId) ? measuredKit(setId).ends : [];
 }
-
 /**
  * The same piece walked the other way: joints swapped, turn negated. Only for art that paints
  * no void side — the ledge — where it turns a convex bend into the concave one for free.

@@ -39,6 +39,8 @@ export interface CatalogEntry {
   family?: string;
   /** A band kit piece's own measurements, when its set carries its kit (see `isMeasuredBandSet`). */
   band?: BandMeasure;
+  /** A prop that blocks on a round footprint rather than its square frame. */
+  footprint?: { radius: number };
 }
 
 interface CatalogState {
@@ -54,6 +56,8 @@ interface CatalogState {
   bandSets: Map<string, CatalogEntry[]>;
   /** Band sets whose entries carry their own measurements (`band`), rather than the built-in kit's. */
   measuredBandSets: Set<string>;
+  /** Set ids a pack has renamed, old to new (a manifest's `setAliases`): looked up as the new set. */
+  aliases: Map<string, string>;
   /** Variant families by `familyKeyOf`, each in cycle order (see `familyCycle`). */
   families: Map<string, CatalogEntry[]>;
   /** Lazily built `propEntries()` answer. */
@@ -75,8 +79,10 @@ function build(): CatalogState {
   const wallSets = new Map<string, CatalogEntry[]>();
   const bandSets = new Map<string, CatalogEntry[]>();
   const measured = new Map<string, CatalogEntry[]>();
+  const aliases = new Map<string, string>();
 
   for (const { packId, manifest } of manager.getPackManifests()) {
+    for (const [from, to] of Object.entries(manifest.setAliases ?? {})) if (!aliases.has(from)) aliases.set(from, to);
     for (const [entryId, e] of Object.entries(manifest.entries)) {
       const { w, h } = parseGridSize(e.gridSize);
       const entry: CatalogEntry = {
@@ -96,6 +102,7 @@ function build(): CatalogState {
         tags: e.tags,
         family: e.family,
         band: e.band,
+        ...(e.footprint && { footprint: e.footprint }),
       };
       byId.set(entry.id, entry);
       if (!byLocalId.has(entryId)) byLocalId.set(entryId, entry.id);
@@ -138,9 +145,21 @@ function build(): CatalogState {
   // entries are its band (props shipped beside them are not).
   const measuredBandSets = new Set<string>();
   for (const [setId, entries] of measured) {
-    if (!entries.some((e) => e.band!.turnDeg === 0 && !e.band!.end && !e.band!.connector)) continue;
+    if (!entries.some((e) => e.band!.turnDeg === 0 && isRunPiece(e.band!))) continue;
     bandSets.set(setId, entries);
     measuredBandSets.add(setId);
+  }
+
+  // A renamed set is looked up as the set it became, so a map saved with the old id draws as before.
+  // Not where the old id is a set of its own, nor where the new one is not installed.
+  for (const [from, to] of [...aliases]) {
+    if (from === to || bandSets.has(from) || wallSets.has(from)) {
+      aliases.delete(from);
+      continue;
+    }
+    if (bandSets.has(to)) bandSets.set(from, bandSets.get(to)!);
+    if (measuredBandSets.has(to)) measuredBandSets.add(from);
+    if (wallSets.has(to)) wallSets.set(from, wallSets.get(to)!);
   }
 
   const families = new Map<string, CatalogEntry[]>();
@@ -162,9 +181,25 @@ function build(): CatalogState {
     wallSets,
     bandSets,
     measuredBandSets,
+    aliases,
     families,
     props: null,
   };
+}
+
+/**
+ * True for a measured piece the walk may lay inside a run: not an end, connector, step, entrance
+ * or transition, each of which is laid only where its own place is found.
+ */
+export function isRunPiece(band: BandMeasure): boolean {
+  return !band.end && !band.connector && !band.step && !band.entrance && !band.transition;
+}
+
+/** The set `setId` names now: the set a pack renamed it to (`setAliases`), else itself. */
+export function canonicalSetId(setId: string): string;
+export function canonicalSetId(setId: string | undefined): string | undefined;
+export function canonicalSetId(setId: string | undefined): string | undefined {
+  return setId === undefined ? undefined : (current().aliases.get(setId) ?? setId);
 }
 
 function keyOf(entry: CatalogEntry): string {
@@ -279,7 +314,8 @@ export function getEntriesByType(type: string): CatalogEntry[] {
 
 /** Wall-set ids that have at least one wall entry installed. */
 export function getWallSetIds(): string[] {
-  return [...current().wallSets.keys()].sort();
+  const { wallSets, aliases } = current();
+  return [...wallSets.keys()].filter((id) => !aliases.has(id)).sort();
 }
 
 export function getWallSet(setId: string): CatalogEntry[] {
@@ -296,7 +332,8 @@ export function getWallPieces(setId: string, piece: WallPiece): CatalogEntry[] {
  * each floor ring with the cave walk instead of composing stones along it.
  */
 export function getBandSetIds(): string[] {
-  return [...current().bandSets.keys()].sort();
+  const { bandSets, aliases } = current();
+  return [...bandSets.keys()].filter((id) => !aliases.has(id)).sort();
 }
 
 export function getBandSet(setId: string): CatalogEntry[] {

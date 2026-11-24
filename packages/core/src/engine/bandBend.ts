@@ -13,7 +13,7 @@
 // through its joints), positive to the floor side (the right of travel). All distances are
 // in cells times the size the piece's stretch was laid at, so everything follows wall width.
 
-import { jointsOf } from '../assets/caveWallKit';
+import { jointsOf, pieceSkew } from '../assets/caveWallKit';
 import { GRID_CELL_PX } from '../assets/packCatalog';
 import type { Vec, WalkPlacement } from './caveWalk';
 
@@ -96,11 +96,12 @@ export function taperWidth(q: number): number {
 
 /**
  * A laid piece's direction of travel at each of its joints: its chord turned back by half its
- * turn at the first and on by half at the second, as an arc does.
+ * turn at the first and on by half at the second, as an arc does. A step piece's runs square to
+ * its sides, its chord turned back by its skew.
  */
 export function endTangents(pl: WalkPlacement): [Vec, Vec] {
   const [J0, J1] = jointsOf(pl.piece, pl.at);
-  const a = Math.atan2(J1[1] - J0[1], J1[0] - J0[0]);
+  const a = Math.atan2(J1[1] - J0[1], J1[0] - J0[0]) - pieceSkew(pl.piece);
   const h = (pl.piece.turnDeg * Math.PI) / 360;
   return [
     [Math.cos(a - h), Math.sin(a - h)],

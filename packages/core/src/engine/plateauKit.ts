@@ -11,7 +11,7 @@
 // A band set that carries its own measurements (isMeasuredBandSet) is one cliff look of its
 // own: every measured entry is its art, and its kit is the set's own, not a ledge family.
 
-import { bandSetArt, getBandSet, getBandSetIds, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
+import { bandSetArt, canonicalSetId, getBandSet, getBandSetIds, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
 import { bandEndPiecesFor, bandPiecesFor, kitPieces, ledgePieces, type CaveKitPiece } from '../assets/caveWallKit';
 import { floorTextureEntries, outdoorFloorChoices } from '../assets/materialKit';
 
@@ -62,7 +62,15 @@ export function borderTextureChoices(): { value: string; label: string }[] {
 export function cliffChoice(edgeArt: string | undefined): CliffChoice {
   if (isPaintedBorder(edgeArt)) return { setId: DEFAULT_CLIFF_SET, family: DEFAULT_CLIFF_FAMILY };
   const [setId, family] = (edgeArt ?? '').split(':');
-  return { setId: setId || DEFAULT_CLIFF_SET, family: family || DEFAULT_CLIFF_FAMILY };
+  // A set a pack has since renamed is the set it became.
+  return { setId: canonicalSetId(setId || DEFAULT_CLIFF_SET), family: family || DEFAULT_CLIFF_FAMILY };
+}
+
+/** `edgeArt` with a renamed set named as the set it became, so the card shows it picked. */
+export function canonicalEdgeArt(edgeArt: string | undefined): string | undefined {
+  if (!edgeArt || isPaintedBorder(edgeArt)) return edgeArt;
+  const [setId, ...rest] = edgeArt.split(':');
+  return [canonicalSetId(setId), ...rest].join(':');
 }
 
 /** What the card calls a ledge family; another family reads as its own name. */

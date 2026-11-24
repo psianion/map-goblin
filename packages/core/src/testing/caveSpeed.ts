@@ -263,7 +263,7 @@ export const MEASURED_SET = 'Speed_Cave';
 /**
  * A measured kit drawn like a real cave set (as caveKitMap.test.ts seeds one): straights of 1
  * to 8 cells whose rock wavers along a spine, an inside and an outside bend in 2, 3 and 4
- * cells, and two round lumps of rock for connectors.
+ * cells, two round lumps of rock for connectors, and a step, two dead ends and a painted ending.
  */
 export function seedMeasured(mods: SpeedMods): void {
   const entry = (material: string, gridSize: string, band: Record<string, unknown>) => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set: MEASURED_SET, tags: ['colored'], band });
@@ -282,6 +282,11 @@ export function seedMeasured(mods: SpeedMods): void {
     entries[`turn_in_${N}x${N}_A`] = entry('turn_in', `${N}x${N}`, { joints: [[N / 2 - 0.64, -end], [-end, N / 2 - 0.64]], turnDeg: 90 });
     entries[`turn_out_${N}x${N}_A`] = entry('turn_out', `${N}x${N}`, { joints: [[-end, N / 2 - 1.36], [N / 2 - 1.36, -end]], turnDeg: -90 });
   }
+  // Laid only in their own places: a step one cell sideways, a rock spur's tip, a passage's end two cells wide, a cliff's painted ending.
+  entries.step_3x3_A = entry('step', '3x3', { joints: [[1.65, -0.64], [-1.65, 0.36]], turnDeg: 0, step: true });
+  entries.spur_3x1_A = entry('spur', '3x1', { joints: [[0.14, 0.65], [-0.14, 0.65]], turnDeg: -180, end: true, reach: 0.83 });
+  entries.cap_4x1_A = entry('cap', '4x1', { joints: [[-1.36, 0.65], [1.36, 0.65]], turnDeg: 180, end: true, reach: 0.66 });
+  entries.taper_3x2_A = entry('taper', '3x2', { joints: [[1.5, 0.36], [-1.12, 0.36]], turnDeg: 0, end: true });
   entries.lump_2x2_A = entry('lump', '2x2', { joints: [[0.04, 0], [0.04, 0]], turnDeg: 0, connector: true, radius: 0.7 });
   entries.lump_3x3_A = entry('lump', '3x3', { joints: [[0, -0.05], [0, -0.05]], turnDeg: 0, connector: true, radius: 1 });
   mods.seed.seedPack('speed-pack', entries as never);

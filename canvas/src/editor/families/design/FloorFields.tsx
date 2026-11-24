@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import { useStore } from '@/store/store';
-import { getBandSetIds, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
+import { canonicalSetId, getBandSetIds, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { outdoorFloorChoices } from '@dnd/core/src/assets/materialKit';
 import type { DungeonLayer } from '@/store/types';
 import { ColourRow, Fold, SecondaryButton, SelectRow, SettingRow, SliderRow, Stepper } from '@dnd/ui';
@@ -24,9 +24,11 @@ const NO_BAND = '__none__';
 const bandSwatch = (id: string): Swatch => ({ value: id, label: wallSetLabel(id), art: wallSetThumb(id) });
 
 /** Edge band: None, or one of the installed band sets. */
-export function EdgeBandField({ def, value, onChange }: SettingProps<string | null>) {
+export function EdgeBandField({ def, value: stored, onChange }: SettingProps<string | null>) {
   // Pack bands arrive after boot; re-read them when the pack list moves.
   useStore((s) => s.packs.installedPacks);
+  // A set a pack has since renamed shows as the set it became.
+  const value = stored && canonicalSetId(stored);
   const ids = getBandSetIds();
   if (value && !ids.includes(value)) ids.push(value);
   const swatches = [{ value: NO_BAND, label: 'None' }, ...ids.map(bandSwatch)];
@@ -61,8 +63,9 @@ export function WallsField({ def, value, onChange }: SettingProps<string | null>
 export const PAINTED_EDGE = '__paint__';
 
 /** The floor card's Edge band: None, the installed band sets, or Painted border. */
-export function FloorEdgeField({ def, value, onChange }: SettingProps<string | null>) {
+export function FloorEdgeField({ def, value: stored, onChange }: SettingProps<string | null>) {
   useStore((s) => s.packs.installedPacks);
+  const value = stored && stored !== PAINTED_EDGE ? canonicalSetId(stored) : stored;
   const ids = getBandSetIds();
   if (value && value !== PAINTED_EDGE && !ids.includes(value)) ids.push(value);
   const swatches = [

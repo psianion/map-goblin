@@ -90,7 +90,7 @@ import type { PlateauChild } from '../shared/types';
 import { isGroundPiece, pieceRings } from '../shared/pieces';
 import type { WorldBounds } from '../shared/mapBounds';
 import { baseGroundFrame } from './mapFrame';
-import { bandSize, isColoredSet, type CatalogEntry } from '../assets/packCatalog';
+import { bandSize, isColoredSet, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { fittedFloor, layBandChain, layBandRing, placeBand, withConnectors, type FloorFit } from './caveBandRenderer';
@@ -102,7 +102,7 @@ import { paintRamp, rampMaskSprite } from './softPiece';
 import { ease } from './softMask';
 import { distanceToLines, fallOff, fieldOf, keptRamp, rampGrid, unit, type Ramp, type RampField } from './rampMask';
 import { kitOverlap, type WalkPlacement } from './caveWalk';
-import { bandPiecesFor, jointsOf, kitRockWidth, mirrorPiece, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
+import { bandPiecesFor, jointsOf, kitRockWidth, mirrorPiece, pieceSkew, placeOnChord, type CaveKitPiece } from '../assets/caveWallKit';
 
 type Vec = [number, number];
 
@@ -1408,7 +1408,7 @@ const segDist = (p: Vec, a: Vec, b: Vec): number => {
  */
 function jointFrame(pl: WalkPlacement): { joints: [Vec, Vec]; tangents: [Vec, Vec] } {
   const joints = jointsOf(pl.piece, pl.at);
-  const a = Math.atan2(joints[1][1] - joints[0][1], joints[1][0] - joints[0][0]);
+  const a = Math.atan2(joints[1][1] - joints[0][1], joints[1][0] - joints[0][0]) - pieceSkew(pl.piece);
   const h = (pl.piece.turnDeg * Math.PI) / 360;
   return { joints, tangents: [[Math.cos(a - h), Math.sin(a - h)], [Math.cos(a + h), Math.sin(a + h)]] };
 }
@@ -1513,7 +1513,8 @@ export function cliffLedge(stretch: CliffRun, placed: WalkPlacement[]): WalkPlac
   const runs = ledgeRuns(walked, run.closed).filter((r) => r.open);
   // The walk goes a pit's way round backwards: its head is the stretch's tail.
   const [head, tail] = run.drop > 0 ? stretch.merged : [stretch.merged[1], stretch.merged[0]];
-  const ends = ledgeEndPieces(art, run.owner?.edgeArt);
+  // A measured kit's painted endings are laid by its walk, inside the run (see layExactRun).
+  const ends = isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId) ? [] : ledgeEndPieces(art, run.owner?.edgeArt);
   const tips = runs.flatMap((r, k) => runEnds(r.run, ends, !(head && k === 0), !(tail && k === runs.length - 1)));
   return [...walked, ...drawnPlacements(tips, art)];
 }
@@ -1526,7 +1527,8 @@ export function cliffLedge(stretch: CliffRun, placed: WalkPlacement[]): WalkPlac
  */
 export function cliffFreeTips(stretch: CliffRun, drawn: WalkPlacement[]): ((end: Vec) => boolean) | undefined {
   const { run } = stretch;
-  const ends = ledgeEndPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt).length > 0;
+  const measured = isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId);
+  const ends = !measured && ledgeEndPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt).length > 0;
   // The ledge's own pieces: the end pieces laid at its free tips come after them.
   const runs = ledgeRuns(
     drawn.filter((pl) => pl.branch !== 'end'),
@@ -1535,10 +1537,11 @@ export function cliffFreeTips(stretch: CliffRun, drawn: WalkPlacement[]): ((end:
   const walkWay = <T,>(pair: [T, T]): [T, T] => (run.drop > 0 ? pair : [pair[1], pair[0]]);
   const [head, tail] = walkWay(stretch.merged);
   const [buttHead, buttTail] = walkWay(stretch.butts);
-  const narrows = (merged: boolean, butts: boolean): boolean => (merged ? butts : !ends);
+  // A free tip narrows unless it ends on a painted ending (a measured kit's, laid by its walk).
+  const narrows = (merged: boolean, butts: boolean, tip: WalkPlacement): boolean => (merged ? butts : !ends && tip.branch !== 'ending');
   const tips: Vec[] = runs.flatMap((r, k) => [
-    ...(narrows(head && k === 0, buttHead) ? [jointFrame(r.run[0]).joints[0]] : []),
-    ...(narrows(tail && k === runs.length - 1, buttTail) ? [jointFrame(r.run[r.run.length - 1]).joints[1]] : []),
+    ...(narrows(head && k === 0, buttHead, r.run[0]) ? [jointFrame(r.run[0]).joints[0]] : []),
+    ...(narrows(tail && k === runs.length - 1, buttTail, r.run[r.run.length - 1]) ? [jointFrame(r.run[r.run.length - 1]).joints[1]] : []),
   ]);
   return tips.length > 0 ? (p) => tips.some((t) => vdist(p, t) < 1e-6) : undefined;
 }

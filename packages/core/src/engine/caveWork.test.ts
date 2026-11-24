@@ -60,6 +60,39 @@ describe('the work a cave rebuild does', () => {
     open.close();
   }, 60_000);
 
+  it('works nothing out again for step pieces, dead ends and painted endings on a rebuild with nothing changed', async () => {
+    useFrames();
+    const mods = await freshMods();
+    const open = openMap(mods, TESTING);
+    const id = open.ids[0];
+    // A plateau with a jog, a slope off its long side (two free cliff ends) and a cave room with a rock spur and a passage.
+    const spur: [number, number][] = [[-120, -62], [-115, -62], [-115, -57], [-114, -57], [-114, -62], [-108, -62], [-108, -54], [-111, -54], [-111, -48], [-113, -48], [-113, -54], [-120, -54]];
+    mods.store.useStore.setState((s) => {
+      const l = s.layers.find((x) => x.id === id) as DungeonLayer;
+      l.children.push(
+        { id: 'work-jog', name: 'j', childType: 'plateau', visible: true, contours: [[[-100, -62], [-92, -62], [-92, -61], [-84, -61], [-84, -52], [-100, -52]]], height: 1, edge: 'cliff', edgeArt: MEASURED_SET } as never,
+        { id: 'work-ramp', name: 'r', childType: 'plateau', visible: true, contours: [[[-96, -52], [-92, -52], [-92, -49], [-96, -49]]], height: 1, edge: 'slope', faceDir: 90 } as never,
+        { id: 'work-spur', name: 's', childType: 'shape', visible: true, shapeType: 'polygon', contours: [spur], styleOverrides: { wallTextureSetId: MEASURED_SET } } as never,
+      );
+      l.mergedFloor = mods.merged.computeMergedFloor(l as DungeonLayer);
+    });
+    open.drawAll();
+    open.drawAll();
+    const before = work(mods);
+    open.drawAll();
+    expect(work(mods)).toEqual(before);
+    // They were laid: each in its place.
+    const { bandPiecesFor } = await import('../assets/caveWallKit');
+    const pool = bandPiecesFor(MEASURED_SET);
+    const room = mods.band.layBandRing(mods.band.orientRings([spur as Polygon])[0], [], pool, 1);
+    expect(room.filter((p) => p.branch === 'dead-end').map((p) => p.piece.key).sort()).toEqual(['cap_4x1', 'spur_3x1']);
+    const jog = mods.band.layBandRing(mods.band.orientRings([[[-100, -62], [-92, -62], [-92, -61], [-84, -61], [-84, -52], [-100, -52]] as Polygon])[0], [], pool, 1, true);
+    expect(jog.some((p) => p.branch === 'step')).toBe(true);
+    const free = mods.band.layBandChain([[0, 0], [10, 0]], [], pool, 1, true);
+    expect([free[0].branch, free[free.length - 1].branch]).toEqual(['ending', 'ending']);
+    open.close();
+  }, 60_000);
+
   it('lays nothing again when a piece’s art lands late: the piece takes it in place', async () => {
     useFrames();
     const mods = await freshMods();

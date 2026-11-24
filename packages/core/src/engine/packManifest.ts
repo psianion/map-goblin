@@ -32,6 +32,8 @@ export interface ManifestEntry {
   tags: string[]
   /** A band kit piece's own measurements (see caveWallKit's bandPiecesFor). */
   band?: BandMeasure
+  /** A prop that blocks on a round footprint rather than its square frame. */
+  footprint?: { radius: number }
 }
 
 /** Where a band kit piece's joints are, as `CaveKitPiece` measures them. */
@@ -61,6 +63,18 @@ export interface BandMeasure {
   spine?: [number, number][]
   /** The middle of the fully solid rock across the piece, sampled along it, joint 0 end to joint 1 end, in cells from the tile's centre. */
   middle?: [number, number][]
+  /** A straight whose rock steps sideways between its ends: laid only where an outline jogs as far. Never inside a run. */
+  step?: boolean
+  /** A dead end (an end turning 180 degrees): how far past its joints' chord the floor line round its cap lies, in cells. */
+  reach?: number
+  /** A piece with an opening through its face, laid across a doorway in the run. Never inside a run. */
+  entrance?: boolean
+  /** An entrance dark inside, for an opening onto unlit ground. */
+  shadow?: boolean
+  /** Rock turning into a cut-stone wall: laid where the two meet, in line or at a right angle. Never inside a run. */
+  transition?: 'straight' | 'corner'
+  /** Which of a transition's joints lies on the wall's centre line. */
+  wallJoint?: 0 | 1
 }
 
 export interface PackManifest {
@@ -72,4 +86,6 @@ export interface PackManifest {
   atlases: Record<string, FileRef>
   files: Record<string, FileRef>
   theme?: string[]
+  /** Set ids the pack has renamed, old to new: maps saved with the old id draw with the new set. */
+  setAliases?: Record<string, string>
 }

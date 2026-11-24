@@ -43,7 +43,22 @@ const BandSchema = z.object({
   spine: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(64).optional(),
   /** The middle of the fully solid rock across the piece, sampled along it, joint 0 end to joint 1 end, in cells from the tile's centre. */
   middle: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(64).optional(),
+  /** A straight whose rock steps sideways between its ends: laid only where an outline jogs as far. Never inside a run. */
+  step: z.boolean().optional(),
+  /** A dead end (an end turning 180 degrees): how far past its joints' chord the floor line round its cap lies, in cells. */
+  reach: z.number().finite().optional(),
+  /** A piece with an opening through its face, laid across a doorway in the run. Never inside a run. */
+  entrance: z.boolean().optional(),
+  /** An entrance dark inside, for an opening onto unlit ground. */
+  shadow: z.boolean().optional(),
+  /** Rock turning into a cut-stone wall: laid where the two meet, in line (`straight`) or at a right angle (`corner`). Never inside a run. */
+  transition: z.enum(['straight', 'corner']).optional(),
+  /** Which of a transition's joints lies on the wall's centre line. */
+  wallJoint: z.union([z.literal(0), z.literal(1)]).optional(),
 });
+
+/** A prop's footprint for blocking: a disc about its centre, radius in cells. */
+const FootprintSchema = z.object({ radius: z.number().positive().finite() });
 
 const ManifestEntrySchema = z.object({
   type: AssetTypeEnum,
@@ -61,6 +76,8 @@ const ManifestEntrySchema = z.object({
   tags: z.array(z.string()),
   // A band kit piece's own measurements, so a set can carry its kit (see core's caveWallKit).
   band: BandSchema.optional(),
+  // A prop that blocks on a round footprint rather than its square frame.
+  footprint: FootprintSchema.optional(),
   // Variant family within its set (vault-cli `families` writes it on object entries).
   // Last so a re-parse keeps the key order and the manifest hash stable.
   family: z.string().min(1).optional(),
@@ -81,6 +98,8 @@ export const PackManifestSchema = z.object({
   files: z.record(z.string(), FileRefSchema),
   checksums: z.record(z.string(), z.string().startsWith('sha256:')).optional(),
   bundleSize: z.number().int().nonnegative(),
+  // Set ids a pack has renamed, old to new: maps saved with the old id draw with the new set.
+  setAliases: z.record(z.string(), z.string()).optional(),
 });
 
 export type PackManifest = z.infer<typeof PackManifestSchema>;
