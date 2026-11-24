@@ -171,19 +171,15 @@ describe('renderDoors sprite dispatch', () => {
     expect(shadow.tint).toBe(0);
   });
 
-  it("draws a plain opening as nothing but a cave's jambs: no arch art and no glyph", () => {
+  it('draws a plain opening as nothing, in cave rock too: the rock ends round it as at a carved mouth', () => {
     getTextureOrNull.mockReturnValue(packTexture(200, 200));
     const onCave = (over: Partial<DoorChild> = {}) => ({
       ...resolved('archway', { bare: true, ...over }),
       wall: { id: 'w1', kind: 'cave', points: [[-1, 0], [1, 0]], textureSetId: 'GG_Cave_Ink' },
     }) as unknown as ResolvedDoor;
     expect(render([resolved('archway', { bare: true })])).toEqual([]);
-    getTextureOrNull.mockClear();
-    const jambs = render([onCave()]);
-    expect(jambs).toHaveLength(2);
-    expect(jambs.every((c) => c instanceof FakeSprite)).toBe(true);
-    expect(getTextureOrNull.mock.calls.map((c) => c[0])).toEqual(['gg-demo:doorkit-cave-jamb']);
-    expect(render([onCave({ jamb: 'none' })])).toEqual([]);
+    expect(render([onCave()])).toEqual([]);
+    expect(render([onCave({ jamb: 'one' })])).toEqual([]);
     getTextureOrNull.mockReturnValue(null);
     expect(render([resolved('archway', { bare: true })])).toEqual([]);
   });

@@ -84,6 +84,16 @@ export function wholeDoorFrame(art: WholeDoorArt, width: number): DoorFrameArt |
   return (width > 1.5 ? art.double : art.frame) ?? art.frame ?? art.double;
 }
 
+/**
+ * How far a whole-leaf door's frame post stands out past each edge of its opening, cells: its
+ * frame's post, outer face less inner. None for a door built any other way, or with no frame.
+ */
+export function doorPostDepth(door: Pick<DoorChild, 'style' | 'kit' | 'width'>, wallSetId: string | undefined): number {
+  const kit = doorKitOf(door, wallSetId);
+  const frame = kit?.whole ? wholeDoorFrame(kit.whole, door.width) : undefined;
+  return frame ? frame.post[1] - frame.post[0] : 0;
+}
+
 const KITS: Record<BuiltInDoorKitId, DoorKit> = {
   stone: {
     id: 'stone', thickness: 0.17, hingeLength: 0.16, latchLength: 0.16, tileLength: 0.5, sliceCells: 0.4, hang: 'pin',

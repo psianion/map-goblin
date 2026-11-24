@@ -19,7 +19,8 @@ import { renderNodeWalls, type DoorGap } from '../engine/wallNodeRenderer';
 import { byPrecedence, layerPlateaus, type EdgeRun, type PlateauBand } from '../shared/plateaus';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
-import { doorOpeningCuts, resolveDoors, resolveWalls } from '../shared/wallResolve';
+import { resolveDoors, resolveWalls } from '../shared/wallResolve';
+import { doorGaps } from '../engine/doorGaps';
 import type { DungeonLayer, RockLine } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { checkBand, pastRockLine, type BandCheck, type SideRegion } from './bandChecks';
@@ -68,9 +69,7 @@ export function layLayer(input: DungeonLayer): LaidLayer {
   let layer: DungeonLayer = { ...input, mergedFloor: input.mergedFloor ?? computeMergedFloor(input) };
   const rings = layer.mergedFloor ?? [];
   const walls = resolveWalls(layer);
-  const doorGaps = resolveDoors(layer, walls)
-    .filter((d) => d.door.visible)
-    .flatMap((d) => doorOpeningCuts(d, walls)) as DoorGap[];
+  const gapsOfDoors = doorGaps(layer, resolveDoors(layer, walls).filter((d) => d.door.visible), walls);
   const bands: LaidBand[] = [];
   const tips: Polygon[] = [];
   const gapsFit: Polygon[] = [];
@@ -91,7 +90,7 @@ export function layLayer(input: DungeonLayer): LaidLayer {
     bands.push({ kind, ring, closed, placed, connectors, gaps, size, check });
   };
   const level = layerLevelLook(layer);
-  renderNodeWalls(new Container(), rings, layer.standaloneWalls.filter((w) => w.visible !== false), layerDrawStyle(layer), doorGaps, layer.floorWallEdits ?? {}, {
+  renderNodeWalls(new Container(), rings, layer.standaloneWalls.filter((w) => w.visible !== false), layerDrawStyle(layer), gapsOfDoors, layer.floorWallEdits ?? {}, {
     ringStyles: ringStyles(layer, level),
     edgeStyles: edgeStyles(layer, level),
     openings: layer.caveOpenings,

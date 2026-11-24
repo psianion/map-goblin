@@ -152,9 +152,26 @@ describe('caps at an erased mouth', () => {
     expect(layBandRing(circle, [...mouth(a as [number, number], b as [number, number])], bandPiecesFor(SET), 1).filter((p) => p.branch === 'mouth')).toHaveLength(2);
   });
 
-  it('keeps a door its jambs, and a stretch too short for a cap its taper', () => {
+  it('caps the rock at a door too, and at a mouth a door stands in', () => {
     seedKit();
-    expect(branches(layBandRing(room, mouth([5, 0], [6, 0], true), bandPiecesFor(SET), 1))).not.toContain('mouth');
+    const tips = (gaps: DoorGap[]) =>
+      layBandRing(room, gaps, bandPiecesFor(SET), 1)
+        .filter((p) => p.branch === 'mouth')
+        .map((p) => tipOf(p, [6, 0])[0])
+        .sort((a, b) => a - b);
+    for (const door of [mouth([5, 0], [7, 0], true), [{ wallId: 'w', position: [6, 0] as [number, number], width: 2 }]]) {
+      const [a, b] = tips(door);
+      expect(a).toBeCloseTo(5, 2);
+      expect(b).toBeCloseTo(7, 2);
+    }
+    // A door dropped into a carved mouth: one opening, still capped at its edges.
+    const [a, b] = tips([...mouth([5, 0], [7, 0]), { wallId: 'w', position: [6, 0], width: 2 }]);
+    expect(a).toBeCloseTo(5, 2);
+    expect(b).toBeCloseTo(7, 2);
+  });
+
+  it('keeps a stretch too short for a cap its taper', () => {
+    seedKit();
     // Two mouths a cell apart: the rock between them is too short for a cap.
     const placed = layBandRing(room, [...mouth([3, 0], [5, 0]), ...mouth([5.6, 0], [8, 0])], bandPiecesFor(SET), 1);
     expect(placed.filter((p) => p.branch === 'mouth').every((p) => Math.min(p.P[0], p.Q[0]) < 3 || Math.max(p.P[0], p.Q[0]) > 8)).toBe(true);

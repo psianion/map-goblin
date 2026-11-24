@@ -8,12 +8,13 @@ import * as textureLoader from '../assets/textureLoader';
 import { unitTexture } from '../assets/textureLoader';
 import { getWallSet, hasLiveTexture, isBandSet, isMeasuredBandSet } from '../assets/packCatalog';
 import { renderEdgeTransitions } from './edgeTransitions';
-import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
+import { renderNodeWalls } from './wallNodeRenderer';
 import { bandFloorFit, fittedFloor, ringFloorOf, type FloorFit } from './caveBandRenderer';
 import { renderDoors } from './doorRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
-import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
+import { resolveDoors, resolveWalls, type ResolvedDoor } from '../shared/wallResolve';
+import { doorGaps, openingLines, openingRegions } from './doorGaps';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
 import { layerSlopes, plateauAlongWalls, plateauDrawOrder, plateauTopFills, plateauTopTiles, renderPlateaus, slopeFaceTiles, type TopFill } from './plateauRenderer';
@@ -107,12 +108,13 @@ function watchCatalog(): void {
 }
 
 /**
- * Stone-gap openings for the doorways: the door's own wall, and every wall on its
- * line the opening reaches into (`doorOpeningCuts`), so a door widened past its
- * short doorway piece cuts the walls either side too. A detached door gaps nothing.
+ * A layer's cave mouths, where its floor fades out: the stretches of its floor rings erased open
+ * (`mouthLines`), and the Openings the Door tool hangs on cave rock (`openingLines`).
  */
-function doorGapsFor(doors: ResolvedDoor[], walls: ResolvedWall[]): DoorGap[] {
-  return doors.flatMap((d) => doorOpeningCuts(d, walls));
+function layerMouths(layer: DungeonLayer, polygons: readonly Polygon[], doors: readonly ResolvedDoor[]): Polygon[] {
+  const lines = openingLines(layer, doors);
+  const carved = mouthLines(polygons, layer.caveOpenings);
+  return lines.length > 0 ? [...carved, ...lines] : carved;
 }
 
 /** Signed area of a polygon. Positive = CW in screen-space (outer), negative = CCW (hole). */
@@ -537,7 +539,8 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   const fitted = floorFits.get(layer.id);
   const fit = fitted && fitted.floor === layer.mergedFloor ? fitted.fit : undefined;
   // They fade out across a cave's mouth as its floor does, by the same ramp.
-  const mouths = mouthLines(polygons, layer.caveOpenings);
+  const opening = layer.children.some((c) => c.childType === 'door' && c.bare);
+  const mouths = layerMouths(layer, polygons, opening ? resolveDoors(layer, resolveWalls(layer)).filter((d) => d.door.visible) : []);
   const groups: [string, Polygon[], Ramp | null][] = [...byColor].map(([color, rings]): [string, Polygon[], Ramp | null] => {
     const region = fittedFloor(rings, fit);
     return [color, region, mouthRamp(region, mouths, wobbleSeed(layer.id))];
@@ -761,7 +764,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     // A wall hidden on its own draws nowhere (the export reads this scene graph too).
     layer.standaloneWalls.filter((w) => w.visible !== false),
     drawStyle,
-    doorGapsFor(doors, resolvedWalls),
+    doorGaps(layer, doors, resolvedWalls),
     layer.floorWallEdits ?? {},
     {
       ringStyles: rings,
@@ -785,8 +788,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     laid.placed.forEach((placed) => rock.push({ placed, closed: true, size: laid.size }));
   }
   // The walls' floor shadow, along all of that rock, over the floor's paint and under the rock.
+  // An Opening on cave rock is kept clear of it as a carved mouth is.
+  const opened = openingRegions(openingLines(layer, doors));
   const drawWallShadow = (): void => {
-    const shadow = wallShadowRamp(rock, layer.caveOpenings);
+    const shadow = wallShadowRamp(rock, opened.length > 0 ? [...(layer.caveOpenings ?? []), ...opened] : layer.caveOpenings);
     if (!shadow) return;
     const host = new Container();
     host.label = 'wall-shadow';
@@ -917,7 +922,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   const waters = pieces.filter((c) => isWaterPiece(c));
   const water = waters.length > 1 ? clipper2Engine.union(waters.flatMap((c) => pieceOutline(c)), []) : waters.flatMap((c) => pieceOutline(c));
   // A cave's floor fades out across each of its mouths.
-  const mouths = mouthLines(polygons, layer.caveOpenings);
+  const mouths = layerMouths(layer, polygons, doors);
   const mouthSeed = wobbleSeed(layer.id);
   const ctx: PieceCtx = { layer, style: s, floorFallback, water, bleedOf, unionFilled, soft: new Set(), bordersOverExtras: polygons.length > 0, fit, mouths, mouthSeed };
 

@@ -32,6 +32,7 @@ import { edgeRuns, groundHeightOf, hasPlateaus, layerPlateaus } from '../../shar
 import { caveEdges, caveOpeningGaps, type CaveEdge } from '../../shared/caveFloor';
 import { resolveDoors, resolveWalls, type ResolvedDoor } from '../../shared/wallResolve';
 import type { DoorGap } from '../wallNodeRenderer';
+import { rockGaps } from '../doorGaps';
 import { getAssetPackManager } from '../assetPackInstance';
 import { afterArtSettles } from '../lateArt';
 
@@ -325,13 +326,14 @@ function drawCave(host: Container, layer: DungeonLayer, laid: LaidCave, lines: R
 }
 
 /**
- * Where a cave's rock stops: one gap per door on its wall, a plain opening's among them.
- * Its wall is the walls of kind `cave` in its material (a ring erased open stands as several).
+ * Where a cave's rock stops: one gap per door on its wall, a plain opening's among them, shaped
+ * for its rock (`rockGaps`). Its wall is the walls of kind `cave` in its material (a ring erased
+ * open stands as several).
  */
 export function caveDoorGaps(cave: CaveEdge, doors: readonly ResolvedDoor[]): DoorGap[] {
   return doors
     .filter((d) => d.wall?.kind === 'cave' && d.wall.textureSetId === cave.material && d.wall.bandWidth === cave.width)
-    .map((d) => ({ wallId: d.wall!.id, position: d.position, width: d.door.width }));
+    .flatMap((d) => rockGaps([{ wallId: d.wall!.id, position: d.position, width: d.door.width }], d.door, cave.material));
 }
 
 /** Draws a layer's painted caves' rock, replacing what was drawn; none clears the sublayer. */

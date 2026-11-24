@@ -182,6 +182,48 @@ describe('the work a cave rebuild does', () => {
     open.close();
   }, 60_000);
 
+  it('lays only the rock an Opening is hung on, and nothing again for a rebuild with nothing changed', async () => {
+    useFrames();
+    const mods = await freshMods();
+    const open = openMap(mods, TESTING);
+    const { useStore } = mods.store;
+    const id = open.ids[0];
+    open.drawAll();
+    open.drawAll();
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.id === id)!;
+    const { polylineLength, resolveWalls } = await import('../shared/wallResolve');
+    // Halfway along the first wall of rock at least four cells long.
+    const wall = resolveWalls(layer).find((w) => (w.kind === 'floor' || w.kind === 'cave') && polylineLength(w.points) >= 4)!;
+    expect(wall).toBeDefined();
+    let left = polylineLength(wall.points) / 2;
+    let k = 0;
+    for (; k + 2 < wall.points.length; k++) {
+      const L = Math.hypot(wall.points[k + 1][0] - wall.points[k][0], wall.points[k + 1][1] - wall.points[k][1]);
+      if (left <= L) break;
+      left -= L;
+    }
+    const [a, b] = [wall.points[k], wall.points[k + 1]];
+    const t = Math.min(1, left / Math.hypot(b[0] - a[0], b[1] - a[1]));
+    const at = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    const opening = { id: 'work-opening', name: 'Opening 1', childType: 'door', visible: true, wallId: wall.id, position: at, angle: Math.atan2(b[1] - a[1], b[0] - a[0]), width: 2, style: 'archway', bare: true, state: 'closed', isSecret: false };
+    const before = work(mods);
+    useStore.setState((s) => {
+      (s.layers.find((x) => x.id === id) as DungeonLayer).children.push(opening as never);
+    });
+    // Drawn twice: the first draw stores the opened rock's line the second is drawn along.
+    open.drawAll();
+    open.drawAll();
+    const placed = work(mods);
+    // The one ring it opens is laid again; no cliff or other wall is. The layer's slope faces are
+    // worked out again for each draw, as for any change to its children and rock lines.
+    expect(placed.layings - before.layings).toBe(1);
+    expect(placed.slopes - before.slopes).toBeLessThanOrEqual(2);
+    expect({ ...placed, layings: 0, meshes: 0, slopes: 0 }).toEqual({ ...before, layings: 0, meshes: 0, slopes: 0 });
+    open.drawAll();
+    expect(work(mods)).toEqual(placed);
+    open.close();
+  }, 60_000);
+
   // A ceiling at today's speed so nothing gets slower; lower it as laying afresh gets faster.
   it('lays the Goblin Warren afresh in under 350 ms', async () => {
     useFrames();

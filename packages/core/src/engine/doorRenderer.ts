@@ -74,12 +74,9 @@ export function renderResolvedDoor(
 ): void {
   const { door, position, angle: wallAngle } = resolved;
   if (!door.visible) return;
-  // A plain opening is the gap it cuts and nothing else (the editor's door marks show it),
-  // but for a cave's jambs, which close its rock either side.
-  if (door.bare && !resolved.detached) {
-    renderCaveDoorway(container, resolved, style, ringStyles, edgeStyles);
-    return;
-  }
+  // A plain opening is the gap it cuts and nothing else (the editor's door marks show it): in
+  // cave rock the rock's own ends close it, as at a carved mouth.
+  if (door.bare && !resolved.detached) return;
 
   // Fresh Graphics per door to avoid PixiJS v8 path accumulation
   const g = new Graphics();
@@ -572,10 +569,10 @@ function renderKitJambs(
 }
 
 /**
- * A portcullis, archway or opening in a cave wall, in the door kit's ink: a
+ * A portcullis or archway in a cave wall, in the door kit's ink: a
  * portcullis's iron gate (its floor slot and sockets when raised), or an
  * archway's rock carried across overhead, see-through; then the jambs either
- * side, as the door's `jamb` says. An opening is the jambs alone.
+ * side, as the door's `jamb` says.
  *
  * False when the wall is not a cave's or a portcullis's pieces are not
  * installed, so the caller falls back to the sprite or glyph as before.
@@ -596,7 +593,7 @@ function renderCaveDoorway(
   if (door.style === 'portcullis') {
     const rock = wallRockDepth(look.width, kit);
     if (!renderCavePortcullis(container, position, angle, door.width, rock, s, door.state !== 'open')) return false;
-  } else if (!door.bare) {
+  } else {
     renderRockOverhead(container, look.setId, position, angle, door.width, s);
   }
   renderKitJambs(container, kit, look.setId, position, angle, door.width, look.width, 0xffffff, s, door.jamb);

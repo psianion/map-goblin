@@ -402,7 +402,7 @@ function layWallRuns(line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], closed
   if (closed && joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN) return [];
   const half = kitOverlap(set) / 2;
   // Each stretch from where it opens to where it closes, whether an opening bounds each end, and
-  // whether that opening is an erased mouth (its end is capped, see mouthCap).
+  // whether that end is capped (see mouthCap).
   const stretches: [number, number, boolean, boolean, boolean, boolean][] = joined.slice(1).map((o, k) => [joined[k][1], o[0], true, true, mouth[k], mouth[k + 1]]);
   if (closed) {
     stretches.push([joined[joined.length - 1][1], joined[0][0] + total, true, true, mouth[joined.length - 1], mouth[0]]);
@@ -442,7 +442,7 @@ function openingArcs(line: Polygon, gaps: DoorGap[], closed: boolean): { pts: Ve
   if (closed) pts.push(pts[0]);
   const cum = arcLengths(pts);
   const total = cum[cum.length - 1];
-  const spans: [number, number, boolean][] = [];
+  const spans: [number, number][] = [];
   for (const g of gaps) {
     let best: { d: number; e: number; s: number } | null = null;
     for (let e = 0; e + 1 < pts.length; e++) {
@@ -455,32 +455,26 @@ function openingArcs(line: Polygon, gaps: DoorGap[], closed: boolean): { pts: Ve
     }
     if (!best || best.d > ON_EDGE) continue;
     const L = cum[best.e + 1] - cum[best.e];
-    spans.push([cum[best.e] + Math.max(0, best.s - g.width / 2), cum[best.e] + Math.min(L, best.s + g.width / 2), !!g.mouth]);
+    spans.push([cum[best.e] + Math.max(0, best.s - g.width / 2), cum[best.e] + Math.min(L, best.s + g.width / 2)]);
   }
   spans.sort((a, b) => a[0] - b[0]);
   const joined: [number, number][] = [];
-  // Whether each opening is all erased mouth, no door in it.
-  const mouth: boolean[] = [];
-  for (const [a, b, m] of spans) {
+  for (const [a, b] of spans) {
     const last = joined[joined.length - 1];
-    if (last && a <= last[1] + WALL_END_JOIN) {
-      last[1] = Math.max(last[1], b);
-      mouth[mouth.length - 1] &&= m;
-    } else {
-      joined.push([a, b]);
-      mouth.push(m);
-    }
+    if (last && a <= last[1] + WALL_END_JOIN) last[1] = Math.max(last[1], b);
+    else joined.push([a, b]);
   }
   // An opening across a ring's seam is one opening: its ends at the seam are no wall's.
   if (closed && joined.length > 1 && joined[0][0] <= WALL_END_JOIN && joined[joined.length - 1][1] >= total - WALL_END_JOIN) {
     joined[joined.length - 1][1] = total + joined.shift()![1];
-    mouth[mouth.length - 1] &&= mouth.shift()!;
   }
-  return { pts, cum, joined, mouth };
+  // Every opening's rock ends are capped (mouthCap): an erased mouth's, an Opening's, and a door's,
+  // whose posts or frames stand against the caps' tips.
+  return { pts, cum, joined, mouth: joined.map(() => true) };
 }
 
 /**
- * The painted cap a cave wall's rock ends in at an erased mouth: a measured kit's narrowest rock
+ * The painted cap a cave wall's rock ends in at an opening (an erased mouth, an Opening or a door): a measured kit's narrowest rock
  * spur tip (a dead end turning -180), laid as a spur's tip is (see {@link pairPiece}) on a spur as
  * wide as its joints span plus the joint lines either side, so its floor line runs round the end
  * of the rock and its tip lies on the mouth's edge `E`: the opening keeps its width. The rock
