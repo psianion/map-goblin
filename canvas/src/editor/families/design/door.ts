@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { DOOR_ANGLE_STEP, minDoorWidth, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
 import { choiceStyle, doorStyleChoice, doorStyleChoiceLabel, type DoorStyleChoice } from './doorModel';
 import { defineSetting, defineTool } from '@/editor/registry/define';
-import { DOOR_WIDTH_MAX, DOOR_WIDTH_STEP } from '@/editor/models/selectionModel';
+import { DOOR_WIDTH_MAX } from '@/editor/models/selectionModel';
 import { DoorAngleControl } from './controls';
 import { KitColumn } from './StairsFields';
 
@@ -51,7 +51,8 @@ export const doorWidth = defineSetting<number>({
   home: 'dock',
   control: 'stepper',
   section: 'Width',
-  range: { min: 1, max: DOOR_WIDTH_MAX, step: DOOR_WIDTH_STEP, unit: 'sq' },
+  // Whole cells for every style: an Opening steps 1, 2, 3 as a door does.
+  range: { min: 1, max: DOOR_WIDTH_MAX, step: 1, unit: 'sq' },
   bind: {
     read: (s) => s.tools.settings.doorWidth,
     // Never narrower than the style allows: a double needs room for two leaves.

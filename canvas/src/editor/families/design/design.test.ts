@@ -453,6 +453,15 @@ describe('tool settings', () => {
     expect(st().selection.selectedIds).toEqual([]);
   });
 
+  it('door Width steps by whole cells for every style, an Opening from 1 to 2', () => {
+    expect(reg.settingById('door.width')!.range?.step).toBe(1);
+    settings.setSetting('door.style', 'opening');
+    settings.setSetting('door.width', 1);
+    const { step } = reg.settingById('door.width')!.range!;
+    settings.setSetting('door.width', st().tools.settings.doorWidth + step);
+    expect(st().tools.settings.doorWidth).toBe(2);
+  });
+
   it('door Width lets an Opening down to one cell, and Archway takes it back to two', () => {
     settings.setSetting('door.style', 'opening');
     settings.setSetting('door.width', 1);

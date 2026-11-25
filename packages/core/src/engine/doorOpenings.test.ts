@@ -149,6 +149,27 @@ describe('an Opening the Door tool makes in cave rock', () => {
     }
   });
 
+  it('ends exactly on a corner as it does a cell from one: open through its width, the rock tapered either side', () => {
+    seed();
+    const through = (layer: DungeonLayer, xs: number[]): boolean[] => {
+      const shown = drawnFromOutline(layLayer(layer)).layer;
+      const kinds = [extractWallSegments([shown], 'light'), extractWallSegments([shown], 'sight'), extractMoveSegments([shown])];
+      return kinds.map((segs) => xs.every((x) => !crosses(segs, [x, 1.5], [x, -2])));
+    };
+    // A cell from the corner, and on it.
+    const away = roomWith([doorAt([2, 0], 2, 'opening')]);
+    const on = roomWith([doorAt([1, 0], 2, 'opening')]);
+    expect(through(away, [1.2, 2, 2.8])).toEqual([true, true, true]);
+    expect(through(on, [0.2, 1, 1.8])).toEqual([true, true, true]);
+    // Both tips tapered: the one on the wall past the opening, and the west wall's, ending on the corner.
+    const tips = (layer: DungeonLayer) => taperTips(layer).map(([x, y]) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100]);
+    expect(tips(away)).toHaveLength(2);
+    const corner = tips(on);
+    expect(corner).toHaveLength(2);
+    expect(corner.some(([x, y]) => Math.abs(x - 2) < 0.05 && y < 0)).toBe(true);
+    expect(corner.some(([x, y]) => x < 0 && Math.abs(y) < 0.05)).toBe(true);
+  });
+
   it('changes no rock across a passage, where there is none to open', () => {
     seed();
     const rooms = [floor('a', rect(0, 0, 6, 6)), floor('b', rect(10, 0, 16, 6)), floor('p', rect(6, 2, 10, 4))];

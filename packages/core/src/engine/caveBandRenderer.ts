@@ -1542,6 +1542,11 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
     const lap = choices[k].length === 0 ? half * (2 / (1 + Math.max(0, cos)) - 1) : 0;
     return (corners[k].turn > 0 ? Math.min(reach(k), 2 * out) : reach(k)) + lap;
   };
+  // Whether an opening starts or ends on corner k: on the side out of it, or the side into it.
+  const opensAt = (k: number): boolean => {
+    const p = (k - 1 + m) % m;
+    return onSide[k].some((o) => o.w0 <= WALL_END_JOIN) || onSide[p].some((o) => o.w1 >= sides[p].len - WALL_END_JOIN);
+  };
 
   const straights = set.filter((p) => p.turnDeg === 0);
   let mirror = 0;
@@ -1579,15 +1584,19 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
     const next = wedges.get((k + 1) % m);
     if (wedge) seq.push(...wedge.outOf);
     else if (!dropped[k] && !after) seq.push(bends[k]);
-    let cursor = after ? along(k, after.j1) - half : wedge ? wedge.back : dropped[k] ? -runOn(k) : starts[k];
-    let atWall = false;
-    const last = before ? along(k, before.j0) + half : next ? side.len - next.back : dropped[(k + 1) % m] ? side.len + runOn((k + 1) % m) : ends[k];
+    // A corner an opening ends on, left without a bend: the rock either side stops on the corner, at
+    // the opening, as it stops a cell or more from one; never on past it into the opening.
+    const toCorner = (c: number): boolean => dropped[c] && opensAt(c);
+    let cursor = after ? along(k, after.j1) - half : wedge ? wedge.back : dropped[k] ? (toCorner(k) ? 0 : -runOn(k)) : starts[k];
+    let atWall = toCorner(k) && !after && !wedge;
+    const last = before ? along(k, before.j0) + half : next ? side.len - next.back : dropped[(k + 1) % m] ? side.len + (toCorner((k + 1) % m) ? 0 : runOn((k + 1) % m)) : ends[k];
+    const endsAtWall = toCorner((k + 1) % m) && !before && !next;
     for (const o of onSide[k]) {
       seq.push(...fill(k, cursor, Math.min(o.w0, last), atWall, o.w0 <= last), null);
       atWall = o.w1 >= cursor;
       cursor = Math.max(cursor, o.w1);
     }
-    seq.push(...fill(k, cursor, last, atWall, false));
+    seq.push(...fill(k, cursor, last, atWall, endsAtWall));
     if (next) seq.push(...next.into);
   });
   const cut = seq.indexOf(null);
