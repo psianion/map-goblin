@@ -425,6 +425,34 @@ describe('tool settings', () => {
     expect(settings.getSetting('door.style')).toBe('single');
   });
 
+  it('door Style offers Stairs, which keeps the door style for later and any door style clears', () => {
+    settings.setSetting('door.style', 'double');
+    settings.setSetting('door.style', 'stairs');
+    expect(st().tools.settings).toMatchObject({ doorStyle: 'double', doorStairs: true });
+    expect(settings.getSetting('door.style')).toBe('stairs');
+    settings.setSetting('door.style', 'opening');
+    expect(st().tools.settings).toMatchObject({ doorStyle: 'archway', doorBare: true, doorStairs: false });
+  });
+
+  it('the stairs card resizes and deletes the picked stairs, each one undo step', () => {
+    useStore.setState((s) => {
+      (s.layers.find((l) => l.type === 'dungeon') as DungeonLayer).children.push({
+        id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+        stairs: [{ id: 's1', ring: 0, from: 1, to: 2 }],
+      } as PlateauChild);
+    });
+    const plateau = () => st().layers.flatMap((l) => (l.type === 'dungeon' ? (l as DungeonLayer).children : [])).find((c) => c.id === 'p1') as PlateauChild;
+    expect(read('stairs', 'card.stairs.width', plateau().stairs![0])).toBe(1);
+    write('stairs', 'card.stairs.width', ['stairs:p1:s1'], 3);
+    expect(plateau().stairs).toEqual([{ id: 's1', ring: 0, from: 1, to: 4 }]);
+    undoManager.undo();
+    expect(plateau().stairs).toEqual([{ id: 's1', ring: 0, from: 1, to: 2 }]);
+    st().setSelectedIds(['stairs:p1:s1']);
+    DESIGN_CARDS.find((c) => c.kind === 'stairs')!.verbs[0].run(useStore);
+    expect(plateau().stairs).toBeUndefined();
+    expect(st().selection.selectedIds).toEqual([]);
+  });
+
   it('door Width lets an Opening down to one cell, and Archway takes it back to two', () => {
     settings.setSetting('door.style', 'opening');
     settings.setSetting('door.width', 1);

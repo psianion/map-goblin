@@ -10,7 +10,7 @@ vi.mock('../assets/textureLoader', async (importOriginal) => {
   return { ...actual, resolveTexture: () => loaded, load: () => Promise.resolve(loaded) };
 });
 
-import { Container } from 'pixi.js';
+import { Container, type Sprite } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
@@ -153,6 +153,24 @@ describe('stairs on a measured cliff', () => {
     // Outside the plateau: north of y 0, two cells long, the span wide.
     const b = holder.children[at].getLocalBounds();
     expect([b.minX, b.maxX, b.minY, b.maxY].map((v) => Math.round(v * 10) / 10)).toEqual([4, 6, -2, 0]);
+  });
+
+  it('lays the flight with the default stair kit: a Wide A piece for a 2-cell span down a 2-level drop, its top on the edge', () => {
+    const stairs = (material: string, gridSize: string, wide: number, run: number) =>
+      ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set: 'Test_Stairs', tags: ['stairs'], stairs: { kit: 'steps', label: 'Steps', wide, run, painted: [0, 0, wide, run], default: true } }) as ManifestEntry;
+    seedPack('test-stairs', { b_1x2_A: stairs('b', '1x2', 1, 1), a_1x3_A: stairs('a', '1x3', 1, 2), wide_a_2x3_A: stairs('wide_a', '2x3', 2, 2), wide_b_2x2_A: stairs('wide_b', '2x2', 2, 1) });
+    const layer = setUp(plat(2, [SPAN]));
+    const edges = new Container();
+    renderPlateaus(layer, new Container(), edges);
+    const flight = (edges.children[0] as Container).children.find((c) => c.label === 'plateau-stairs') as Container;
+    expect(flight.children).toHaveLength(1);
+    const piece = flight.children[0] as Sprite;
+    // Down north from y 0: the tile turned a half turn, its painted top-left at the span's east end.
+    expect(piece.position.x).toBeCloseTo(6);
+    expect(piece.position.y).toBeCloseTo(0);
+    expect(Math.abs(piece.rotation)).toBeCloseTo(Math.PI);
+    // The whole 2-cell-wide tile drawn two cells wide, whatever size its texture is served at.
+    expect(piece.scale.x * piece.texture.width).toBeCloseTo(2);
   });
 });
 

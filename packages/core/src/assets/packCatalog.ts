@@ -10,7 +10,7 @@
 import { getAssetPackManager } from '../engine/assetPackInstance';
 import { setBandSetTest } from '../shared/wallLook';
 import type { EntryRect } from '../engine/assetPackManager';
-import type { BandMeasure, DoorMeasure } from '../engine/packManifest';
+import type { BandMeasure, DoorMeasure, StairsMeasure } from '../engine/packManifest';
 
 /** Grid cell size in pixels (200px per cell at the pack-standard 200ppi). */
 export const GRID_CELL_PX = 200;
@@ -43,6 +43,8 @@ export interface CatalogEntry {
   footprint?: { radius: number };
   /** A piece of a door kit the pack declares. */
   door?: DoorMeasure;
+  /** A straight piece of a stair kit the pack declares. */
+  stairs?: StairsMeasure;
 }
 
 interface CatalogState {
@@ -66,6 +68,8 @@ interface CatalogState {
   props: CatalogEntry[] | null;
   /** Every door kit piece the packs declare, in pack order. */
   doorEntries: CatalogEntry[];
+  /** Every stair kit piece the packs declare, in pack order. */
+  stairEntries: CatalogEntry[];
 }
 
 let state: CatalogState | null = null;
@@ -85,6 +89,7 @@ function build(): CatalogState {
   const measured = new Map<string, CatalogEntry[]>();
   const aliases = new Map<string, string>();
   const doorEntries: CatalogEntry[] = [];
+  const stairEntries: CatalogEntry[] = [];
 
   for (const { packId, manifest } of manager.getPackManifests()) {
     for (const [from, to] of Object.entries(manifest.setAliases ?? {})) if (!aliases.has(from)) aliases.set(from, to);
@@ -109,8 +114,10 @@ function build(): CatalogState {
         band: e.band,
         ...(e.footprint && { footprint: e.footprint }),
         ...(e.door && { door: e.door }),
+        ...(e.stairs?.kit && { stairs: e.stairs }),
       };
       if (entry.door) doorEntries.push(entry);
+      if (entry.stairs) stairEntries.push(entry);
       byId.set(entry.id, entry);
       if (!byLocalId.has(entryId)) byLocalId.set(entryId, entry.id);
       const list = byType.get(entry.type);
@@ -192,6 +199,7 @@ function build(): CatalogState {
     families,
     props: null,
     doorEntries,
+    stairEntries,
   };
 }
 
@@ -263,6 +271,12 @@ export function getCatalogEntry(id: string): CatalogEntry | undefined {
 export function getDoorKitEntries(): { entries: readonly CatalogEntry[]; stamp: object } {
   const c = current();
   return { entries: c.doorEntries, stamp: c };
+}
+
+/** Every stair kit piece the installed packs declare (`CatalogEntry.stairs`), and the catalog they were read from. */
+export function getStairsEntries(): { entries: readonly CatalogEntry[]; stamp: object } {
+  const c = current();
+  return { entries: c.stairEntries, stamp: c };
 }
 
 function escapeRegExp(s: string): string {

@@ -18,19 +18,20 @@ import { editChildren } from './cardWrites';
 export const state = () => useStore.getState() as MapBuilderStore;
 
 /**
- * What a Style control offers: the door styles, and "Opening", which is stored as an archway
- * flagged bare (`DoorChild.bare`): a gap in the wall or the cave's rock with nothing drawn in it.
+ * What a Style control offers: the door styles, "Opening", which is stored as an archway
+ * flagged bare (`DoorChild.bare`): a gap in the wall or the cave's rock with nothing drawn in it;
+ * and, in the Door tool only, "Stairs", a flight laid on a plateau's or pit's edge (`PlateauChild.stairs`).
  */
-export type DoorStyleChoice = DoorStyle | 'opening';
+export type DoorStyleChoice = DoorStyle | 'opening' | 'stairs';
 
-export const doorStyleChoice = (style: DoorStyle, bare: boolean | undefined): DoorStyleChoice =>
-  bare && style === 'archway' ? 'opening' : style;
+export const doorStyleChoice = (style: DoorStyle, bare: boolean | undefined, stairs = false): DoorStyleChoice =>
+  stairs ? 'stairs' : bare && style === 'archway' ? 'opening' : style;
 
-/** The style a choice is stored as. */
-export const choiceStyle = (choice: DoorStyleChoice): DoorStyle => (choice === 'opening' ? 'archway' : choice);
+/** The style a choice is stored as; Stairs is no door's. */
+export const choiceStyle = (choice: DoorStyleChoice): DoorStyle => (choice === 'opening' || choice === 'stairs' ? 'archway' : choice);
 
 export const doorStyleChoiceLabel = (choice: DoorStyleChoice): string =>
-  choice === 'opening' ? 'Opening' : doorStyleLabel(choice);
+  choice === 'opening' ? 'Opening' : choice === 'stairs' ? 'Stairs' : doorStyleLabel(choice);
 
 export interface DoorHost {
   layer: DungeonLayer;

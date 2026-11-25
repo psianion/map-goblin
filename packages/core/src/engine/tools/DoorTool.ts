@@ -37,6 +37,11 @@ import { findDoorway, overDoorway } from '../../shared/doorwaySeal';
 import { doorwayEditCommand, revertDoorwayLive, writeDoorwayLive } from '../../store/doorwayCommands';
 import { notify } from '../../shared/notify';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
+import { stairSpanAt, stairsAt, type StairPlan } from '../../shared/stairPlace';
+import type { PlateauChild, StairSpan } from '../../shared/types';
+import { stairsPick, stairsSelectionId } from '../../store/selectionResolve';
+import { stairKitFor } from '../../assets/stairKits';
+import { drawStairs } from '../plateauRenderer';
 
 
 /**
@@ -292,6 +297,22 @@ function newDoorLook(style: DoorStyle): Pick<DoorChild, 'kit' | 'bare'> {
   };
 }
 
+/**
+ * The kit new stairs on `plateau` are laid with: the dock's pick, Stone taken as the stone kit of
+ * the plateau's cliff colour at the moment they are laid. Absent = the packs' default.
+ */
+function newStairKit(plateau: PlateauChild): string | undefined {
+  const pick = useStore.getState().tools.settings.stairKit;
+  return pick ? (stairKitFor(pick, plateau.edgeArt)?.id ?? undefined) : undefined;
+}
+
+/** `plateau`'s stairs with `span` in place of the one of its id (or added), none left = absent. */
+function withSpan(plateau: PlateauChild, span: StairSpan | null, without?: string): StairSpan[] | undefined {
+  const kept = (plateau.stairs ?? []).filter((s) => s.id !== (span?.id ?? without));
+  const next = span ? [...kept, span] : kept;
+  return next.length > 0 ? next : undefined;
+}
+
 /** What a click would place, and whether it would be allowed to. */
 interface DoorPlan {
   /** Transient — the commit fills in the id, the name and the room binding. */
@@ -379,6 +400,10 @@ export class DoorTool implements DrawingTool {
   private pendingLeaf: DoorPlan | null = null;
   /** Layer the placement press started on — see RectangleTool for why. */
   private placeLayerId: string | null = null;
+  /** Stairs under the cursor with the Stairs style: the Delete target when nothing is picked. */
+  private hoveredStairs: string | null = null;
+  /** Stairs under a held pointer: where the press started, and the plateau's stairs before any slide. */
+  private stairsPress: { layerId: string; plateauId: string; span: StairSpan; before: StairSpan[] | undefined; point: Point; moved: boolean } | null = null;
 
   constructor(previewContainer: Container) {
     this.ghost = new Container();
@@ -408,6 +433,11 @@ export class DoorTool implements DrawingTool {
       return;
     }
     const locked = reason === 'Layer is locked';
+
+    if (store.tools.settings.doorStairs) {
+      this.stairsDown(activeLayer, raw ?? point, point, locked);
+      return;
+    }
 
     // A placed door is found under the pointer itself: one on a freehand cave wall
     // sits off the grid, where the snapped point can miss it.
@@ -486,6 +516,79 @@ export class DoorTool implements DrawingTool {
       return;
     }
     this.placeLayerId = activeLayerId;
+  }
+
+  /**
+   * A press with the Stairs style: on stairs it picks them (and may slide them along their edge);
+   * on a plateau's or pit's edge it lays a flight there, as wide as the dock's Width, picked.
+   */
+  private stairsDown(layer: DungeonLayer, raw: Point, point: Point, locked: boolean): void {
+    const store = useStore.getState();
+    const hit = stairsAt(layer, [raw.x, raw.y]);
+    if (hit) {
+      store.setSelectedIds([stairsSelectionId(hit.plateau.id, hit.span.id)]);
+      if (!locked) this.stairsPress = { layerId: layer.id, plateauId: hit.plateau.id, span: hit.span, before: hit.plateau.stairs, point, moved: false };
+      return;
+    }
+    if (locked) {
+      notify.warning('Layer is locked');
+      return;
+    }
+    const plan = stairSpanAt(layer, [point.x, point.y], store.tools.settings.doorWidth || 1);
+    if (!plan || !plan.valid) {
+      store.setSelectedIds([]);
+      return;
+    }
+    const kit = newStairKit(plan.plateau);
+    const span: StairSpan = { id: crypto.randomUUID(), ...plan.span, ...(kit && { kit }) };
+    undoManager.execute(new UpdateChildCommand('Place stairs', layer.id, plan.plateau.id, { stairs: plan.plateau.stairs }, { stairs: withSpan(plan.plateau, span) }));
+    this.clearGhost();
+    useStore.getState().setSelectedIds([stairsSelectionId(plan.plateau.id, span.id)]);
+  }
+
+  /** A held press on stairs, past the drag slop: the flight slides along the edge under the pointer, keeping its width. */
+  private stairsSlide(layer: DungeonLayer, point: Point): void {
+    const press = this.stairsPress!;
+    if (!press.moved && Math.hypot(point.x - press.point.x, point.y - press.point.y) <= DRAG_SLOP) return;
+    if (layer.locked) {
+      notify.warning('Layer is locked');
+      this.stairsPress = null;
+      return;
+    }
+    press.moved = true;
+    const plan = stairSpanAt(layer, [point.x, point.y], press.span.to - press.span.from, press.span.id);
+    if (!plan || !plan.valid || plan.plateau.id !== press.plateauId) return;
+    const plateau = layer.children.find((c): c is PlateauChild => c.id === press.plateauId && c.childType === 'plateau');
+    if (!plateau) return;
+    useStore.getState().updateChild(layer.id, plateau.id, { stairs: withSpan(plateau, { ...press.span, ...plan.span }) });
+  }
+
+  /** The release of a stairs slide: put back, then replayed as one undo step. */
+  private stairsRelease(): void {
+    const press = this.stairsPress!;
+    this.stairsPress = null;
+    if (!press.moved) return;
+    const pick = stairsPick(useStore.getState(), stairsSelectionId(press.plateauId, press.span.id));
+    if (!pick) return;
+    const after = pick.plateau.stairs;
+    useStore.getState().updateChild(press.layerId, press.plateauId, { stairs: press.before });
+    undoManager.execute(new UpdateChildCommand('Move stairs', press.layerId, press.plateauId, { stairs: press.before }, { stairs: after }));
+  }
+
+  /** The ghost of the flight a click would lay with the Stairs style, red where it may not. */
+  private updateStairsGhost(layer: DungeonLayer, point: Point): void {
+    const plan: StairPlan | null = this.hoveredStairs || layer.locked ? null : stairSpanAt(layer, [point.x, point.y], useStore.getState().tools.settings.doorWidth || 1);
+    if (!plan?.flight) {
+      this.clearGhost();
+      return;
+    }
+    const kit = newStairKit(plan.plateau);
+    const key = ['stairs', plan.plateau.id, plan.span.ring, plan.span.from, plan.span.to, kit, plan.valid].join(':');
+    if (key === this.ghostKey) return;
+    this.clearGhost();
+    this.ghostKey = key;
+    this.ghost.tint = plan.valid ? 0xffffff : INVALID_TINT;
+    drawStairs(this.ghost, [{ ...plan.flight, span: { ...plan.flight.span, ...(kit && { kit }) } }]);
   }
 
   /** The release of a placement press that stayed a click: the leaf the ghost showed. */
@@ -714,6 +817,18 @@ export class DoorTool implements DrawingTool {
     const activeLayer = activeDungeonLayer();
     if (!activeLayer) return;
 
+    if (useStore.getState().tools.settings.doorStairs) {
+      if (this.stairsPress) {
+        this.stairsSlide(activeLayer, point);
+        return;
+      }
+      const over = stairsAt(activeLayer, [(raw ?? point).x, (raw ?? point).y]);
+      this.hoveredStairs = over ? stairsSelectionId(over.plateau.id, over.span.id) : null;
+      this.hoveredDoorId = null;
+      this.updateStairsGhost(activeLayer, point);
+      return;
+    }
+
     if (this.pressedDoorId && this.pressPoint) {
       const moved = Math.hypot(point.x - this.pressPoint.x, point.y - this.pressPoint.y);
       if (this.dragFrom || moved > DRAG_SLOP) {
@@ -794,6 +909,10 @@ export class DoorTool implements DrawingTool {
   }
 
   onPointerUp(_point?: Point): void {
+    if (this.stairsPress) {
+      this.stairsRelease();
+      return;
+    }
     if (this.pendingLeaf) {
       const leaf = this.pendingLeaf;
       const layerId = this.placeLayerId;
@@ -844,6 +963,20 @@ export class DoorTool implements DrawingTool {
     const store = useStore.getState();
     const layer = activeDungeonLayer();
     if (!layer) return;
+    // Picked stairs, else the stairs under the cursor: the flight comes off its plateau's edge.
+    const stairsId = store.selection.selectedIds.find((id) => id.startsWith('stairs:')) ?? this.hoveredStairs;
+    const stairs = stairsId ? stairsPick(store, stairsId) : null;
+    if (stairs && stairs.layer.id === layer.id) {
+      const reason = blockedLayerReason(layer);
+      if (reason) {
+        notify.warning(reason);
+        return;
+      }
+      undoManager.execute(new UpdateChildCommand('Delete stairs', layer.id, stairs.plateau.id, { stairs: stairs.plateau.stairs }, { stairs: withSpan(stairs.plateau, null, stairs.span.id) }));
+      store.setSelectedIds([]);
+      this.hoveredStairs = null;
+      return;
+    }
     // Delete removes the selection; hover stays the target when nothing is
     // selected, which is how the tool worked before it could select.
     const selected = store.selection.selectedIds.find((id) =>
@@ -874,14 +1007,18 @@ export class DoorTool implements DrawingTool {
 
   /** A placed door is draggable, so say so before the user finds out by accident. */
   getHoverCursor(): string | null {
-    if (this.dragFrom) return 'grabbing';
-    return this.hoveredDoorId ? 'move' : null;
+    if (this.dragFrom || this.stairsPress?.moved) return 'grabbing';
+    return this.hoveredDoorId || this.hoveredStairs ? 'move' : null;
   }
 
   cancel(): void {
     // Escape mid-slide puts the door back where it was picked up; the tool exit
     // that Escape also means then has nothing half-applied behind it.
     const layer = this.dragFrom ? activeDungeonLayer() : undefined;
+    // Escape mid-slide puts stairs back where they were picked up too.
+    if (this.stairsPress?.moved) useStore.getState().updateChild(this.stairsPress.layerId, this.stairsPress.plateauId, { stairs: this.stairsPress.before });
+    this.stairsPress = null;
+    this.hoveredStairs = null;
     if (this.dragLayerFrom && this.sealAt && this.pressedDoorId) {
       revertDoorwayLive(this.dragLayerFrom, this.pressedDoorId);
     } else if (layer && this.dragFrom && this.pressedDoorId) {
@@ -903,6 +1040,6 @@ export class DoorTool implements DrawingTool {
   }
 
   isActive(): boolean {
-    return this.dragFrom !== null || this.pendingLeaf !== null;
+    return this.dragFrom !== null || this.pendingLeaf !== null || this.stairsPress?.moved === true;
   }
 }

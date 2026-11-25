@@ -9,9 +9,9 @@ import { choiceStyle, doorStyleChoice, doorStyleChoiceLabel, type DoorStyleChoic
 import { defineSetting, defineTool } from '@/editor/registry/define';
 import { DOOR_WIDTH_MAX, DOOR_WIDTH_STEP } from '@/editor/models/selectionModel';
 import { DoorAngleControl } from './controls';
-import { DoorKitColumn } from './DoorFields';
+import { KitColumn } from './StairsFields';
 
-const STYLE_CHOICES: DoorStyleChoice[] = [...PLACEABLE_DOOR_STYLES, 'opening'];
+const STYLE_CHOICES: DoorStyleChoice[] = [...PLACEABLE_DOOR_STYLES, 'opening', 'stairs'];
 
 export const doorStyle = defineSetting<DoorStyleChoice>({
   id: 'door.style',
@@ -23,14 +23,20 @@ export const doorStyle = defineSetting<DoorStyleChoice>({
   section: 'Style',
   options: STYLE_CHOICES.map((value) => ({ value, label: doorStyleChoiceLabel(value) })),
   bind: {
-    read: (s) => doorStyleChoice(s.tools.settings.doorStyle ?? 'single', s.tools.settings.doorBare),
-    // A wider style takes the width up with it. Opening is an archway placed bare.
+    read: (s) => doorStyleChoice(s.tools.settings.doorStyle ?? 'single', s.tools.settings.doorBare, s.tools.settings.doorStairs),
+    // A wider style takes the width up with it. Opening is an archway placed bare. Stairs lay
+    // flights on plateau and pit edges, keeping the door style for when doors come back.
     write: (store, choice) => {
       const st = store.getState();
+      if (choice === 'stairs') {
+        st.updateToolSettings({ doorStairs: true });
+        return;
+      }
       const style = choiceStyle(choice);
       st.updateToolSettings({
         doorStyle: style,
         doorBare: choice === 'opening',
+        doorStairs: false,
         doorWidth: Math.max(st.tools.settings.doorWidth, minDoorWidth(style, choice === 'opening')),
       });
     },
@@ -108,12 +114,14 @@ export const doorTool = defineTool({
   key: 'S',
   engine: ['door'],
   settings: [doorStyle, doorWidth, doorAngle, doorSecret, doorFreestanding],
-  dock: [{ id: 'door.kit', caption: 'Kit', render: DoorKitColumn }],
+  dock: [{ id: 'door.kit', caption: 'Kit', render: KitColumn }],
   hint: (s) => ({
     label: 'Door',
     segments: [
       t(
-        s.tools.settings.doorFreestanding
+        s.tools.settings.doorStairs
+          ? 'Click a plateau or pit edge to lay stairs down it · drag stairs along their edge · Delete removes the picked stairs · '
+          : s.tools.settings.doorFreestanding
           ? 'Click anywhere to stand a door free · double-click a door opens or shuts it · '
           : 'Click a wall to hang a door · between two walls it spans the gap · on open floor it stands free · double-click a door opens or shuts it · ',
       ),

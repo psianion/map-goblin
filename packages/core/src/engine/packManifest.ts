@@ -36,6 +36,28 @@ export interface ManifestEntry {
   footprint?: { radius: number }
   /** One piece of a door kit the pack declares (see doorKits' `packDoorKits`). */
   door?: DoorMeasure
+  /** One straight piece of a stair kit the pack declares (see stairKits' `packStairKits`). */
+  stairs?: StairsMeasure
+}
+
+/**
+ * A straight flight of steps a pack ships, painted with its high end at the top of the tile. A
+ * kit is every piece sharing `kit`: pieces one cell wide and two, running one cell and two.
+ */
+export interface StairsMeasure {
+  kit: string
+  /** The kit's name, as its tile shows it. */
+  label: string
+  /** Cells across the flight. */
+  wide: number
+  /** Cells down the flight its steps run, from the tile's top edge. */
+  run: number
+  /** The steps as painted, cells from the tile's top-left: x0, y0, x1, y1. What is laid on the span; the tile's spill and padding are not. */
+  painted: [number, number, number, number]
+  /** The pack's own default stair kit. */
+  default?: boolean
+  /** A stone kit's colour, matched against a cliff kit's name. */
+  colour?: string
 }
 
 /**

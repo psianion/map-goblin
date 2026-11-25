@@ -29,7 +29,7 @@
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
 // here when the sun moves (`shadeCliffs`).
 
-import { BlurFilter, Container, Graphics, Sprite } from 'pixi.js';
+import { BlurFilter, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import {
   BORDER_FADE,
@@ -92,7 +92,9 @@ import type { PlateauChild } from '../shared/types';
 import { isGroundPiece, pieceRings } from '../shared/pieces';
 import type { WorldBounds } from '../shared/mapBounds';
 import { baseGroundFrame } from './mapFrame';
-import { bandSize, isColoredSet, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
+import { bandSize, getCatalogEntry, GRID_CELL_PX, isColoredSet, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
+import { layFlight, stairKitFor } from '../assets/stairKits';
+import { swapWhenLanded } from './lateArt';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
 import { fittedFloor, layBandChain, layBandRing, placeBand, withConnectors, type FloorFit } from './caveBandRenderer';
@@ -264,12 +266,46 @@ export function flightFootprint(f: Pick<StairFlight, 'top' | 'down' | 'length'>)
   return [a, b, vadd(b, d), vadd(a, d)];
 }
 
-/** The flights of stairs, each as the outline of the ground it covers. */
-function drawStairs(parent: Container, flights: StairFlight[]): void {
-  const g = new Graphics();
-  g.label = 'plateau-stairs';
-  for (const f of flights) g.poly(flightFootprint(f).flat(), true).stroke({ color: INK, width: LINE, alpha: 0.85 });
-  parent.addChild(g);
+/**
+ * The flights of stairs, each laid with its kit (`layFlight`): the span's own, else the packs'
+ * default. A flight with no kit installed is drawn as the outline of the ground it covers.
+ */
+export function drawStairs(parent: Container, flights: StairFlight[]): void {
+  const holder = new Container();
+  holder.label = 'plateau-stairs';
+  let outline: Graphics | null = null;
+  for (const f of flights) {
+    const kit = stairKitFor(f.span.kit, f.plateau.edgeArt);
+    if (!kit) {
+      outline ??= holder.addChild(new Graphics());
+      outline.poly(flightFootprint(f).flat(), true).stroke({ color: INK, width: LINE, alpha: 0.85 });
+      continue;
+    }
+    for (const pl of layFlight(f, kit)) {
+      const entry = getCatalogEntry(pl.entryId);
+      if (!entry) continue;
+      const sprite = holder.addChild(new Sprite(Texture.EMPTY));
+      sprite.anchor.set((pl.painted[0] * GRID_CELL_PX) / entry.naturalWidth, (pl.painted[1] * GRID_CELL_PX) / entry.naturalHeight);
+      sprite.position.set(pl.origin[0], pl.origin[1]);
+      sprite.rotation = pl.rotation;
+      // World cells per texture pixel: the art is authored at GRID_CELL_PX a cell, brought back to
+      // that size from whatever resolution it is served at.
+      const show = (t: Texture): void => {
+        sprite.texture = t;
+        sprite.scale.set((pl.scale[0] * entry.naturalWidth) / t.width / GRID_CELL_PX, (pl.scale[1] * entry.naturalHeight) / t.height / GRID_CELL_PX);
+        sprite.visible = true;
+      };
+      const tex = resolveTexture(entry.id);
+      if (tex.width > 1) show(tex);
+      else {
+        sprite.visible = false;
+        swapWhenLanded(entry.id, (t) => {
+          if (!sprite.destroyed) show(t);
+        });
+      }
+    }
+  }
+  parent.addChild(holder);
 }
 
 /**

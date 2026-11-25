@@ -512,6 +512,10 @@ export interface ToolSettings {
   doorBare?: boolean;
   /** The kit new single and double doors are built from (`DoorChild.kit`). Absent = their wall's. */
   doorKit?: DoorChild['kit'];
+  /** The Style choice "Stairs": a click on a plateau's or pit's edge lays a flight of stairs there. Absent = off. */
+  doorStairs?: boolean;
+  /** The kit new stairs are laid with (`StairSpan.kit`). Absent = the packs' default. */
+  stairKit?: string;
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
   material: MaterialToolSettings;

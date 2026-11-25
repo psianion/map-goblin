@@ -9,6 +9,7 @@ import { doorKitById, doorKitFor, doorKitKey, isKitStyle, kitWallSet } from '../
 import { pathPieceOf } from '../assets/pathKit';
 import { isWaterMaterial, materialFillId, shoreTextureOf } from '../assets/materialKit';
 import { cliffArt, isPaintedBorder, paintedBorderTexture } from './plateauKit';
+import { stairKitFor } from '../assets/stairKits';
 import type { ManifestEntry, PackManifest } from './assetPackManager';
 import type { DungeonLayer, Level, RoomLook, SerializedMapData } from '../store/types';
 import type { DoorChild } from '../shared/types';
@@ -136,6 +137,8 @@ export function collectMapTextureIds(mapData: MapTextureSource, extraIds?: reado
             if (child.edge === 'slope') add(child.faceArt);
             // Any edge may have a textured top.
             add(child.topArt);
+            // Its stairs, each laid with its kit's pieces.
+            for (const span of child.stairs ?? []) for (const p of stairKitFor(span.kit, child.edgeArt)?.pieces ?? []) add(p.entryId);
             break;
           default:
             break;

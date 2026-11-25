@@ -952,3 +952,65 @@ describe('clampDoorWidth', () => {
     expect(clampDoorWidth(1, 'single', 6)).toBe(1);
   });
 });
+
+describe('DoorTool, Stairs style', () => {
+  let tool: DoorTool;
+  let ghost: Ghost;
+  // A +2 cliff, 10..14 square; its outline starts at (10, 10) and runs east along y 10.
+  const PLATEAU = { id: 'p1', name: 'Plateau 1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 2, edge: 'cliff' };
+  const plateau = () => layer().children.find((c) => c.id === 'p1') as unknown as { stairs?: { id: string; ring: number; from: number; to: number; kit?: string }[] };
+  const spans = () => (plateau().stairs ?? []).map(({ ring, from, to }) => ({ ring, from, to }));
+
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.setState((s) => {
+      (s.layers.find((l) => l.type === 'dungeon') as DungeonLayer).children.push(structuredClone(PLATEAU) as never);
+    });
+    useStore.getState().updateToolSettings({ doorStairs: true, doorWidth: 2 });
+    const preview = new Container();
+    tool = new DoorTool(preview);
+    ghost = preview.children[0] as unknown as Ghost;
+  });
+
+  it('shows the flight on a plateau edge, and nothing off every edge', () => {
+    tool.onPointerMove({ x: 12.3, y: 9.8 });
+    expect(ghost.children.length).toBeGreaterThan(0);
+    expect(ghost.tint).toBe(0xffffff);
+    tool.onPointerMove({ x: 12, y: 12 });
+    expect(ghost.children).toHaveLength(0);
+  });
+
+  it('lays a flight Width cells wide on the edge, picked, in one undo step', () => {
+    click(tool, 12.3, 9.8);
+    expect(spans()).toEqual([{ ring: 0, from: 1, to: 3 }]);
+    expect(selectedIds()).toEqual([`stairs:p1:${plateau().stairs![0].id}`]);
+    expect(doors()).toHaveLength(0);
+    undoManager.undo();
+    expect(spans()).toEqual([]);
+  });
+
+  it('picks stairs on a click without changing them, and lays none over them', () => {
+    click(tool, 12.3, 9.8);
+    const id = selectedIds()[0];
+    useStore.getState().setSelectedIds([]);
+    click(tool, 12, 9);
+    expect(selectedIds()).toEqual([id]);
+    expect(spans()).toEqual([{ ring: 0, from: 1, to: 3 }]);
+  });
+
+  it('slides picked stairs along the edge in one undo step, keeping their width', () => {
+    click(tool, 12.3, 9.8);
+    drag(tool, [12, 9.5], [10.6, 9.5]);
+    expect(spans()).toEqual([{ ring: 0, from: 0, to: 2 }]);
+    undoManager.undo();
+    expect(spans()).toEqual([{ ring: 0, from: 1, to: 3 }]);
+  });
+
+  it('deletes the picked stairs, the cliff whole again', () => {
+    click(tool, 12.3, 9.8);
+    tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));
+    expect(plateau().stairs).toBeUndefined();
+    expect(selectedIds()).toEqual([]);
+  });
+});
