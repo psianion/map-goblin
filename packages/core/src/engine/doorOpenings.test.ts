@@ -194,6 +194,34 @@ describe('an Opening the Door tool makes in cave rock', () => {
   });
 });
 
+describe('stairs on a plateau edge along cave rock', () => {
+  // A +1 over the room's north half, its north edge on the room's wall; stairs there, x 5 to 7.
+  const plateau = (stairs: unknown[] | undefined) => ({ id: 'up', name: 'up', childType: 'plateau', visible: true, contours: [rect(0, 0, 12, 5)], height: 1, edge: 'cliff', edgeArt: SET, ...(stairs && { stairs }) });
+  const SPAN = { id: 's', ring: 0, from: 5, to: 7 };
+
+  it('opens the rock across the span as an Opening does: tapered either side, light, sight and movement through', () => {
+    seed();
+    const layer = roomWith([plateau([SPAN])]);
+    expect(turned(layer)).toEqual([]);
+    const tips = taperTips(layer).sort((a, b) => a[0] - b[0]);
+    expect(tips).toHaveLength(2);
+    expect(tips[0][0]).toBeCloseTo(5, 2);
+    expect(tips[1][0]).toBeCloseTo(7, 2);
+    const shown = drawnFromOutline(layLayer(layer)).layer;
+    const kinds = [extractWallSegments([shown], 'light'), extractWallSegments([shown], 'sight'), extractMoveSegments([shown])];
+    expect(kinds.map((segs) => [5.2, 6, 6.8].every((x) => !crosses(segs, [x, 1.5], [x, -2])))).toEqual([true, true, true]);
+    // Beside the span the wall stands.
+    expect(kinds.map((segs) => crosses(segs, [3, 1.5], [3, -2]))).toEqual([true, true, true]);
+  });
+
+  it('closes the rock exactly as it was once the stairs are gone', () => {
+    seed();
+    const before = placements(roomWith([plateau(undefined)]));
+    expect(placements(roomWith([plateau([SPAN])]))).not.toEqual(before);
+    expect(placements(roomWith([plateau([])]))).toEqual(before);
+  });
+});
+
 describe('a door on cave rock', () => {
   it.each(['single', 'double', 'portcullis', 'archway'] as const)('tapers the rock either side of a %s, with no piece turning back', (style) => {
     seed();

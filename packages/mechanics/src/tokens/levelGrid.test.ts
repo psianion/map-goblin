@@ -113,6 +113,19 @@ describe('the level reader, on the table’s walk cases', () => {
     expect(short({ x: 13.5, y: 15.5 }, { x: 15.5, y: 15.5 })).toBeNull()
   })
 
+  it('lets a move down a flight of stairs through a refusing cliff, and only there', () => {
+    const ridge = (stairs: { id: string; ring: number; from: number; to: number }[]) => (map: SerializedMapData) => {
+      withPlateau([[14, 0], [15, 0], [15, 20], [14, 20]])(map)
+      const layer = map.layers.find((l) => l.type === 'dungeon') as DungeonLayer
+      Object.assign(layer.children[layer.children.length - 1], { stairs })
+    }
+    // Stairs up its west side and down its east side at y 15 to 16.
+    const both = walk(ridge([{ id: 'w', ring: 0, from: 26, to: 27 }, { id: 'e', ring: 0, from: 16, to: 17 }]))
+    expect(both({ x: 13.5, y: 15.5 }, { x: 15.5, y: 15.5 })).toBeNull()
+    // Up the west stairs, then the east side has none: its cliff refuses as ever.
+    const west = walk(ridge([{ id: 'w', ring: 0, from: 26, to: 27 }]))
+    expect(west({ x: 13.5, y: 15.5 }, { x: 15.5, y: 15.5 })).toMatch(new RegExp(`^${CROSSING_BLOCKED} impassable`))  })
+
   it('a secret door nobody found is wall', () => {
     const secret = walk((map) => {
       const layer = map.layers.find((l) => l.type === 'dungeon') as DungeonLayer

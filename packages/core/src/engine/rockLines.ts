@@ -60,7 +60,7 @@ export function cliffRockLines(layer: DungeonLayer): { walks: CliffWalks; lines:
     const byRun = new Map<string, WalkPlacement[][]>();
     for (const { run, cliffs } of laidRuns(layer, band)) {
       if (!cliffs) continue;
-      const placed = cliffs.map((c) => walkCliff(c.run, c.merged));
+      const placed = cliffs.map((c) => walkCliff(c.run, c.merged, c.opens));
       byRun.set(cliffKey(run), placed);
       const { setId } = cliffChoice(run.owner?.edgeArt);
       if (!isBandSet(setId)) missing.push(run.points);

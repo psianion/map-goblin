@@ -31,6 +31,7 @@ import { shoreWidthOf } from '../../shared/materialPatch';
 import { edgeRuns, groundHeightOf, hasPlateaus, layerPlateaus } from '../../shared/plateaus';
 import { caveEdges, caveOpeningGaps, type CaveEdge } from '../../shared/caveFloor';
 import { resolveDoors, resolveWalls, type ResolvedDoor } from '../../shared/wallResolve';
+import { stairOpenings } from '../../shared/stairOpenings';
 import type { DoorGap } from '../wallNodeRenderer';
 import { rockGaps } from '../doorGaps';
 import { getAssetPackManager } from '../assetPackInstance';
@@ -287,7 +288,9 @@ export function laidCaves(layer: DungeonLayer): LaidCave[] {
   const hit = laidMemo.get(layer.children);
   if (hit && hit.openings === layer.caveOpenings && hit.floor === layer.mergedFloor && hit.width === width) return hit.value;
   const caves = caveEdges(layer);
-  const doors = caves.length > 0 ? resolveDoors(layer, resolveWalls(layer)).filter((d) => d.door.visible && !d.detached) : [];
+  const walls = caves.length > 0 ? resolveWalls(layer) : [];
+  // Stairs along a cave's wall open its rock as an Opening does.
+  const doors = caves.length > 0 ? [...resolveDoors(layer, walls).filter((d) => d.door.visible && !d.detached), ...stairOpenings(layer, walls)] : [];
   const value = caves.map((cave): LaidCave => {
     const gaps = [...caveDoorGaps(cave, doors), ...caveOpeningGaps(cave, layer.caveOpenings)];
     const size = bandSize(cave.material, cave.width ?? width);

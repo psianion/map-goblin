@@ -224,6 +224,36 @@ describe('the work a cave rebuild does', () => {
     open.close();
   }, 60_000);
 
+  it('lays only the cliff stretch a flight of stairs splits, adds no slope face, and nothing again for a rebuild with nothing changed', async () => {
+    useFrames();
+    const mods = await freshMods();
+    const open = openMap(mods, TESTING);
+    const { useStore } = mods.store;
+    const id = open.ids[0];
+    addPlateau(mods, id);
+    open.drawAll();
+    open.drawAll();
+    const layer = (): DungeonLayer => useStore.getState().layers.find((l): l is DungeonLayer => l.id === id)!;
+    const faces = mods.plateaus.layerSlopes(layer()).faces.length;
+    const before = work(mods);
+    useStore.setState((s) => {
+      const p = (s.layers.find((x) => x.id === id) as DungeonLayer).children.find((c) => c.id === 'work-plateau') as { stairs?: unknown[] };
+      p.stairs = [{ id: 'work-stairs', ring: 0, from: 3, to: 5 }];
+    });
+    // Drawn twice: the first draw stores the split cliff's line the second is drawn along.
+    open.drawAll();
+    open.drawAll();
+    const placed = work(mods);
+    expect(placed.cliffs - before.cliffs).toBe(1);
+    expect(placed.layings - before.layings).toBe(1);
+    expect(placed.walls).toBe(before.walls);
+    expect(placed.slopes - before.slopes).toBeLessThanOrEqual(2);
+    expect(mods.plateaus.layerSlopes(layer()).faces.length).toBe(faces);
+    open.drawAll();
+    expect(work(mods)).toEqual(placed);
+    open.close();
+  }, 60_000);
+
   // A ceiling at today's speed so nothing gets slower; lower it as laying afresh gets faster.
   it('lays the Goblin Warren afresh in under 350 ms', async () => {
     useFrames();

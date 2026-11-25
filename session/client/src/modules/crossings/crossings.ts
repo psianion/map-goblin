@@ -75,7 +75,8 @@ function segDistance(px: number, py: number, a: readonly number[], b: readonly n
 }
 
 /**
- * The raised edge under (x, y) on the given level, nearest first; null on open ground.
+ * The raised edge under (x, y) on the given level, nearest first; null on open ground. A flight
+ * of stairs is never one: it is always free, so the DM has nothing to pick there.
  */
 export function crossingTargetAt(map: CrossingMap, levelId: string | undefined, x: number, y: number): CrossingTarget | null {
   const layers = layersOnLevel(map, map.layers as Layer[], levelId || firstLevelId(map));
@@ -84,7 +85,8 @@ export function crossingTargetAt(map: CrossingMap, levelId: string | undefined, 
     for (const band of layerPlateaus(layer).bands) {
       band.rings.forEach((ring, ri) => {
         band.edges[ri].forEach((e, i) => {
-          if (!e.owner || e.drop === 0) return;
+          // A flight of stairs is always free: nothing for the DM to pick there.
+          if (!e.owner || e.drop === 0 || e.stairs) return;
           const d = segDistance(x, y, ring[i], ring[(i + 1) % ring.length]);
           if (d > PICK_REACH || (best && best.d <= d)) return;
           best = { targetId: e.owner.id, what: e.edge as 'cliff' | 'slope' | 'none', x, y, mapKindId: crossingIdOf(e.owner), d };

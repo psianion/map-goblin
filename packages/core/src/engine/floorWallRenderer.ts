@@ -13,7 +13,8 @@ import { bandFloorFit, fittedFloor, ringFloorOf, type FloorFit } from './caveBan
 import { renderDoors } from './doorRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
-import { resolveDoors, resolveWalls, type ResolvedDoor } from '../shared/wallResolve';
+import { resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
+import { stairOpenings } from '../shared/stairOpenings';
 import { doorGaps, openingLines, openingRegions } from './doorGaps';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
@@ -398,6 +399,13 @@ function onHiddenWall(layer: DungeonLayer, wallId: string): boolean {
   return !!wallId && layer.standaloneWalls.some((w) => w.id === wallId && w.visible === false);
 }
 
+/** What opens the layer's walls: its shown doors, and the stairs along a cave wall (`stairOpenings`). */
+function openedBy(layer: DungeonLayer, walls: ResolvedWall[]): ResolvedDoor[] {
+  const doors = resolveDoors(layer, walls).filter((d) => d.door.visible && !onHiddenWall(layer, d.door.wallId));
+  const stairs = stairOpenings(layer, walls);
+  return stairs.length > 0 ? [...doors, ...stairs] : doors;
+}
+
 export function redrawDoors(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
   const { doors: doorsSublayer } = entry.sublayers;
@@ -539,8 +547,9 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   const fitted = floorFits.get(layer.id);
   const fit = fitted && fitted.floor === layer.mergedFloor ? fitted.fit : undefined;
   // They fade out across a cave's mouth as its floor does, by the same ramp.
-  const opening = layer.children.some((c) => c.childType === 'door' && c.bare);
-  const mouths = layerMouths(layer, polygons, opening ? resolveDoors(layer, resolveWalls(layer)).filter((d) => d.door.visible) : []);
+  const opening = layer.children.some((c) => (c.childType === 'door' && c.bare) || (c.childType === 'plateau' && (c.stairs?.length ?? 0) > 0));
+  const walls = opening ? resolveWalls(layer) : [];
+  const mouths = layerMouths(layer, polygons, opening ? [...resolveDoors(layer, walls).filter((d) => d.door.visible), ...stairOpenings(layer, walls)] : []);
   const groups: [string, Polygon[], Ramp | null][] = [...byColor].map(([color, rings]): [string, Polygon[], Ramp | null] => {
     const region = fittedFloor(rings, fit);
     return [color, region, mouthRamp(region, mouths, wobbleSeed(layer.id))];
@@ -740,7 +749,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // gaps the stones exactly like one on a standalone wall, and both follow node
   // edits because their geometry is derived here rather than read off the child.
   const resolvedWalls = resolveWalls(layer);
-  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible && !onHiddenWall(layer, d.door.wallId));
+  const doors = openedBy(layer, resolvedWalls);
   // The marks that tell wall types apart are the editor's: drawn under a desk unless the desk
   // turns them off, which the table's does (players never see them).
   const desk = getEditorDesk();

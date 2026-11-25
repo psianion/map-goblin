@@ -174,7 +174,8 @@ function crossingBlockers(map: LevelWalkMap): WalkBlocker[] {
     for (const band of layerPlateaus(layer).bands) {
       band.rings.forEach((ring, ri) => {
         band.edges[ri].forEach((e, i) => {
-          if (e.drop === 0 || !e.owner) return
+          // A flight of stairs is always free.
+          if (e.drop === 0 || !e.owner || e.stairs) return
           const kindId = live.edges[e.owner.id] ?? crossingIdOf(e.owner)
           const kind = kinds.find((k) => k.id === kindId) ?? null
           if (!(live.blocks[kindId] ?? kind?.blocks ?? false)) return

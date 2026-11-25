@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { SceneFog } from '@dnd/mechanics/fog'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the plateau model is pure, as fog/terrain.ts reads it
-import { crossingsAlongLayers, elevationAtLayers, hiddenTops } from '@dnd/core/src/shared/plateaus'
+import { crossingsAlongLayers, elevationAtLayers, hiddenTops, stairFlights } from '@dnd/core/src/shared/plateaus'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
 import { redactMapForViewer } from './redactMap'
@@ -15,8 +15,13 @@ import { createSceneMaps } from './sceneMap'
 
 const SCENE = 'scene-plateaus'
 
-function scene(file: string) {
-  const data = readFileSync(join(import.meta.dirname, '../../../testdata', `${file}.mapbuilder`), 'utf8')
+function scene(file: string, edit?: (data: SerializedMapData) => void) {
+  let data = readFileSync(join(import.meta.dirname, '../../../testdata', `${file}.mapbuilder`), 'utf8')
+  if (edit) {
+    const parsed = JSON.parse(data) as SerializedMapData
+    edit(parsed)
+    data = JSON.stringify(parsed)
+  }
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Plateaus')
   stores.maps.insert(SCENE, campaign.id, file, data)
@@ -65,4 +70,17 @@ describe('plateaus on the player’s copy of the map', () => {
       )
     })
   }
+
+  it('ships a plateau’s stairs with it, so the player crosses them as the DM does', () => {
+    const s = scene('plateau-test', (data) => {
+      const plateau = dungeons(data).flatMap((l) => l.children).find((c) => c.childType === 'plateau')!
+      Object.assign(plateau, { stairs: [{ id: 'stairs-1', ring: 0, from: 1, to: 2 }] })
+    })
+    const player = redactMapForViewer(s, DARK, {})
+    const stairsOf = (data: SerializedMapData) => dungeons(data).flatMap((l) => l.children.flatMap((c) => (c.childType === 'plateau' ? (c.stairs ?? []) : [])))
+    expect(stairsOf(player)).toEqual([{ id: 'stairs-1', ring: 0, from: 1, to: 2 }])
+    const flights = (data: SerializedMapData) => dungeons(data).flatMap((l) => stairFlights(l)).map((f) => [f.top, f.down, f.length])
+    expect(flights(player)).toEqual(flights(s.data))
+    expect(flights(s.data)).toHaveLength(1)
+  })
 })

@@ -315,6 +315,24 @@ export interface PlateauChild extends LayerChild, RingGeometry {
   sightOverride?: 'hide' | 'show';
   /** Map crossing kind. Absent = the edge kind's default (cliff Climb, slope Difficult, none Free). */
   crossingId?: string;
+  /** Flights of stairs down this plateau's edge, placed with the Door tool. Absent = none. */
+  stairs?: StairSpan[];
+}
+
+/**
+ * A flight of stairs on a plateau's edge: the stretch of one of its rings it covers, by length
+ * along that ring as drawn (curves flattened, transform applied) from its first point, `from` <
+ * `to`. The flight stands on the low ground, its top on the edge, `|drop|` cells long. Crossing
+ * there is always free, and the edge hides nothing there.
+ */
+export interface StairSpan {
+  id: string;
+  /** The ring: 0 the outline, k the plateau's hole k. */
+  ring: number;
+  from: number;
+  to: number;
+  /** The stair kit's id (assets/stairKits.ts). Absent = the default. */
+  kit?: string;
 }
 
 /**

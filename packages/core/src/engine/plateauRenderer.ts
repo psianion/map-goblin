@@ -81,10 +81,12 @@ import {
   plateausOf,
   pointInPoly,
   splitAtCrossings,
+  stairFlights,
   tierLift,
   unionShapes,
   type EdgeRun,
   type PlateauBand,
+  type StairFlight,
 } from '../shared/plateaus';
 import type { PlateauChild } from '../shared/types';
 import { isGroundPiece, pieceRings } from '../shared/pieces';
@@ -239,10 +241,13 @@ export function renderPlateaus(
     const over = slopes.faces.filter((f) => byPrecedence(f.run.band, band) > 0).flatMap((f) => f.region);
     drawShade(holder, band, laid, faces, slopes.land, over, options.fit);
     drawSlopeFaces(holder, band, faces, slopes.land);
+    // The flights of stairs on its edges: over the shade and any slope face, under the cliffs.
+    const flights = stairFlights(layer).filter((f) => band.shapes.includes(f.plateau));
+    if (flights.length > 0) drawStairs(holder, flights);
     for (const { run, cliffs } of laid) {
       if (!cliffs) continue;
       const walks = options.cliffs?.get(band)?.get(cliffKey(run));
-      cliffs.forEach((c, i) => sprites.push(...drawCliff(holder, c, walks?.[i] ?? walkCliff(c.run, c.merged))));
+      cliffs.forEach((c, i) => sprites.push(...drawCliff(holder, c, walks?.[i] ?? walkCliff(c.run, c.merged, c.opens))));
     }
     // A painted border's Edge line rides on the card's Contour lines switch: on unless set off.
     for (const run of runs) if (painted(run) && run.owner?.contourLines !== false) drawEdgeLine(holder, run);
@@ -250,6 +255,21 @@ export function renderPlateaus(
   }
   cliffSprites.set(layer.id, sprites);
   shadeCliffs(layer.id, lastLook.get(layer.id) ?? null);
+}
+
+/** The corners of a flight's footprint: its top edge, then its foot `length` cells down. */
+export function flightFootprint(f: Pick<StairFlight, 'top' | 'down' | 'length'>): Polygon {
+  const [a, b] = f.top;
+  const d = vmul(f.down, f.length);
+  return [a, b, vadd(b, d), vadd(a, d)];
+}
+
+/** The flights of stairs, each as the outline of the ground it covers. */
+function drawStairs(parent: Container, flights: StairFlight[]): void {
+  const g = new Graphics();
+  g.label = 'plateau-stairs';
+  for (const f of flights) g.poly(flightFootprint(f).flat(), true).stroke({ color: INK, width: LINE, alpha: 0.85 });
+  parent.addChild(g);
 }
 
 /**
@@ -306,6 +326,8 @@ export interface CliffRun {
   merged: [boolean, boolean];
   /** Of those, whether each stops at the floor-side face of rock drawn under it (a painted cave's): it narrows there, as a free end does. */
   butts: [boolean, boolean];
+  /** Whether its head and its tail stop at a flight of stairs (never `merged` then): laid to the span's end with no end piece, and tapered there. */
+  opens: [boolean, boolean];
 }
 
 /** How far past the drawn stretch and its rock a stretch's zone reaches, cells: past Clipper's snap. */
@@ -494,17 +516,26 @@ function cornerCrossing(prev: Vec, a: Vec, next: Vec, walls: CliffWalls): number
  * no wall is its walk, its top the run as drawn (`laid`), as one stretch; one wholly on walls has none.
  */
 function cliffRuns(run: EdgeRun, walk: EdgeRun, laid: EdgeRun, walls: CliffWalls, own: RockLine[] | undefined): CliffRun[] {
-  const whole: CliffRun[] = [{ run: walk, top: laid, merged: [false, false], butts: [false, false] }];
-  if (walls.lines.length === 0 && walls.openings.length === 0) return whole;
+  const whole: CliffRun[] = [{ run: walk, top: laid, merged: [false, false], butts: [false, false], opens: [false, false] }];
+  // Segment k of the run is its ring's edge start + k: those inside a stair span lay no rock.
+  const ringEdges = run.band.edges[run.ring];
+  const stairsAt = (k: number): boolean => ringEdges[(run.start + k) % ringEdges.length]?.stairs === true;
+  const stairs = run.drops.some((_, k) => stairsAt(k));
+  if (walls.lines.length === 0 && walls.openings.length === 0 && !stairs) return whole;
   const cut = alongRock(run.points, run.closed, walls.lines);
-  // The run as stretches of drawn edge and the walls between them, each wall with how far short of it the cliff stops.
-  type Item = { a: Vec; b: Vec; drop: number } | { back: number };
+  // The run as stretches of drawn edge and the walls between them, each wall with how far short of
+  // it the cliff stops; a flight of stairs is a gap it stops at exactly, tapered (`opens`).
+  type Item = { a: Vec; b: Vec; drop: number } | { back: number; opens?: true };
   const items: Item[] = [];
   for (let i = 0; i < cut.on.length; i++) {
     const a = cut.points[i];
     const b = cut.points[(i + 1) % cut.points.length];
     if (cut.on[i] >= 0) {
       items.push({ back: walls.back.get(cut.replaced[cut.on[i]].line) ?? 0 });
+      continue;
+    }
+    if (stairsAt(cut.segs[i])) {
+      items.push({ back: 0, opens: true });
       continue;
     }
     if (insideAny(vmul(vadd(a, b), 0.5), walls.openings)) {
@@ -527,34 +558,42 @@ function cliffRuns(run: EdgeRun, walk: EdgeRun, laid: EdgeRun, walls: CliffWalls
     items.push({ a: from, b, drop });
   }
   const m = items.length;
-  const isWall = (it: Item): it is { back: number } => 'back' in it;
+  type Wall = { back: number; opens?: true };
+  const isWall = (it: Item): it is Wall => 'back' in it;
   if (!items.some(isWall)) return whole;
   // A ring is read from just past a wall, so no stretch is split across its seam.
   const start = run.closed ? items.findIndex((it, i) => !isWall(it) && isWall(items[(i - 1 + m) % m])) : 0;
   if (start < 0) return [];
   const out: CliffRun[] = [];
-  // `head` and a tail: how far short of the wall it meets the stretch stops, null at a free tip.
-  let part: { points: Vec[]; drops: number[]; head: number | null } | null = null;
-  let before: number | null = null;
-  const flush = (tail: number | null) => {
-    const kept = part && trimmed(part.points, part.drops, part.head ?? 0, tail ?? 0);
+  // `head` and a tail: the wall or stairs it meets (how far short of it the stretch stops), null at a free tip.
+  let part: { points: Vec[]; drops: number[]; head: Wall | null } | null = null;
+  let before: Wall | null = null;
+  const flush = (tail: Wall | null) => {
+    const kept = part && trimmed(part.points, part.drops, part.head?.back ?? 0, tail?.back ?? 0);
     if (part && kept) {
       const stretch: EdgeRun = { ...run, closed: false, ...kept };
       const a = alongRock(kept.points, false, own);
       const top = a.replaced.length === 0 ? stretch : { ...stretch, points: a.points, drops: a.segs.map((i) => kept.drops[i]) };
-      out.push({ run: stretch, top, merged: [part.head !== null, tail !== null], butts: [(part.head ?? 0) > 0, (tail ?? 0) > 0] });
+      out.push({
+        run: stretch,
+        top,
+        // A tip at stairs is a free end (laid to its end), never one that runs on into rock.
+        merged: [part.head !== null && !part.head.opens, tail !== null && !tail.opens],
+        butts: [(part.head?.back ?? 0) > 0, (tail?.back ?? 0) > 0],
+        opens: [!!part.head?.opens, !!tail?.opens],
+      });
     }
     part = null;
   };
   if (run.closed) {
     const last = items[(start - 1 + m) % m];
-    before = isWall(last) ? last.back : null;
+    before = isWall(last) ? last : null;
   }
   for (let j = 0; j < m; j++) {
     const it = items[(start + j) % m];
     if (isWall(it)) {
-      flush(it.back);
-      before = it.back;
+      flush(it);
+      before = it;
       continue;
     }
     part ??= { points: [it.a], drops: [], head: before };
@@ -1570,15 +1609,16 @@ const lowNormal = (pl: WalkPlacement): Vec => {
  * size, none stretched to fit an edge. One ring of it at any drop. `run` is a stretch of the
  * run's walk off the walls (`CliffRun.run`), never along its own saved line, so laying it
  * again lays the same rock. A tip that runs on into a wall's rock (`merged`, in `run`'s order,
- * `CliffRun.merged`) is laid as one. Nothing when its kit has no pieces.
+ * `CliffRun.merged`) is laid as one; a tip at a flight of stairs (`opens`, `CliffRun.opens`) is laid
+ * to its end with no painted ending. Nothing when its kit has no pieces.
  */
-export function walkCliff(run: EdgeRun, merged: [boolean, boolean] = [false, false]): WalkPlacement[] {
+export function walkCliff(run: EdgeRun, merged: [boolean, boolean] = [false, false], opens: [boolean, boolean] = [false, false]): WalkPlacement[] {
   const pieces = cliffPieces(cliffArt(run.owner?.edgeArt), run.owner?.edgeArt);
   if (pieces.length === 0) return [];
   const forward = walksForward(run);
   const pts = forward ? run.points : [...run.points].reverse();
-  const ends: [boolean, boolean] = forward ? merged : [merged[1], merged[0]];
-  return run.closed ? layBandRing(pts, [], pieces, 1, true) : layBandChain(pts, [], pieces, 1, true, ends);
+  const way = (pair: [boolean, boolean]): [boolean, boolean] => (forward ? pair : [pair[1], pair[0]]);
+  return run.closed ? layBandRing(pts, [], pieces, 1, true) : layBandChain(pts, [], pieces, 1, true, way(merged), way(opens));
 }
 
 /**
@@ -1595,15 +1635,17 @@ export function walksForward(run: Pick<EdgeRun, 'drop' | 'owner'>): boolean {
 
 /**
  * The ledge one stretch of a cliff draws: the pieces `placed` by its walk that have art, then an
- * end piece at each tip of an open run, but for a tip that runs on into a wall (`merged`).
+ * end piece at each tip of an open run, but for a tip that runs on into a wall (`merged`) or stops
+ * at a flight of stairs (`opens`).
  */
 export function cliffLedge(stretch: CliffRun, placed: WalkPlacement[]): WalkPlacement[] {
   const { run } = stretch;
   const art = cliffArt(run.owner?.edgeArt);
   const walked = drawnPlacements(placed, art);
   const runs = ledgeRuns(walked, run.closed).filter((r) => r.open);
+  const capless: [boolean, boolean] = [stretch.merged[0] || stretch.opens[0], stretch.merged[1] || stretch.opens[1]];
   // A run walked backwards (see walksForward): its head is the stretch's tail.
-  const [head, tail] = walksForward(run) ? stretch.merged : [stretch.merged[1], stretch.merged[0]];
+  const [head, tail] = walksForward(run) ? capless : [capless[1], capless[0]];
   // A measured kit's painted endings are laid by its walk, inside the run (see layExactRun).
   const ends = isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId) ? [] : ledgeEndPieces(art, run.owner?.edgeArt);
   const tips = runs.flatMap((r, k) => runEnds(r.run, ends, !(head && k === 0), !(tail && k === runs.length - 1)));
@@ -1629,11 +1671,13 @@ export function cliffFreeTips(stretch: CliffRun, drawn: WalkPlacement[]): ((end:
   const walkWay = <T,>(pair: [T, T]): [T, T] => (forward ? pair : [pair[1], pair[0]]);
   const [head, tail] = walkWay(stretch.merged);
   const [buttHead, buttTail] = walkWay(stretch.butts);
-  // A free tip narrows unless it ends on a painted ending (a measured kit's, laid by its walk).
+  const [openHead, openTail] = walkWay(stretch.opens);
+  // A free tip narrows unless it ends on a painted ending (a measured kit's, laid by its walk); a
+  // tip at a flight of stairs always does.
   const narrows = (merged: boolean, butts: boolean, tip: WalkPlacement): boolean => (merged ? butts : !ends && tip.branch !== 'ending');
   const tips: Vec[] = runs.flatMap((r, k) => [
-    ...(narrows(head && k === 0, buttHead, r.run[0]) ? [jointFrame(r.run[0]).joints[0]] : []),
-    ...(narrows(tail && k === runs.length - 1, buttTail, r.run[r.run.length - 1]) ? [jointFrame(r.run[r.run.length - 1]).joints[1]] : []),
+    ...((openHead && k === 0) || narrows(head && k === 0, buttHead, r.run[0]) ? [jointFrame(r.run[0]).joints[0]] : []),
+    ...((openTail && k === runs.length - 1) || narrows(tail && k === runs.length - 1, buttTail, r.run[r.run.length - 1]) ? [jointFrame(r.run[r.run.length - 1]).joints[1]] : []),
   ]);
   return tips.length > 0 ? (p) => tips.some((t) => vdist(p, t) < 1e-6) : undefined;
 }

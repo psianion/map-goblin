@@ -21,6 +21,7 @@ import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { edgeStyles, ringStyles } from '../shared/wallLook';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { doorGaps } from '../engine/doorGaps';
+import { stairOpenings } from '../shared/stairOpenings';
 import type { DungeonLayer, RockLine } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { checkBand, pastRockLine, type BandCheck, type SideRegion } from './bandChecks';
@@ -69,7 +70,7 @@ export function layLayer(input: DungeonLayer): LaidLayer {
   let layer: DungeonLayer = { ...input, mergedFloor: input.mergedFloor ?? computeMergedFloor(input) };
   const rings = layer.mergedFloor ?? [];
   const walls = resolveWalls(layer);
-  const gapsOfDoors = doorGaps(layer, resolveDoors(layer, walls).filter((d) => d.door.visible), walls);
+  const gapsOfDoors = doorGaps(layer, [...resolveDoors(layer, walls).filter((d) => d.door.visible), ...stairOpenings(layer, walls)], walls);
   const bands: LaidBand[] = [];
   const tips: Polygon[] = [];
   const gapsFit: Polygon[] = [];
@@ -106,7 +107,7 @@ export function layLayer(input: DungeonLayer): LaidLayer {
       if (!cliffs || !isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId)) continue;
       for (const c of cliffs) {
         const pts = walksForward(c.run) ? c.run.points : [...c.run.points].reverse();
-        add('cliff', pts, walkCliff(c.run, c.merged), [], 1, false, c.run.closed);
+        add('cliff', pts, walkCliff(c.run, c.merged, c.opens), [], 1, false, c.run.closed);
       }
     }
   }
@@ -152,7 +153,7 @@ export function drawnFromOutline(laid: LaidLayer): { layer: DungeonLayer; bands:
       if (!stretches || !isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId)) continue;
       for (const c of stretches) {
         topLines.push(c.top);
-        const line = cliffLineOf(c.run, walkCliff(c.run, c.merged));
+        const line = cliffLineOf(c.run, walkCliff(c.run, c.merged, c.opens));
         if (line) own.push({ line, drop: c.run.drop });
       }
     }

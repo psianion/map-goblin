@@ -89,6 +89,26 @@ describe('crossingTargetAt', () => {
     expect(crossingTargetAt(map(), undefined, 12, 10.2)).toMatchObject({ targetId: 'top', what: 'cliff', mapKindId: 'climb' });
     expect(crossingTargetAt(map(), undefined, 5, 5)).toBeNull();
   });
+
+  it('offers nothing on a flight of stairs, which is always free, and the cliff beside it as before', () => {
+    expect(crossingTargetAt(stairsMap(), undefined, 12, 10.2)).toBeNull();
+    expect(crossingTargetAt(stairsMap(), undefined, 14, 12)).toMatchObject({ targetId: 'top', what: 'cliff', mapKindId: 'climb' });
+  });
+});
+
+// The +3 with a flight of stairs down its north edge, x 11 to 13.
+const stairsMap = (): CrossingMap => ({
+  ...map(),
+  layers: [{ id: 'l1', type: 'dungeon', children: [children[0], { ...children[1], stairs: [{ id: 's1', ring: 0, from: 1, to: 3 }] }, children[2]], standaloneWalls: [], mergedFloor: null } as unknown as Layer],
+});
+
+describe('stairs at the table', () => {
+  it('crosses a flight of stairs freely with no chip, even with the plateau made Impassable live', () => {
+    const live = { edges: { top: 'impassable' }, blocks: {} };
+    expect(judgeHop(stairsMap(), undefined, [12, 8.5], [12, 11], live, 'player')).toEqual({ chips: [], refused: null });
+    // Beside the flight the same edge is the plateau's as ever.
+    expect(judgeHop(stairsMap(), undefined, [10.5, 8.5], [10.5, 11], NONE, 'player').chips.map((c) => c.kindId)).toEqual(['climb']);
+  });
 });
 
 describe('chips', () => {

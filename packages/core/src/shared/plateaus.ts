@@ -17,7 +17,7 @@
 //   (`elevationAt`). That height draws a shadow and nothing else: no wall, no room.
 
 import type { DungeonLayer } from '../store/types';
-import type { AnyChild, CrossingKind, PlateauChild, RingGeometry, ShapeChild } from './types';
+import type { AnyChild, CrossingKind, PlateauChild, RingGeometry, ShapeChild, StairSpan } from './types';
 import { patchCovers, patchOutline, type MaterialPatch } from './materialPatch';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
@@ -224,6 +224,8 @@ export interface BandEdge {
    * plateau it merely meets: that one's edge is drawn).
    */
   dug: boolean;
+  /** Inside one of its owner's stair spans: crossed freely, hides nothing, lays no cliff. Absent elsewhere. */
+  stairs?: true;
 }
 
 export interface PlateauBand {
@@ -401,6 +403,134 @@ export function splitAtCrossings(ring: Polygon, others: readonly Polygon[]): Pol
   return split ? out : ring;
 }
 
+// ─── Stairs ────────────────────────────────────────────────
+
+/**
+ * The line a stair span covers: its plateau's ring as drawn (`shapeRing`), walked from `from` to
+ * `to` along its length from the ring's first point. Empty when the ring is not there or the span
+ * has no length.
+ */
+export function stairLine(plateau: PlateauChild, span: Pick<StairSpan, 'ring' | 'from' | 'to'>): Polygon {
+  if ((plateau.contours[span.ring]?.length ?? 0) < 3 || !(span.to > span.from)) return [];
+  const ring = shapeRing(plateau, span.ring);
+  const n = ring.length;
+  const out: Polygon = [];
+  let s = 0;
+  for (let i = 0; i < n && s < span.to; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % n];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const [lo, hi] = [Math.max(span.from, s), Math.min(span.to, s + len)];
+    if (len > 1e-12 && hi > lo + 1e-9) {
+      const at = (d: number): [number, number] => [a[0] + ((b[0] - a[0]) * (d - s)) / len, a[1] + ((b[1] - a[1]) * (d - s)) / len];
+      if (out.length === 0) out.push(at(lo));
+      out.push(at(hi));
+    }
+    s += len;
+  }
+  return out;
+}
+
+/** How near a stair line a point counts as on it, cells: the union's snap. */
+const onLine = (p: readonly [number, number], line: Polygon): boolean => {
+  for (let k = 0; k + 1 < line.length; k++) if (segDistance(p, line[k], line[k + 1]) <= UNION_SNAP) return true;
+  return false;
+};
+
+function segDistance(p: readonly [number, number], a: readonly [number, number], b: readonly [number, number]): number {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const l2 = dx * dx + dy * dy;
+  const t = l2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
+  return Math.hypot(p[0] - (a[0] + dx * t), p[1] - (a[1] + dy * t));
+}
+
+/**
+ * `ring` with each of `points` that lies on one of its edges (within the union's snap, not at
+ * either end) added there, on the edge, in order along it. The outline stays the same; a ring
+ * none lies on comes back as it is.
+ */
+function splitAtPoints(ring: Polygon, points: readonly (readonly [number, number])[]): Polygon {
+  const out: Polygon = [];
+  let split = false;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    out.push(a);
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-12) continue;
+    const ts: number[] = [];
+    for (const p of points) {
+      const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (len * len);
+      if (t * len <= UNION_SNAP || (1 - t) * len <= UNION_SNAP) continue;
+      if (Math.abs((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / len > UNION_SNAP) continue;
+      ts.push(t);
+    }
+    ts.sort((p, q) => p - q);
+    let last = 0;
+    for (const t of ts) {
+      if ((t - last) * len <= SPLIT_END) continue;
+      out.push([a[0] + dx * t, a[1] + dy * t]);
+      last = t;
+      split = true;
+    }
+  }
+  return split ? out : ring;
+}
+
+/** One flight of stairs as it stands: on the low side of its span, its top on the edge. */
+export interface StairFlight {
+  plateau: PlateauChild;
+  span: StairSpan;
+  /** The top step's edge, along the span, in the band ring's order. */
+  top: [Vec, Vec];
+  /** Unit vector from the top toward the foot: off the edge onto the low ground. */
+  down: Vec;
+  /** How far down it runs, cells: the largest |drop| along the span. */
+  length: number;
+  edge: EdgeKind;
+}
+
+/**
+ * Every flight of stairs on a layer: one per span with a drop under it (a span wholly covered by
+ * a higher plateau, or flush with the ground outside, has none).
+ */
+export function stairFlights(layer: Pick<DungeonLayer, 'children'>): StairFlight[] {
+  if (!hasPlateaus(layer) || !layer.children.some((c) => c.childType === 'plateau' && (c.stairs?.length ?? 0) > 0)) return [];
+  const out: StairFlight[] = [];
+  for (const band of layerPlateaus(layer).bands) {
+    for (const s of band.shapes) {
+      for (const span of s.stairs ?? []) {
+        const line = stairLine(s, span);
+        if (line.length < 2) continue;
+        let best: { drop: number; a: Vec; b: Vec } | null = null;
+        band.rings.forEach((ring, ri) => {
+          band.edges[ri].forEach((e, i) => {
+            if (!e.stairs || e.owner !== s) return;
+            const a = ring[i];
+            const b = ring[(i + 1) % ring.length];
+            if (!onLine([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], line)) return;
+            if (!best || Math.abs(e.drop) > Math.abs(best.drop)) best = { drop: e.drop, a: [a[0], a[1]], b: [b[0], b[1]] };
+          });
+        });
+        if (!best) continue;
+        const { drop, a, b } = best as { drop: number; a: Vec; b: Vec };
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        // Outside is the left of travel along the ring: (dy, -dx). A plateau's low side is outside, a pit's inside.
+        const left: Vec = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
+        const down: Vec = drop > 0 ? left : [-left[0], -left[1]];
+        const [p, q] = [line[0], line[line.length - 1]];
+        // The span's ends in the ring's order.
+        const forward = (q[0] - p[0]) * (b[0] - a[0]) + (q[1] - p[1]) * (b[1] - a[1]) >= 0;
+        out.push({ plateau: s, span, top: forward ? [[p[0], p[1]], [q[0], q[1]]] : [[q[0], q[1]], [p[0], p[1]]], down, length: Math.abs(drop), edge: edgeOf(s) });
+      }
+    }
+  }
+  return out;
+}
+
 const memo = new WeakMap<readonly unknown[], LayerPlateaus>();
 
 /** The layer's nesting and bands, built from its plateau children, cached on its children array. */
@@ -427,7 +557,11 @@ export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlate
   const bands: PlateauBand[] = [];
   for (const { height, members, rings: own } of built) {
     const others = built.filter((b) => b.height !== height).flatMap((b) => b.rings);
-    const rings = others.length === 0 ? own : own.map((r) => splitAtCrossings(r, others));
+    const crossed = others.length === 0 ? own : own.map((r) => splitAtCrossings(r, others));
+    // Each stair span as the line it covers, and the ring split at its ends, so its edges are its own.
+    const spans = members.flatMap((s) => (s.stairs ?? []).map((span) => ({ s, line: stairLine(s, span) }))).filter((x) => x.line.length >= 2);
+    const ends = spans.flatMap(({ line }) => [line[0], line[line.length - 1]]);
+    const rings = ends.length === 0 ? crossed : crossed.map((r) => splitAtPoints(r, ends));
     const depth = Math.max(...members.map((s) => infos.get(s.id)?.chain.length ?? 1));
     // Each member by its outline as drawn (curves flattened, transform applied), so a curved
     // or moved plateau owns its own edges.
@@ -454,7 +588,8 @@ export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlate
         // A raised plateau has no edge facing up unless it is dug into the higher ground (a dip):
         // against a plateau it merely meets the edge is the other's.
         if (drop < 0 && owner && ownHeight(owner) > 0 && !dug) drop = 0;
-        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop, dug: drop < 0 && dug } as BandEdge;
+        const stairs = drop !== 0 && !!owner && spans.some((x) => x.s === owner && onLine(mid, x.line));
+        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop, dug: drop < 0 && dug, ...(stairs && { stairs: true }) } as BandEdge;
       }),
     );
     bands.push({ height, depth, shapes: members, rings, surface: surfaces.get(height) ?? [], edges });
@@ -607,7 +742,8 @@ export function cliffOccluders(
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
       const edges = band.edges[ri];
-      const hides = edges.map((e) => e.drop !== 0 && edgeHides(e.owner, e.edge, e.drop, minDrop));
+      // A flight of stairs hides nothing: the eye sees up it.
+      const hides = edges.map((e) => e.drop !== 0 && !e.stairs && edgeHides(e.owner, e.edge, e.drop, minDrop));
       if (!hides.some(Boolean)) return;
       const { points, segs } = alongRock(ring, true, layer.rockLines);
       segs.forEach((i, j) => {
@@ -740,6 +876,8 @@ export interface Crossing {
   down: boolean;
   /** 0..1 along the move. */
   at: number;
+  /** Down a flight of stairs: free, whatever the plateau's kind. Absent elsewhere. */
+  stairs?: true;
 }
 
 export const FREE_CROSSING = 'free';
@@ -786,10 +924,15 @@ export function crossingsAlong(
         const down = e.drop > 0 ? outward : !outward;
         const targetId = e.owner.id;
         const via = e.edge as Crossing['via'];
+        if (out.some((o) => o.targetId === targetId && Math.abs(o.at - hit.t) < 1e-6)) return;
+        // Stairs are always free: no chip, and no live or map kind applies there.
+        if (e.stairs) {
+          out.push({ position, via, targetId, kindId: FREE_CROSSING, kind: kinds.find((k) => k.id === FREE_CROSSING) ?? null, blocks: false, chip: false, down, at: hit.t, stairs: true });
+          return;
+        }
         const kindId = overrides.edges?.[targetId] ?? crossingIdOf(e.owner);
         const kind = kinds.find((k) => k.id === kindId) ?? null;
         const blocks = overrides.blocks?.[kindId] ?? kind?.blocks ?? false;
-        if (out.some((o) => o.targetId === targetId && Math.abs(o.at - hit.t) < 1e-6)) return;
         out.push({ position, via, targetId, kindId, kind, blocks, chip: via === 'cliff' || kindId !== FREE_CROSSING, down, at: hit.t });
       });
     });

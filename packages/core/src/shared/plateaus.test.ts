@@ -17,6 +17,7 @@ import {
   elevationAtLayers,
   hiddenTops,
   pointInPoly,
+  stairFlights,
 } from './plateaus';
 import type { Polygon } from '../types/geometry';
 import { defaultCrossingKinds } from './crossingKinds';
@@ -373,6 +374,64 @@ describe('the table: elevation and crossings', () => {
     const live = crossingsAlong(layer, [12, 8], [12, 11], kinds, { edges: { top: 'impassable' } });
     expect(live[0]).toMatchObject({ kindId: 'impassable', blocks: true });
     expect(crossingsAlong(layer, [12, 8], [12, 11], kinds, { blocks: { climb: true } })[0].blocks).toBe(true);
+  });
+});
+
+describe('stairs on an edge', () => {
+  const ground = rect('ground', 0, 0, 30, 30);
+  // A +2 cliff, 10..14 square; its outline starts at (10, 10) and runs east along y 10.
+  const bare = plat('top', 10, 10, 14, 14, { height: 2, edge: 'cliff' });
+  const top = { ...bare, stairs: [{ id: 's1', ring: 0, from: 1, to: 3 }] };
+  const kinds = defaultCrossingKinds();
+
+  it('splits the edge at the span and marks only the edges inside it', () => {
+    const band = layerPlateaus(layerOf([ground, top])).bands[0];
+    const ring = band.rings[0];
+    const marked = band.edges[0].map((e, i) => [e.stairs === true, ring[i], ring[(i + 1) % ring.length]] as const).filter(([s]) => s);
+    expect(marked).toHaveLength(1);
+    const [, a, b] = marked[0];
+    expect([a, b].map(([x, y]) => [x, y]).sort((p, q) => p[0] - q[0])).toEqual([[11, 10], [13, 10]]);
+  });
+
+  it('crosses the span freely with no chip, whatever the plateau is played as', () => {
+    const layer = layerOf([ground, top]);
+    const down = crossingsAlong(layer, [12, 8], [12, 11], kinds, { edges: { top: 'impassable' } });
+    expect(down).toHaveLength(1);
+    expect(down[0]).toMatchObject({ kindId: 'free', blocks: false, chip: false, stairs: true, down: false });
+    // The same edge beside the span is a climb.
+    expect(crossingsAlong(layer, [10.5, 8], [10.5, 11], kinds)[0]).toMatchObject({ kindId: 'climb', chip: true });
+    expect(crossingsAlong(layer, [13.5, 8], [13.5, 11], kinds)[0]).toMatchObject({ kindId: 'climb', chip: true });
+  });
+
+  it('hides nothing across the span, and the rest of the cliff as before', () => {
+    const occ = cliffOccluders(layerOf([ground, top]), 1);
+    const onTopEdge = occ.filter((o) => o.y1 === 10 && o.y2 === 10);
+    const covered = (x: number) => onTopEdge.some((o) => Math.min(o.x1, o.x2) < x && Math.max(o.x1, o.x2) > x);
+    expect(covered(12)).toBe(false);
+    expect(covered(10.5)).toBe(true);
+    expect(covered(13.5)).toBe(true);
+    expect(cliffOccluders(layerOf([ground, bare]), 1).some((o) => o.y1 === 10 && Math.min(o.x1, o.x2) < 12 && Math.max(o.x1, o.x2) > 12)).toBe(true);
+  });
+
+  it('stands the flight on the low side: outside a plateau, inside a pit, as long as the drop', () => {
+    const [up] = stairFlights(layerOf([ground, top]));
+    expect(up.length).toBe(2);
+    expect(up.down[0]).toBeCloseTo(0);
+    expect(up.down[1]).toBeCloseTo(-1);
+    const pit = { ...plat('pit', 10, 10, 14, 14, { height: -1 }), stairs: [{ id: 'p', ring: 0, from: 1, to: 3 }] };
+    const [into] = stairFlights(layerOf([ground, pit]));
+    expect(into.length).toBe(1);
+    expect(into.down[1]).toBeCloseTo(1);
+    expect(crossingsAlong(layerOf([ground, pit]), [12, 8], [12, 11], kinds)[0]).toMatchObject({ kindId: 'free', chip: false });
+  });
+
+  it('leaves the band exactly as it was once the stairs are gone', () => {
+    const before = layerPlateaus(layerOf([ground, bare])).bands[0];
+    layerPlateaus(layerOf([ground, top]));
+    const after = layerPlateaus(layerOf([ground, { ...top, stairs: [] }])).bands[0];
+    expect(after.rings).toEqual(before.rings);
+    const plain = (edges: typeof before.edges) => edges.map((r) => r.map((e) => ({ ...e, owner: e.owner?.id })));
+    expect(plain(after.edges)).toEqual(plain(before.edges));
   });
 });
 

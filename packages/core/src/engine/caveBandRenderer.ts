@@ -1608,7 +1608,7 @@ function layExactRing(poly: Polygon, gaps: DoorGap[], set: CaveKitPiece[], cliff
  * Null when the run has a curve in it (a vertex turning between SIDE_TURN_DEG and EXACT_CORNER_DEG,
  * or on a cliff between sides too short to bend at).
  */
-function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: readonly Vec[] = [], merged: [boolean, boolean] = [false, false]): WalkPlacement[] | null {
+function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: readonly Vec[] = [], merged: [boolean, boolean] = [false, false], bare: [boolean, boolean] = [false, false]): WalkPlacement[] | null {
   const pts: Vec[] = [];
   for (const p of line) {
     const last = pts[pts.length - 1];
@@ -1734,7 +1734,7 @@ function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: r
     const sharp = verts.map((_, k) => k > 0 && k < verts.length - 1 && bends[k - 1] === null && !paired.has(k - 1) && Math.abs(turns[k - 1]) > MITRE_MOST_DEG);
     if (sharp.some(Boolean)) {
       const split = splitTurns(verts, false, sharp, set);
-      if (split) return layExactRun(split.pts as Polygon, set, cliff, split.plain, merged);
+      if (split) return layExactRun(split.pts as Polygon, set, cliff, split.plain, merged, bare);
     }
   }
   const runOn = (c: number): number => {
@@ -1780,14 +1780,14 @@ function layExactRun(line: Polygon, set: CaveKitPiece[], cliff = false, plain: r
     let t1 = k === m ? side.len : next ? along(k, next.j0) + half : bends[k] ? endOf(k) : side.len + runOn(k);
     const { origin, u } = side;
     let tail: WalkPlacement | null = null;
-    if (k === 0 && !merged[0]) {
+    if (k === 0 && !merged[0] && !bare[0]) {
       const head = runEnding(endings, origin, u, 0, (k === m ? (t1 - t0) / 2 : t1 - t0), true, out);
       if (head) {
         seq.push(head.pl);
         t0 = head.t;
       }
     }
-    if (k === m && !merged[1]) {
+    if (k === m && !merged[1] && !bare[1]) {
       const end = runEnding(endings, origin, u, side.len, t1 - t0, false, out);
       if (end) {
         tail = end.pl;
@@ -2515,7 +2515,8 @@ function padEnds(ride: Curve): Curve {
  * Lay a kit along an open run (a drawn wall that does not loop), void on the
  * left of the drawn direction. Each free end gets a piece closed onto it. A
  * cliff's end that runs on into a wall's rock (`merged`, head and tail in the
- * drawn direction) holds its straights to the corner instead (see layExactRun).
+ * drawn direction) holds its straights to the corner instead (see layExactRun). A cliff's end at a
+ * flight of stairs (`bare`) is a free end that takes no painted ending: its art runs to the end.
  */
 export function layBandChain(
   points: Polygon,
@@ -2524,22 +2525,23 @@ export function layBandChain(
   size = 1,
   cliff = false,
   merged: [boolean, boolean] = [false, false],
+  bare: [boolean, boolean] = [false, false],
 ): WalkPlacement[] {
-  const kind = `${cliff ? 'cliff-chain' : 'chain'}${merged[0] ? '<' : ''}${merged[1] ? '>' : ''}`;
+  const kind = `${cliff ? 'cliff-chain' : 'chain'}${merged[0] ? '<' : ''}${merged[1] ? '>' : ''}${bare[0] ? '(' : ''}${bare[1] ? ')' : ''}`;
   return keptLaying(kind, points, gaps, set, size, () => {
-    if (size !== 1) return laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set, 1, cliff, merged));
-    return layChain(points as Curve, gaps, set, { lap: true }, cliff, merged);
+    if (size !== 1) return laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set, 1, cliff, merged, bare));
+    return layChain(points as Curve, gaps, set, { lap: true }, cliff, merged, bare);
   });
 }
 
-function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions, cliff = false, merged: [boolean, boolean] = [false, false]): WalkPlacement[] {
+function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions, cliff = false, merged: [boolean, boolean] = [false, false], bare: [boolean, boolean] = [false, false]): WalkPlacement[] {
   if (points.length < 2) return [];
   // A measured kit's run with openings on it is laid stretch by stretch between them.
   const measured = set.some((p) => p.exact);
   const runs = measured && gaps.length > 0 ? layWallRuns(points as Polygon, gaps, set, false, opts) : null;
   if (runs) return runs;
   // A measured kit's run of straight sides is laid corner by corner; a curved one is walked.
-  const exact = measured ? layExactRun(points as Polygon, set, cliff, [], merged) : null;
+  const exact = measured ? layExactRun(points as Polygon, set, cliff, [], merged, bare) : null;
   if (exact) return exact;
   const cuts = measured ? [] : gaps;
   const base = resampleOpen(points, CURVE_STEP);
