@@ -5,6 +5,7 @@ import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { createDissolveGroupCommand, createGroupChildrenCommand } from '../../store/commands';
 import { setNotify } from '../../store/notify';
+import { setLightPicking } from '../hitTest';
 import type { RenderEngine } from '../RenderEngine';
 import type { DungeonLayer } from '../../store/types';
 import type { AssetChild, LightChild, ShapeChild } from '../../shared/types';
@@ -137,7 +138,7 @@ describe('SelectTool — M1 attached-light drag', () => {
     expect((findChild(light.id) as LightChild).position).toEqual({ x: 5.3, y: 5 });
   });
 
-  it('moving a light directly does not drag its host asset', () => {
+  it('dragging an attached light carries its prop: one fixture, one undo', () => {
     const asset = addAsset({ x: 5, y: 5 });
     const light = addLight({ x: 5.3, y: 5 }, asset.id);
 
@@ -145,23 +146,51 @@ describe('SelectTool — M1 attached-light drag', () => {
     tool.onPointerMove({ x: 6.3, y: 6 }, dragEvent(1, 1));
     tool.onPointerUp({ x: 6.3, y: 6 }, dragEvent(1, 1));
 
-    // The move snaps the light's own position onto the half-cell lattice, not the delta.
-    expect((findChild(light.id) as LightChild).position).toEqual({ x: 6.5, y: 6 });
+    expect((findChild(asset.id) as AssetChild).position).toEqual({ x: 6, y: 6 });
+    expect((findChild(light.id) as LightChild).position).toEqual({ x: 6.3, y: 6 });
+    undoManager.undo();
+    expect((findChild(asset.id) as AssetChild).position).toEqual({ x: 5, y: 5 });
+    expect((findChild(light.id) as LightChild).position).toEqual({ x: 5.3, y: 5 });
+  });
+
+  it('a free light still moves alone', () => {
+    const asset = addAsset({ x: 5, y: 5 });
+    const light = addLight({ x: 9, y: 9 });
+
+    tool.onPointerDown({ x: 9, y: 9 }, pointerEvent(0, 0));
+    tool.onPointerMove({ x: 10, y: 10 }, dragEvent(1, 1));
+    tool.onPointerUp({ x: 10, y: 10 }, dragEvent(1, 1));
+
+    expect((findChild(light.id) as LightChild).position).toEqual({ x: 10, y: 10 });
     expect((findChild(asset.id) as AssetChild).position).toEqual({ x: 5, y: 5 });
   });
 
-  it('does not drag a light attached to a different asset', () => {
+  it('an attached light on a locked prop moves alone, the prop stays', () => {
     const asset = addAsset({ x: 5, y: 5 });
-    const otherAsset = addAsset({ x: 20, y: 20 });
-    const light = addLight({ x: 20.3, y: 20 }, otherAsset.id);
+    useStore.getState().updateChild(layer().id, asset.id, { locked: true });
+    const light = addLight({ x: 5.3, y: 5 }, asset.id);
 
-    tool.onPointerDown({ x: 5, y: 5 }, pointerEvent(0, 0));
-    tool.onPointerMove({ x: 7, y: 8 }, dragEvent(2, 3));
-    tool.onPointerUp({ x: 7, y: 8 }, dragEvent(2, 3));
+    tool.onPointerDown({ x: 5.3, y: 5 }, pointerEvent(0, 0));
+    tool.onPointerMove({ x: 6.3, y: 6 }, dragEvent(1, 1));
+    tool.onPointerUp({ x: 6.3, y: 6 }, dragEvent(1, 1));
+
+    expect((findChild(asset.id) as AssetChild).position).toEqual({ x: 5, y: 5 });
+    expect((findChild(light.id) as LightChild).position).not.toEqual({ x: 5.3, y: 5 });
+  });
+
+  it('a prop and its light picked together move once, not twice', () => {
+    const asset = addAsset({ x: 5, y: 5 });
+    const light = addLight({ x: 5.3, y: 5 }, asset.id);
+    useStore.getState().setSelectedIds([asset.id, light.id]);
+
+    tool.onPointerDown({ x: 4.6, y: 5.4 }, pointerEvent(0, 0));
+    tool.onPointerMove({ x: 6.6, y: 8.4 }, dragEvent(2, 3));
+    tool.onPointerUp({ x: 6.6, y: 8.4 }, dragEvent(2, 3));
 
     expect((findChild(asset.id) as AssetChild).position).toEqual({ x: 7, y: 8 });
-    expect((findChild(light.id) as LightChild).position).toEqual({ x: 20.3, y: 20 });
+    expect((findChild(light.id) as LightChild).position).toEqual({ x: 7.3, y: 8 });
   });
+
 });
 
 describe('SelectTool — shape hover dwell gate', () => {
@@ -500,5 +529,25 @@ describe('SelectTool — a faded piece through the gizmo', () => {
     tool.onPointerMove({ x: 7, y: 8 }, dragEvent(2, 3));
     tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect((findChild(piece.id) as ShapeChild).fades).toEqual(fades);
+  });
+});
+
+describe('SelectTool — a hidden light still rides with its prop', () => {
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+  });
+  afterEach(() => setLightPicking(null));
+
+  it('moves the attached light of a dragged prop while light icons are off', () => {
+    setLightPicking(() => false);
+    const tool = new SelectTool(makeEngine());
+    const asset = addAsset({ x: 5, y: 5 });
+    const light = addLight({ x: 5.3, y: 5 }, asset.id);
+    tool.onPointerDown({ x: 4.6, y: 5.4 }, pointerEvent(0, 0));
+    tool.onPointerMove({ x: 6.6, y: 8.4 }, dragEvent(2, 3));
+    tool.onPointerUp({ x: 6.6, y: 8.4 }, dragEvent(2, 3));
+    expect((findChild(asset.id) as AssetChild).position).toEqual({ x: 7, y: 8 });
+    expect((findChild(light.id) as LightChild).position).toEqual({ x: 7.3, y: 8 });
   });
 });

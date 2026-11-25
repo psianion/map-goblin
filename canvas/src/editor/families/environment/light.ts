@@ -9,6 +9,7 @@ import { Lightbulb } from 'lucide-react';
 import { z } from 'zod';
 import type { LightDefaults } from '@/store/types';
 import { defineSetting, defineTool } from '@/editor/registry/define';
+import { LightGroupsPanel } from './LightGroupsPanel';
 import type { CoreStore, DockColumnDef, EditorState } from '@/editor/registry/types';
 import { DockColourSwatch, FeetStepper, PercentSlider, PresetsColumn } from './LightControls';
 import {
@@ -194,6 +195,8 @@ export const lightTool = defineTool({
   engine: ['light'],
   settings: [lightBright, lightDim, lightIntensity, lightColour, lightCone, lightDirection, lightEffect, lightSpeed, lightThroughWalls],
   dock: [presetsColumn],
+  // Every light group on the map: switch, pick or rename it.
+  panelExtra: LightGroupsPanel,
   hint: () => ({
     label: 'Light',
     segments: [

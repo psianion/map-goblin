@@ -8,6 +8,7 @@ import {
   getEntriesByType,
   getWallSet,
   getWallSetIds,
+  lightPropOf,
   propEntries,
   type CatalogEntry,
 } from '@dnd/core/src/assets/packCatalog';
@@ -64,7 +65,7 @@ export function assetTiles(chip: AssetChip, query: string): AssetTile[] {
     case 'paths':
       return searchProps(pathPieces(), query).map((e) => ({ key: e.id, id: e.id, name: pathPieceLabel(e), packId: e.packId }));
     case 'props':
-      return familyTiles(searchProps(propEntries(), query)).map((t) => ({ key: t.key, id: t.rep.id, name: t.rep.label, packId: t.rep.packId }));
+      return litBeforeUnlit(familyTiles(searchProps(propEntries(), query)).map((t) => ({ key: t.key, id: t.rep.id, name: t.rep.label, packId: t.rep.packId })));
     case 'walls': {
       const q = query.trim().toLowerCase();
       const sets = [
@@ -77,6 +78,31 @@ export function assetTiles(chip: AssetChip, query: string): AssetTile[] {
       // No pack ships light art yet; the chip stays so the library reads the same when one does.
       return [];
   }
+}
+
+/**
+ * A light prop's lit and unlit tiles side by side, lit first: an unlit tile whose lit partner
+ * is in the list moves to just after it. Everything else keeps its place.
+ */
+export function litBeforeUnlit<T extends { id: string }>(tiles: readonly T[]): T[] {
+  const ids = new Set(tiles.map((t) => t.id));
+  const partnerOf = (t: T): string | undefined => {
+    const states = lightPropOf(t.id)?.states;
+    return states?.on && states.off === t.id && states.on !== t.id && ids.has(states.on) ? states.on : undefined;
+  };
+  const held = new Map<string, T>();
+  for (const t of tiles) {
+    const on = partnerOf(t);
+    if (on) held.set(on, t);
+  }
+  const out: T[] = [];
+  for (const t of tiles) {
+    if (partnerOf(t)) continue;
+    out.push(t);
+    const unlit = held.get(t.id);
+    if (unlit) out.push(unlit);
+  }
+  return out;
 }
 
 /** Every pack asset the map already uses: placed props and floor textures. */

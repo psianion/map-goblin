@@ -99,10 +99,8 @@ describe('mountLightsEditor', () => {
     press(h.canvas, 52, 50);
     expect(sendCommand).not.toHaveBeenCalled(); // one press selects, nothing more
     press(h.canvas, 52, 50);
-    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-light', {
-      lightId: 'l1',
-      patch: { visible: false },
-    });
+    // A light switches with its group, as one set-lights (a light with no group is the only id).
+    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-lights', { ids: ['l1'], on: false });
     // The preview lands locally too, so the icon flips before the round trip.
     expect((useStore.getState().layers[0] as unknown as { children: LightChild[] }).children[0]!.visible).toBe(false);
     h.stop();
@@ -140,6 +138,21 @@ describe('mountLightsEditor', () => {
     expect(h.under).toHaveBeenCalled();
     useAsPlayers.getState().set(false);
     expect(h.setIconsVisible).toHaveBeenLastCalledWith(true);
+    h.stop();
+  });
+});
+
+describe('mountLightsEditor: a light fixed to a prop', () => {
+  it('does not drag at the table: nothing moves and no set-light goes out', () => {
+    const h = harness();
+    useStore.setState((s) => {
+      ((s.layers[0] as unknown as { children: LightChild[] }).children[0]!).attachedTo = 'brazier-prop';
+    });
+    press(h.canvas, 52, 50);
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 120, clientY: 90 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 120, clientY: 90 }));
+    expect(sendCommand).not.toHaveBeenCalled();
+    expect((useStore.getState().layers[0] as unknown as { children: LightChild[] }).children[0]!.position).toEqual({ x: 0, y: 0 });
     h.stop();
   });
 });

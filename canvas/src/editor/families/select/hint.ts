@@ -11,6 +11,9 @@ import type { DoorChild } from '@/store/types';
 import { compareLayerIds } from '@/store/selectors';
 import { levelLabel } from '@/editor/surfaces/model';
 import { keyCaption } from '@/shortcuts/formatCombo';
+import { lightsOnProp } from '@dnd/core/src/shared/lightSwitches';
+import { lightPropOf } from '@dnd/core/src/assets/packCatalog';
+import { linkModel } from '@/canvas/linkModel';
 
 const t = (text: string) => ({ text });
 const k = (text: string) => ({ text, key: true });
@@ -23,8 +26,59 @@ function compareSegment(s: MapBuilderStore): { text: string }[] {
   return [t(`· comparing with ${levelLabel(i, s.levels.length, s.levels[i].name)} at ${Math.round(opacity * 100)}%`)];
 }
 
+/**
+ * Over a light, or a prop with lights attached, what a double-click switches: "its light", or
+ * the group it reaches ("Double-click to switch East hall, 3 lights"); a brazier's Embers is
+ * on the card. "Locked" over one that will not switch. Null over anything else.
+ */
+export function lightPropHover(s: MapBuilderStore): HintLine | null {
+  const id = s.selection.hoveredId;
+  if (!id) return null;
+  for (const layer of s.layers) {
+    if (layer.type !== 'dungeon') continue;
+    const child = layer.children.find((c) => c.id === id);
+    if (child?.childType !== 'asset' && child?.childType !== 'light') continue;
+    const lights = child.childType === 'asset' ? lightsOnProp(s.layers, child.id) : [child];
+    if (lights.length === 0) return null;
+    const line = (text: string): HintLine => ({ label: 'Select', segments: [t(text)] });
+    if (child.locked || layer.locked || lights.every((l) => l.locked)) return line('Locked');
+    const prop = child.childType === 'asset' ? child : layer.children.find((c) => c.id === child.attachedTo);
+    const embers = prop?.childType === 'asset' && !!lightPropOf(prop.assetId)?.states?.embers ? ', Embers on the card' : '';
+    const group = linkModel(s, child.id);
+    if (group) return line(`Double-click to switch ${group.group}, ${group.lights} ${group.lights === 1 ? 'light' : 'lights'}${embers}`);
+    return line(embers ? `Double-click to switch${embers}` : 'Double-click to switch its light');
+  }
+  return null;
+}
+
+/** A light fixed to a prop, picked on its own: dragging it carries the prop, the arrows move the light alone. */
+function fixtureSegments(s: MapBuilderStore, ids: readonly string[]): { text: string; key?: boolean }[] {
+  if (ids.length !== 1) return [];
+  const light = s.layers.flatMap((l) => (l.type === 'dungeon' ? l.children : [])).find((c) => c.id === ids[0]);
+  if (light?.childType !== 'light' || !light.attachedTo) return [];
+  return [t('Drag moves the fixture, arrows move the light alone ·')];
+}
+
+/** "4 here, right-click to pick" while more than one object stands under the pointer (`selection.hoverCount`). */
+export function crowdText(n: number | undefined): string | null {
+  return n && n > 1 ? `${n} here, right-click to pick` : null;
+}
+
+/** `line` with the crowd count after it, when there is one. */
+function withCrowd(s: MapBuilderStore, line: HintLine): HintLine {
+  const crowd = crowdText(s.selection.hoverCount);
+  return crowd ? { ...line, segments: [...line.segments, t(`· ${crowd}`)] } : line;
+}
+
 export function selectHint(state: EditorState): HintLine {
   const s = state as MapBuilderStore;
+  return withCrowd(s, selectLine(s));
+}
+
+function selectLine(s: MapBuilderStore): HintLine {
+  const state = s as unknown as EditorState;
+  const hover = lightPropHover(s);
+  if (hover) return hover;
   const ids = s.selection.selectedIds;
   if (ids.length === 0) {
     // A trace in hand: how see-through it is, and the key that hides and shows it.
@@ -55,6 +109,6 @@ export function selectHint(state: EditorState): HintLine {
   const below = only?.child.childType === 'asset' && only.child.belowWater ? [t('below water ·')] : [];
   return {
     label: title,
-    segments: [t(`${title} ·`), ...pair, ...free, ...below, ...(editable ? [k('N'), t('nodes ·')] : []), k('Del'), t('delete')],
+    segments: [t(`${title} ·`), ...pair, ...free, ...below, ...fixtureSegments(s, ids), ...(editable ? [k('N'), t('nodes ·')] : []), k('Del'), t('delete')],
   };
 }

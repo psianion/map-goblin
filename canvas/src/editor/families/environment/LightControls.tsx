@@ -19,10 +19,11 @@ import {
   Slider,
 } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
+import { MIXED } from '@/editor/surfaces/model';
 import { LIGHT_RADIUS_FT, toFt } from './lightModel';
 
-/** A distance in feet, 5 ft a step. */
-export function FeetStepper({ def, value, onChange }: SettingProps<number>) {
+/** A distance in feet, 5 ft a step; "Mixed" over lights that differ, a step then sets them all. */
+export function FeetStepper({ def, value, onChange, mixed }: SettingProps<number>) {
   return (
     <Stepper
       label={def.label}
@@ -30,7 +31,7 @@ export function FeetStepper({ def, value, onChange }: SettingProps<number>) {
       min={LIGHT_RADIUS_FT.min}
       max={LIGHT_RADIUS_FT.max}
       step={LIGHT_RADIUS_FT.step}
-      format={(v) => `${v} ft`}
+      format={(v) => (mixed ? MIXED : `${v} ft`)}
       onValueChange={onChange}
     />
   );

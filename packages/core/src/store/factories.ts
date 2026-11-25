@@ -102,7 +102,7 @@ type MapBuilderState = Omit<
   | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setLabelsHidden' | 'setMarqueeFilter' | 'setPropReplaceIds' | 'setCompare'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
-  | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
+  | 'setSelectedIds' | 'setHoveredId' | 'setHoverCount' | 'setSelectedRegion'
   | 'setClipboard'
   | 'trackRecentUse' | 'toggleFavourite'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage' | 'removeCustomImage'
@@ -185,6 +185,7 @@ export function createDefaultState(): MapBuilderState {
           stayOnFloor: true,
           seed: 1,
           placeUnder: false,
+          addLight: true,
         },
         doorStyle: 'single' as const,
         doorSecret: false,

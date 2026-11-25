@@ -58,7 +58,7 @@ const prop = (id: string, x: number, y: number): AnyChild =>
 
 const SCENE = 'scene-props'
 
-function mapFile(zoned: boolean): SerializedMapData {
+function mapFile(zoned: boolean, extra: AnyChild[] = []): SerializedMapData {
   const layer = {
     id: 'layer-1',
     name: 'Crypt',
@@ -67,7 +67,7 @@ function mapFile(zoned: boolean): SerializedMapData {
     visible: true,
     locked: false,
     opacity: 1,
-    children: [prop('prop-hall', 5, 5), prop('prop-vault', 35, 5)],
+    children: [prop('prop-hall', 5, 5), prop('prop-vault', 35, 5), ...extra],
     standaloneWalls: [],
     mergedFloor: [rect(0, 0, 40, 10)],
     style: {},
@@ -88,10 +88,10 @@ function mapFile(zoned: boolean): SerializedMapData {
 const fogged = (s: SceneMap): SceneFog => (s.rooms.length ? fogOnWith(s, ['hall']) : { on: true })
 const redactFogged = (s: SceneMap) => redactMapForViewer(s, fogged(s), {})
 
-function playerCopy(zoned: boolean): AnyChild[] {
+function playerCopy(zoned: boolean, extra: AnyChild[] = []): AnyChild[] {
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Crypt')
-  stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(mapFile(zoned)))
+  stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(mapFile(zoned, extra)))
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
   const scene = createSceneMaps(stores).sceneMapOf(SCENE)!
   return (redactFogged(scene).layers[0] as DungeonLayer).children
@@ -107,5 +107,30 @@ describe('a prop on the player’s copy of the map', () => {
   it('goes over whole on a layer nobody zoned', () => {
     const children = playerCopy(false)
     expect(children).toEqual([prop('prop-hall', 5, 5), prop('prop-vault', 35, 5)])
+  })
+})
+
+describe('a light on the player’s copy of the map', () => {
+  const lamp = {
+    id: 'sconce',
+    name: 'Sconce',
+    childType: 'light',
+    visible: true,
+    color: '#ffb561',
+    radius: 4,
+    featherRadius: 2,
+    intensity: 0.9,
+    falloff: 'quadratic',
+    position: { x: 4, y: 4 },
+    cone: { angle: 60, direction: 0 },
+    embers: true,
+    group: 'Vault traps',
+    motion: { kind: 'spin', rpm: 6, clockwise: true },
+  } as AnyChild
+
+  it('ships embers and motion, which the player’s screen draws, but never the DM’s group name', () => {
+    const shipped = playerCopy(true, [lamp]).find((c) => c.id === 'sconce')
+    expect(shipped).toMatchObject({ embers: true, motion: { kind: 'spin', rpm: 6, clockwise: true } })
+    expect(shipped).not.toHaveProperty('group')
   })
 })

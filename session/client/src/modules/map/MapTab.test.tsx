@@ -150,3 +150,78 @@ describe('Map tab', () => {
     expect(useStore.getState().ui.labelsHidden).toBe(!false);
   });
 });
+
+describe('Map tab: light groups and rooms', () => {
+  const lamp = (id: string, x: number, over: Record<string, unknown> = {}) => ({
+    id,
+    childType: 'light',
+    name: id,
+    visible: true,
+    radius: 2,
+    featherRadius: 1,
+    intensity: 1,
+    color: '#ffffff',
+    falloff: 'quadratic',
+    position: { x, y: 1 },
+    ...over,
+  });
+  const square: [number, number][] = [
+    [0, 0],
+    [4, 0],
+    [4, 4],
+    [0, 4],
+  ];
+
+  beforeEach(() => {
+    useStore.setState({
+      layers: [
+        {
+          id: 'L',
+          type: 'dungeon',
+          levelId: 'lv1',
+          visible: true,
+          locked: false,
+          rooms: [{ id: 'hall', name: 'Great hall', anchor: [2, 2], face: square }],
+          children: [
+            lamp('s1', 1, { group: 'Hall sconces' }),
+            lamp('s2', 2, { group: 'Hall sconces', visible: false }),
+            lamp('far', 9, { group: 'Hall sconces' }),
+            lamp('void', 3, { darkness: true }),
+          ],
+        },
+      ] as never,
+      levels: [{ id: 'lv1', name: 'Ground' }],
+    });
+    act(() => useMapFamily.setState({ family: 'lights' }));
+  });
+
+  it('lists each group and each room that holds lights, with a count and a switch', () => {
+    render(<MapBody />);
+    const groups = within(screen.getByTestId('light-groups'));
+    expect(groups.getByText('Hall sconces')).toBeTruthy();
+    expect(groups.getByText('2 of 3 on')).toBeTruthy();
+    const rooms = within(screen.getByTestId('light-rooms'));
+    expect(rooms.getByText('Great hall')).toBeTruthy();
+    // The darkness source is not one of the room's lights.
+    expect(rooms.getByText('1 of 2 on')).toBeTruthy();
+  });
+
+  it('sends set-lights with the group`s ids, and the room`s with their group mates, darkness left out', () => {
+    // The group switch turns every mate on at once on this screen, so the room reads all on after it.
+    const sent = capture();
+    render(<MapBody />);
+    fireEvent.click(within(screen.getByTestId('light-groups')).getByRole('switch'));
+    fireEvent.click(within(screen.getByTestId('light-rooms')).getByRole('switch'));
+    expect(sent.map((m) => [m.action, m.payload])).toEqual([
+      ['set-lights', { ids: ['s1', 's2', 'far'], on: true }],
+      ['set-lights', { ids: ['s1', 's2', 'far'], on: false }],
+    ]);
+  });
+
+  it('says there are no groups, and hides Rooms, on a map without them', () => {
+    useStore.setState({ layers: [{ id: 'L', type: 'dungeon', visible: true, locked: false, rooms: [], children: [lamp('a', 1)] }] as never });
+    render(<MapBody />);
+    expect(screen.getByText('No groups. Group lights on their card in the editor.')).toBeTruthy();
+    expect(screen.queryByTestId('light-rooms')).toBeNull();
+  });
+});

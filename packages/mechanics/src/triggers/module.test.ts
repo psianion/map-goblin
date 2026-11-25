@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { RoomKey, TriggerDef } from '@dnd/core/src/shared/prep'
+import { shownLight } from '@dnd/core/src/shared/lightEmbers'
 import type { GameModule, Viewer } from '../contract'
 import type { RollResult } from '../dice/roll'
 import {
@@ -1393,6 +1394,65 @@ describe('set-lights-all', () => {
 
   it('needs a boolean', () => {
     expect(run(triggersModule(deps), empty, DM, 'set-lights-all', { on: 'yes' }).error?.code).toBe('invalid-command')
+  })
+})
+
+describe('set-lights', () => {
+  const deps = makeDeps({ lightIdsOf: () => ['a', 'b', 'c'] })
+
+  it('is dm-only', () => {
+    expect(run(triggersModule(deps), empty, P1, 'set-lights', { ids: ['a'], on: false }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+  })
+
+  it('switches the named lights only, keeping each edit’s other fields', () => {
+    const mod = triggersModule(deps)
+    let state = run(mod, empty, DM, 'set-light', { lightId: 'a', patch: { radius: 3 } }).next
+    state = run(mod, state, DM, 'set-lights', { ids: ['a', 'b'], on: false }).next
+    expect(sceneOf(state).lightEdits).toEqual({ a: { radius: 3, visible: false }, b: { visible: false } })
+  })
+
+  it('carries embers, and false puts a light back to full fire', () => {
+    const mod = triggersModule(deps)
+    let state = run(mod, empty, DM, 'set-lights', { ids: ['c'], on: true, embers: true }).next
+    expect(sceneOf(state).lightEdits.c).toEqual({ visible: true, embers: true })
+    // Off keeps the embers flag, so switching back on restores it.
+    state = run(mod, state, DM, 'set-lights', { ids: ['c'], on: false }).next
+    expect(sceneOf(state).lightEdits.c).toEqual({ visible: false, embers: true })
+    state = run(mod, state, DM, 'set-lights', { ids: ['c'], on: true, embers: false }).next
+    expect(sceneOf(state).lightEdits.c).toEqual({ visible: true, embers: false })
+  })
+
+  it('refuses the whole command for an id that is not a light of the scene', () => {
+    const { error, next } = run(triggersModule(deps), empty, DM, 'set-lights', { ids: ['a', 'ghost'], on: false })
+    expect(error?.code).toBe('invalid-command')
+    expect(next).toBe(empty)
+  })
+
+  it('fails closed without the map`s light list: only lights that already carry an edit', () => {
+    const mod = triggersModule(makeDeps())
+    expect(run(mod, empty, DM, 'set-lights', { ids: ['a'], on: false }).error?.code).toBe('invalid-command')
+    const state = run(mod, empty, DM, 'set-light', { lightId: 'a', patch: { radius: 3 } }).next
+    expect(sceneOf(run(mod, state, DM, 'set-lights', { ids: ['a'], on: false }).next).lightEdits.a).toEqual({ radius: 3, visible: false })
+  })
+
+  it('needs a list of ids and a boolean', () => {
+    const mod = triggersModule(deps)
+    expect(run(mod, empty, DM, 'set-lights', { ids: 'a', on: false }).error?.code).toBe('invalid-command')
+    expect(run(mod, empty, DM, 'set-lights', { ids: [], on: false }).error?.code).toBe('invalid-command')
+    expect(run(mod, empty, DM, 'set-lights', { ids: ['a'], on: 'yes' }).error?.code).toBe('invalid-command')
+  })
+})
+
+describe('effectiveLight with embers', () => {
+  it('carries the embers flag over the authored light, and core’s shownLight draws it low', () => {
+    const authored = { visible: true, radius: 9, featherRadius: 6, intensity: 1, color: '#ff8e3c', position: { x: 0, y: 0 } }
+    const live = effectiveLight(authored, { embers: true })
+    // The fields stay as authored: the child keeps them and the card reads them.
+    expect(live).toMatchObject({ radius: 9, featherRadius: 6, intensity: 1, color: '#ff8e3c', embers: true })
+    expect(shownLight(live)).toMatchObject({ radius: 3, featherRadius: 2, intensity: 0.6, color: '#d0451b' })
+    expect(shownLight(effectiveLight(authored, { embers: true, visible: false }))).toMatchObject({ radius: 9 })
   })
 })
 

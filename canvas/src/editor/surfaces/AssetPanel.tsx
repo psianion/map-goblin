@@ -16,6 +16,7 @@ import { undoManager } from '@/store/undoManager';
 import { createSwapPropCommand } from '@dnd/core/src/store/propEdits';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import { pickAssetForTool } from '@/editor/models/assetStrip';
+import { LightPropBadge } from '@/editor/families/objects/LightPropBadge';
 import { useShell } from '@/editor/shell/shellStore';
 import { ASSET_CHIPS, assetTiles, byPack, usedIds, type AssetChip } from './assetModel';
 
@@ -118,6 +119,7 @@ function AssetPanelBody({ chip }: { chip: AssetChip }) {
               {g.tiles.map((t) => (
                 <Tile key={t.key} name={t.name} title={t.name} data-asset={t.id} onClick={() => pick(t.id)}>
                   <PackThumbnailCanvas textureId={t.id} />
+                  {chip === 'props' ? <LightPropBadge assetId={t.id} /> : null}
                 </Tile>
               ))}
             </div>

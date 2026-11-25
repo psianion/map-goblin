@@ -19,8 +19,9 @@ import { hitTest } from '../tokens/drag';
 import { tokensOf } from '../tokens/TokenRenderer';
 import { isToolActive } from '../../session/tools';
 import { useAsPlayers } from '../fog/asPlayers';
-import { lightAt, lightById, patchLightLocal } from './lights';
+import { lightAt, lightById, lightPropAt, patchLightLocal, propToggle, sendSwitch, switchIdsOf } from './lights';
 import { useLightSelection } from './selection';
+import { notify } from '@dnd/ui/toast';
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('triggers', action, payload);
@@ -39,7 +40,33 @@ export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph):
   let dragId: string | null = null;
   let dragStart = { x: 0, y: 0 };
   let dragged = false;
+  /** The pressed light is fixed to a prop: a drag says so once and moves nothing. */
+  let fixed = false;
+  let told = false;
   let lastClick: { point: { x: number; y: number }; time: number } | null = null;
+  /** The last press on a light prop: its first click falls through, its second switches it. */
+  let lastPropClick: { point: { x: number; y: number }; time: number } | null = null;
+  /** Whether the pointer cursor over a light prop is this file's doing, so it only undoes its own. */
+  let pointing = false;
+
+  // Over a light prop the DM's cursor says it can be switched; a player's never changes (this
+  // overlay is only mounted on seats that see the Lights panel, and "As players" turns it off).
+  const onHover = (e: PointerEvent) => {
+    if (drag()) return;
+    const rect = canvas.getBoundingClientRect();
+    const over =
+      !isToolActive() &&
+      !useAsPlayers.getState().on &&
+      lightPropAt(useStore.getState().layers, engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top)) !== null;
+    if (over && !pointing) {
+      canvas.style.cursor = 'pointer';
+      pointing = true;
+    } else if (!over && pointing) {
+      canvas.style.cursor = '';
+      pointing = false;
+    }
+  };
+  const drag = (): boolean => dragId !== null;
 
   const onMove = (e: PointerEvent) => {
     if (!dragId) return;
@@ -47,6 +74,12 @@ export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph):
       dragged = true;
     }
     if (!dragged) return;
+    // A light fixed to a prop stays with it: the table moves no props, so it moves no fixed light.
+    if (fixed) {
+      if (!told) notify.info('This light is fixed to its prop');
+      told = true;
+      return;
+    }
     const rect = canvas.getBoundingClientRect();
     const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
     patchLightLocal(dragId, { position: world });
@@ -57,7 +90,7 @@ export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph):
     window.removeEventListener('pointerup', onUp);
     // One `set-light` for the whole drag (task spec), reading back wherever the live preview
     // above actually left it rather than recomputing from the last pointer event.
-    if (dragId && dragged) {
+    if (dragId && dragged && !fixed) {
       const light = lightById(useStore.getState().layers, dragId);
       if (light) send('set-light', { lightId: dragId, patch: { position: light.position } });
     }
@@ -74,7 +107,10 @@ export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph):
     const rect = canvas.getBoundingClientRect();
     const local = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const hit = lightAt(useStore.getState().layers, local);
-    if (!hit) return;
+    if (!hit) {
+      onPropPress(e, local);
+      return;
+    }
     // The table's rule: a token under the pointer wins over a light. Lights are the DM's
     // furniture; tokens are what people at the table click. The press falls through to
     // token input (`tokens/drag.ts`), which listens on the canvas after this.
@@ -97,21 +133,59 @@ export function mountLightsEditor(engine: RenderEngine, sceneGraph: SceneGraph):
     if (isDoubleClick(lastClick, world, now)) {
       lastClick = null;
       const visible = !hit.light.visible;
-      patchLightLocal(hit.light.id, { visible });
-      send('set-light', { lightId: hit.light.id, patch: { visible } });
+      if (hit.light.darkness) {
+        // A darkness source is not one of the table's lights to switch: its own edit, as before.
+        patchLightLocal(hit.light.id, { visible });
+        send('set-light', { lightId: hit.light.id, patch: { visible } });
+      } else {
+        // With its group, as one `set-lights`.
+        sendSwitch(switchIdsOf(useStore.getState().layers, [hit.light.id]), visible);
+      }
       return;
     }
     lastClick = { point: world, time: now };
     useLightSelection.getState().select(hit.light.id);
     dragId = hit.light.id;
+    fixed = !!hit.light.attachedTo;
+    told = false;
     dragStart = { x: e.clientX, y: e.clientY };
     dragged = false;
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   };
 
+  /**
+   * A press off every light icon, on a prop with lights attached: the first falls through (to a
+   * pan, a token, a door) and only arms the double-click; the second switches the prop's lights
+   * and their groups, one `set-lights`. A token under the pointer still wins.
+   */
+  function onPropPress(e: PointerEvent, local: { x: number; y: number }): void {
+    const world = engine.screenToWorld(local.x, local.y);
+    const prop = lightPropAt(useStore.getState().layers, world);
+    if (!prop) {
+      lastPropClick = null;
+      return;
+    }
+    const { session } = useSessionStore.getState();
+    if (hitTest(tokensOf(session?.modules.tokens as TokensState | undefined, session?.activeSceneId), world.x, world.y)) return;
+    const now = Date.now();
+    if (!isDoubleClick(lastPropClick, world, now)) {
+      lastPropClick = { point: world, time: now };
+      return;
+    }
+    lastPropClick = null;
+    const toggle = propToggle(useStore.getState().layers, prop.id);
+    if (!toggle) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    sendSwitch(toggle.ids, toggle.on);
+  }
+
   document.addEventListener('pointerdown', onDown, true);
+  canvas.addEventListener('pointermove', onHover);
   return () => {
+    canvas.removeEventListener('pointermove', onHover);
+    if (pointing) canvas.style.cursor = '';
     unsubAsPlayers();
     document.removeEventListener('pointerdown', onDown, true);
     window.removeEventListener('pointermove', onMove);

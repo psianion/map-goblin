@@ -22,7 +22,9 @@ import {
   UpdateChildCommand,
 } from './commands';
 import { followAsset, followCommands, lightsOn } from './attachedLights';
-import { familyKeyOf, getCatalogEntry, GRID_CELL_PX, nextAssetName, siblingOf } from '../assets/packCatalog';
+import { familyKeyOf, getCatalogEntry, GRID_CELL_PX, lightPropOf, nextAssetName, siblingOf } from '../assets/packCatalog';
+import { lightPreset, presetDefaults } from './lightPresets';
+import { lightStatePatch, startStateOf } from '../shared/propLights';
 import {
   effectiveContours,
   mapPoint,
@@ -141,15 +143,45 @@ function naturalCells(assetId: string): { w: number; h: number } | null {
 export function createPlacePropsCommand(
   layerId: string,
   children: AssetChild[],
-  opts: { under: boolean; label?: string },
+  opts: { under: boolean; label?: string; lights?: boolean },
 ): Command {
+  const lights = opts.lights ? children.flatMap((c) => lightForProp(c) ?? []) : [];
   const label = opts.label ?? (children.length === 1 ? 'Place prop' : 'Place props');
   const layer = dungeonLayers(useStore.getState().layers).find((l) => l.id === layerId);
   const at = opts.under && layer ? layer.children.findIndex((c) => c.childType === 'asset') : -1;
-  return one(
-    label,
-    children.map((c, k) => new AddChildCommand(label, layerId, c, at >= 0 ? at + k : undefined)),
-  );
+  return one(label, [
+    ...children.map((c, k) => new AddChildCommand(label, layerId, c, at >= 0 ? at + k : undefined)),
+    ...lights.map((l) => new AddChildCommand(label, layerId, l)),
+  ]);
+}
+
+/**
+ * The light a light prop comes with (its pack entry's `light`), or null for a prop that brings
+ * none: at the prop's centre and attached to it, with the preset's fields, named after the
+ * prop, and starting in the state of the picture placed (an unlit picture starts Off, a
+ * brazier's embers picture Embers, anything else On).
+ */
+export function lightForProp(prop: AssetChild): LightChild | null {
+  const light = lightPropOf(prop.assetId);
+  if (!light) return null;
+  const { color, radius, featherRadius, intensity, falloff, animation, darkness } = presetDefaults(lightPreset(light.preset));
+  const state = lightStatePatch(startStateOf(prop.assetId, light.states));
+  return {
+    id: crypto.randomUUID(),
+    name: prop.name,
+    childType: 'light',
+    color,
+    radius,
+    featherRadius,
+    intensity,
+    falloff,
+    position: { x: prop.position.x, y: prop.position.y },
+    attachedTo: prop.id,
+    ...(animation ? { animation } : {}),
+    ...(darkness ? { darkness } : {}),
+    visible: state.visible,
+    ...(state.embers ? { embers: true } : {}),
+  };
 }
 
 // ─── The one patch path ──────────────────────────────────

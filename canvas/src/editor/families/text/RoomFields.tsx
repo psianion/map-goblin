@@ -8,12 +8,15 @@ import { useStore } from '@/store/store';
 import type { MapBuilderStore } from '@/store/types';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { roomKeyOf } from '@dnd/core/src/shared/prep';
-import { Caption, ColourRow, InputRow, PlaceTiles, SecondaryButton, SelectRow, SettingRow, SliderRow } from '@dnd/ui';
+import { Caption, ColourRow, InputRow, PlaceTiles, SecondaryButton, Seg, SelectRow, SettingRow, SliderRow } from '@dnd/ui';
+import { lightsInRoom } from '@dnd/core/src/shared/lightSwitches';
+import { switchRoomCommand } from '@dnd/core/src/store/lightCommands';
+import { undoManager } from '@/store/undoManager';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { openAssets } from '@/editor/families/design/openAssets';
 import { chainOf, inheritedPlace, lookGesture, ownLook, resolvedLookOf, setLook, type LookTarget } from '@/editor/models/roomLook';
-import { FLOOR_KEYS, PLACE_KEYS, WALL_KEYS, keySummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
+import { FLOOR_KEYS, PLACE_KEYS, WALL_KEYS, keySummary, roomLightsSummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
 import { installedWallSets, wallSetLabel, wallSetThumb, wallWidthMin } from '@/editor/models/assetStrip';
 import { SwatchPicker } from '@/editor/SwatchPicker';
 import { shortTextureName } from '@/editor/models/selectionModel';
@@ -242,5 +245,40 @@ export function CountField({ def, value }: SettingProps<string>) {
         <SecondaryButton onClick={() => useStore.getState().setRoomsSheetOpen(true)}>Open list</SecondaryButton>
       </span>
     </SettingRow>
+  );
+}
+
+/* ── Lights ────────────────────────────────────────────── */
+
+/**
+ * The room's lights (`lightsInRoom`, darkness sources left out): how many and how many burn,
+ * and All on or All off as one step. Neither cell is chosen while the room is mixed. Hidden
+ * for a room with no lights.
+ */
+export function LightsField({ value: roomId }: SettingProps<string>) {
+  const lights = useStore(
+    useShallow((s: MapBuilderStore) => lightsInRoom({ layers: s.layers, levels: s.levels }, roomId).filter((l) => !l.darkness)),
+  );
+  if (lights.length === 0) return null;
+  const { label, state } = roomLightsSummary(lights);
+  const run = (on: boolean) => {
+    const cmd = switchRoomCommand(roomId, on);
+    if (cmd) undoManager.execute(cmd);
+  };
+  return (
+    <div className="mt-2.5 flex flex-col gap-px" data-testid="room-lights">
+      <Caption className="mb-1.5">Lights</Caption>
+      <SettingRow label={label}>
+        <Seg
+          aria-label="Switch the room's lights"
+          value={state === 'mixed' ? '' : state}
+          onValueChange={(v) => run(v === 'on')}
+          options={[
+            { value: 'on', label: 'All on' },
+            { value: 'off', label: 'All off' },
+          ]}
+        />
+      </SettingRow>
+    </div>
   );
 }

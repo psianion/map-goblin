@@ -627,6 +627,18 @@ describe('icons', () => {
     t.renderer.setIconsVisible(false);
     expect(iconCount(t.overlay)).toBe(0);
   });
+
+  it('keeps the excepted lights` icons while the rest are hidden, and brings all back', () => {
+    const t = table([light({ id: 'a' }), light({ id: 'b', position: { x: 30, y: 30 } })]);
+    expect(iconCount(t.overlay)).toBe(2);
+    t.renderer.setIconsVisible(false, ['b']);
+    t.frame();
+    const labels = () => t.overlay.children.map((c) => c.label).filter((l) => (l ?? '').startsWith('light-icon-'));
+    expect(labels()).toEqual(['light-icon-b']);
+    t.renderer.setIconsVisible(true);
+    t.frame();
+    expect(iconCount(t.overlay)).toBe(2);
+  });
 });
 
 describe('the export: renderInto takes a frame', () => {
@@ -777,5 +789,142 @@ describe('content only: the bare sheet is never lit', () => {
     expect(content.target).toMatchObject({ width: 4096, height: 3072, resolution: 0.5 });
     expect(t.passes.find((p) => p.label === 'paperRoot')!.target).toMatchObject({ width: 2048, height: 1536, resolution: 1 });
     expect(t.lastRoot('finalRoot').children!.at(-1)!.texture).toBe(live);
+  });
+});
+
+// ── Prop lights: work-count guards (plan "Speed budgets") ──────────────────
+
+describe('work-count guards: idle, flicker and moving cones', () => {
+  const FRAMES = 120;
+  const cone = { angle: 60, direction: 0 };
+  const spin = { kind: 'spin' as const, rpm: 6, clockwise: true };
+  const sweep = { kind: 'sweep' as const, from: 0, to: 90, degPerSec: 45 };
+
+  /** Runs `FRAMES` frames with the wall clock stepping a frame (16 ms) at a time. */
+  function run(t: ReturnType<typeof table>): void {
+    const start = Date.now();
+    for (let i = 1; i <= FRAMES; i++) {
+      vi.spyOn(Date, 'now').mockReturnValue(start + i * 16);
+      t.frame();
+    }
+    vi.restoreAllMocks();
+  }
+
+  it('static lights, no flicker, lit: no recomposite and no sweep over 120 idle frames', () => {
+    const t = table([light(), light({ id: 'cone', cone, position: { x: 30, y: 5 } })]);
+    const recomposites = t.renderer.stats.recomposites;
+    const passes = t.passes.length;
+    const sweeps = t.lights.stats.sweeps;
+    run(t);
+    expect(t.sprite().visible).toBe(true);
+    expect(t.renderer.stats.recomposites).toBe(recomposites);
+    expect(t.passes.length).toBe(passes);
+    expect(t.lights.stats.sweeps).toBe(sweeps);
+  });
+
+  it('negative control: a flickering light recomposites every frame (the counter can fail)', () => {
+    const t = table([light({ animation: { kind: 'flicker', speed: 1 } })]);
+    const recomposites = t.renderer.stats.recomposites;
+    run(t);
+    expect(t.renderer.stats.recomposites - recomposites).toBe(FRAMES);
+  });
+
+  it('a spinning cone recomposites every frame but is swept exactly once over 120 frames', () => {
+    const t = table([light({ id: 'spin', cone, motion: spin })]);
+    // `table()` drew two frames already: the one sweep happened there.
+    expect(t.lights.stats.sweeps).toBe(1);
+    const recomposites = t.renderer.stats.recomposites;
+    const wedge = t.find(t.lastRoot('lightRoot'), 'wedge-spin') as Node & { rotation: number };
+    const angles = new Set<number>();
+    const start = Date.now();
+    for (let i = 1; i <= FRAMES; i++) {
+      vi.spyOn(Date, 'now').mockReturnValue(start + i * 16);
+      t.frame();
+      angles.add(Math.round(wedge.rotation * 1000));
+    }
+    vi.restoreAllMocks();
+    expect(t.lights.stats.sweeps).toBe(1);
+    expect(t.renderer.stats.recomposites - recomposites).toBe(FRAMES);
+    // It turned: 6 rpm over ~2 s is about 70 degrees, a different angle nearly every frame.
+    expect(angles.size).toBeGreaterThan(FRAMES / 2);
+  });
+
+  it('four stacked spinning cones (a lighthouse) are swept once each, never per frame, and turn in step', () => {
+    const since = Date.now() / 1000;
+    const beams = [0, 90, 180, 270].map((direction, i) =>
+      light({ id: `beam${i}`, position: { x: 13, y: 15 }, cone: { angle: 60, direction }, motion: { ...spin, since } }),
+    );
+    const t = table(beams);
+    expect(t.lights.stats.sweeps).toBe(4);
+    const recomposites = t.renderer.stats.recomposites;
+    run(t);
+    expect(t.lights.stats.sweeps).toBe(4);
+    expect(t.renderer.stats.recomposites - recomposites).toBe(FRAMES);
+    // One clock: the wedges stay a quarter turn apart.
+    const turn = (i: number) => (t.find(t.lastRoot('lightRoot'), `wedge-beam${i}`) as Node & { rotation: number }).rotation;
+    for (let i = 1; i < 4; i++) {
+      const apart = (((turn(i) - turn(0)) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      expect(apart).toBeCloseTo((i * Math.PI) / 2, 5);
+    }
+  });
+
+  it('a sweeping cone is swept once too, and its wedge masks the full-circle pool', () => {
+    const t = table([light({ id: 'sweep', cone, motion: sweep })]);
+    run(t);
+    expect(t.lights.stats.sweeps).toBe(1);
+    const g = t.find(t.lastRoot('lightRoot'), 'light-sweep') as Node & { mask: unknown };
+    const wedge = t.find(t.lastRoot('lightRoot'), 'wedge-sweep');
+    expect(g.mask).toBe(wedge);
+    // Built once: turning it never rebuilds its geometry.
+    expect((wedge as Node).clears).toBe(1);
+  });
+
+  it('negative control: re-aiming a still cone does sweep again (the sweep counter can fail)', () => {
+    const t = table([light({ id: 'still', cone })]);
+    const sweeps = t.lights.stats.sweeps;
+    t.lights.syncFromStore([light({ id: 'still', cone: { angle: 60, direction: 90 } })]);
+    t.frame();
+    expect(t.lights.stats.sweeps).toBe(sweeps + 1);
+  });
+
+  it('a moving cone points where it would at t = 0 under a freeze, and is still', () => {
+    (globalThis as { __GG_FREEZE__?: { minutes: number } }).__GG_FREEZE__ = { minutes: 600 };
+    const t = table([light({ id: 'spin', cone: { angle: 60, direction: 45 }, motion: spin })]);
+    const wedge = t.find(t.lastRoot('lightRoot'), 'wedge-spin') as Node & { rotation: number };
+    expect(wedge.rotation).toBeCloseTo((45 * Math.PI) / 180);
+    const recomposites = t.renderer.stats.recomposites;
+    run(t);
+    expect(t.renderer.stats.recomposites).toBe(recomposites);
+  });
+
+  it('drops the wedge when the light stops moving', () => {
+    const t = table([light({ id: 'spin', cone, motion: spin })]);
+    t.lights.syncFromStore([light({ id: 'spin', cone })]);
+    t.frame();
+    const g = t.find(t.lastRoot('lightRoot'), 'light-spin') as Node & { mask: unknown };
+    expect(g.mask).toBeNull();
+    expect(t.find(t.lastRoot('lightRoot'), 'wedge-spin')).toBeUndefined();
+  });
+});
+
+describe('embers', () => {
+  it('lights with the embers values while on, and the authored ones again when back to On', () => {
+    const t = table([light({ id: 'b', embers: true, radius: 9, featherRadius: 6, intensity: 1 })]);
+    const shown = t.lights.getLights()[0]!;
+    expect(shown.radius).toBeCloseTo(3);
+    expect(shown.featherRadius).toBeCloseTo(2);
+    expect(shown.intensity).toBeCloseTo(0.6);
+    expect(shown.color).toBe('#d0451b');
+    t.lights.syncFromStore([light({ id: 'b', radius: 9, featherRadius: 6, intensity: 1 })]);
+    expect(t.lights.getLights()[0]!.radius).toBe(9);
+  });
+
+  it('keeps one object per stored light, so an unchanged embers light is not seen as changed', () => {
+    const stored = light({ id: 'b', embers: true });
+    const m = new LightManager();
+    m.syncFromStore([stored]);
+    const first = m.getLights()[0];
+    m.syncFromStore([stored]);
+    expect(m.getLights()[0]).toBe(first);
   });
 });

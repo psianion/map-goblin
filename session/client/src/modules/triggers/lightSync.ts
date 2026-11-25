@@ -53,10 +53,11 @@ export type EditableLight = Pick<
   | 'darkness'
   | 'darkvisionSees'
   | 'tableOn'
+  | 'embers'
 >;
 
 /** The optional light fields a live edit can touch beyond the original seven. */
-const EXTRA_KEYS = ['cone', 'animation', 'throughWalls', 'nightOnly', 'darkness', 'darkvisionSees'] as const;
+const EXTRA_KEYS = ['cone', 'animation', 'throughWalls', 'nightOnly', 'darkness', 'darkvisionSees', 'embers'] as const;
 
 const snapshotOf = (child: LightChild): EditableLight => ({
   visible: child.visible,
@@ -73,6 +74,7 @@ const snapshotOf = (child: LightChild): EditableLight => ({
   darkness: child.darkness,
   darkvisionSees: child.darkvisionSees,
   tableOn: child.tableOn,
+  embers: child.embers,
 });
 
 /** Deep enough for the small option objects (cone, animation, night window). */

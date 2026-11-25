@@ -25,3 +25,14 @@ export function groupBySection<D extends { section?: string }>(items: readonly D
   }
   return out;
 }
+
+/**
+ * The scrolling body of every 272 wide panel (the cards, the tool panels): never sideways. The
+ * scrollbar keeps its own gutter whether or not it shows, and every row composite fits the width
+ * left beside it, so a right-aligned readout stays whole. A fieldset (the mixed card groups its
+ * sections in them, to disable them while something is locked) is held to the body's width too:
+ * a browser gives it `min-inline-size: min-content`, so without `min-w-0` it grows to its 248 px
+ * rows and the body clips their right edge.
+ */
+export const PANEL_BODY =
+  'flex min-h-0 flex-col gap-2.5 overflow-x-hidden overflow-y-auto px-3 pt-2.5 pb-3 [scrollbar-gutter:stable] [&_[data-composite]]:max-w-full [&_fieldset]:min-w-0';

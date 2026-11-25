@@ -6,6 +6,7 @@ import { undoManager } from '@/store/undoManager';
 import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { dashSpine } from '@dnd/core/src/engine/wallNodeRenderer';
 import { setLightFields } from '@dnd/core/src/store/lightCommands';
+import { anchoredMotion, motionTime } from '@dnd/core/src/shared/lightMotion';
 import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { clampFt, toFt } from '@/editor/families/environment/lightModel';
 import { overlayLayers } from './roomOverlay';
@@ -38,8 +39,10 @@ function soleLight(s: Pick<MapBuilderStore, 'layers' | 'selection'>): { light: L
  *  - The selected light: its bright and dim rings in ink with a paper halo, a square handle
  *    on each ring's east point, and the distance each reads in feet beside it. A cone draws
  *    the lit arc of each ring solid and the rest dotted, the wedge's two edges, and a round
- *    direction handle on a stem past the dim ring. A darkness source is one dashed ring with
- *    one handle.
+ *    direction handle on a stem past the dim ring. A sweeping cone instead draws its rings
+ *    dotted, a hairline arc at the dim ring between its two edges, and a round handle on each
+ *    edge (Shift snaps to 15°, the angle beside it while dragged). A darkness source is one
+ *    dashed ring with one handle.
  *  - The Light tool in hand: faint dashed rings of the next light, following the pointer.
  *
  * Built like the prop overlay (propOverlay.ts): one root in the engine's screen-space overlay
@@ -60,6 +63,8 @@ const HANDLE_HALF = 4;
 const KNOB_R = 5;
 const STEM_FROM_PX = 6;
 const STEM_TO_PX = 30;
+/** A sweep edge snaps to this with Shift, degrees. */
+const SNAP_DEG = 15;
 /** A press this close to a handle (px) takes it. */
 const HIT_PX = 8;
 const ZOOM_SETTLE_MS = 140;
@@ -78,6 +83,8 @@ export interface LightOverlayRing {
   /** Degrees; null for a full circle. */
   cone: { angle: number; direction: number } | null;
   dark: boolean;
+  /** A sweeping cone's two edges, degrees; null for any other light. */
+  sweep?: { from: number; to: number } | null;
 }
 
 export interface LightOverlayModel {
@@ -96,6 +103,7 @@ function ringOf(light: LightChild): LightOverlayRing {
     dim: light.radius,
     cone: cone.angle >= 360 ? null : cone,
     dark: !!light.darkness,
+    sweep: cone.angle < 360 && light.motion?.kind === 'sweep' ? { from: light.motion.from, to: light.motion.to } : null,
   };
 }
 
@@ -125,7 +133,9 @@ function overlayKeys(s: MapBuilderStore): unknown[] {
 
 /** Where a ring handle or the direction knob sits, world units, at `zoom` px per unit. */
 export function handlePoints(r: LightOverlayRing, zoom: number) {
-  const knob = r.cone
+  // A sweep's two edges replace the direction knob.
+  const at = (deg: number) => ({ x: r.x + r.dim * Math.cos((deg * Math.PI) / 180), y: r.y + r.dim * Math.sin((deg * Math.PI) / 180) });
+  const knob = r.cone && !r.sweep
     ? (() => {
         const a = (r.cone.direction * Math.PI) / 180;
         const reach = r.dim + STEM_TO_PX / zoom;
@@ -136,16 +146,20 @@ export function handlePoints(r: LightOverlayRing, zoom: number) {
     bright: r.dark ? null : { x: r.x + r.bright, y: r.y },
     dim: { x: r.x + r.dim, y: r.y },
     knob,
+    from: r.sweep ? at(r.sweep.from) : null,
+    to: r.sweep ? at(r.sweep.to) : null,
   };
 }
 
-export type LightHandle = 'bright' | 'dim' | 'direction';
+export type LightHandle = 'bright' | 'dim' | 'direction' | 'from' | 'to';
 
 /** The handle under world point `p` for the selected ring, or null. */
 export function handleAt(r: LightOverlayRing, p: { x: number; y: number }, zoom: number): LightHandle | null {
   const h = handlePoints(r, zoom);
   const near = (q: { x: number; y: number } | null) => !!q && Math.hypot(q.x - p.x, q.y - p.y) * zoom <= HIT_PX;
   if (near(h.knob)) return 'direction';
+  if (near(h.to)) return 'to';
+  if (near(h.from)) return 'from';
   // Equal radii: the dim handle answers (it is drawn on top).
   if (near(h.dim)) return 'dim';
   if (near(h.bright)) return 'bright';
@@ -155,16 +169,27 @@ export function handleAt(r: LightOverlayRing, p: { x: number; y: number }, zoom:
 /**
  * The light fields a drag of `handle` to world point `p` writes, in feet steps for the
  * rings (bright never passes dim: either drags the other with it) and whole degrees for
- * the direction.
+ * the direction and a sweep's edges, which snap to 15° with Shift. Given `now` (the motion
+ * clock), a sweep edge is anchored there (`anchoredMotion`), so the beam goes on from where
+ * it is drawn instead of jumping as its edges move.
  */
 export function dragPatch(
   light: LightChild,
   handle: LightHandle,
   p: { x: number; y: number },
   ftPerCell: number,
+  snap = false,
+  now?: number,
 ): Partial<LightChild> {
   const dx = p.x - light.position.x;
   const dy = p.y - light.position.y;
+  if (handle === 'from' || handle === 'to') {
+    if (light.motion?.kind !== 'sweep') return {};
+    const raw = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const deg = snap ? Math.round(raw / SNAP_DEG) * SNAP_DEG : Math.round(raw);
+    const next = { ...light.motion, [handle]: ((deg % 360) + 360) % 360 };
+    return { motion: now === undefined ? next : anchoredMotion(light, next, now) };
+  }
   if (handle === 'direction') {
     const cone = coneOf(light);
     const deg = Math.round((Math.atan2(dy, dx) * 180) / Math.PI);
@@ -247,7 +272,11 @@ export function mountLightOverlay(engine: RenderEngine): LightOverlayHandle {
   const marks = new Container();
   const handles = new Graphics();
   const chips = [makeChip(), makeChip()];
-  marks.addChild(handles, chips[0].root, chips[1].root);
+  /** A sweep edge's angle, shown while that edge is dragged. */
+  const edgeChip = makeChip();
+  marks.addChild(handles, chips[0].root, chips[1].root, edgeChip.root);
+  /** The handle being dragged, if any (the drag itself is declared below). */
+  let dragging: LightHandle | null = null;
   root.addChild(lines, ghost, marks);
   engine.overlay().addChild(root);
   const stats: LightOverlayStats = { redraws: 0, ms: 0 };
@@ -286,8 +315,18 @@ export function mountLightOverlay(engine: RenderEngine): LightOverlayHandle {
     };
     square(h.bright);
     square(h.dim);
-    if (h.knob) {
-      handles.circle((h.knob.x - sel.x) * zoom, (h.knob.y - sel.y) * zoom, KNOB_R).fill({ color: 0xffffff }).stroke({ color: pal.ink, width: 1.3 });
+    for (const k of [h.knob, h.from, h.to]) {
+      if (k) handles.circle((k.x - sel.x) * zoom, (k.y - sel.y) * zoom, KNOB_R).fill({ color: 0xffffff }).stroke({ color: pal.ink, width: 1.3 });
+    }
+    // While a sweep edge is dragged, its angle beside it.
+    const edge = dragging === 'from' ? h.from : dragging === 'to' ? h.to : null;
+    edgeChip.root.visible = !!edge && !!sel.sweep;
+    if (edge && sel.sweep) {
+      edgeChip.text.text = `${Math.round(dragging === 'from' ? sel.sweep.from : sel.sweep.to)}°`;
+      const w = edgeChip.text.width + 12;
+      edgeChip.bg.clear().roundRect(0, 0, w, 18, 4).fill({ color: pal.paper, alpha: 0.94 }).stroke({ color: pal.ink, width: 1, alpha: 0.25 });
+      edgeChip.text.style.fill = pal.ink;
+      edgeChip.root.position.set((edge.x - sel.x) * zoom + 10, (edge.y - sel.y) * zoom - 24);
     }
     // The distances, beside each ring's handle.
     const ftPerCell = useStore.getState().mapSettings.cellScale.value || 5;
@@ -298,7 +337,7 @@ export function mountLightOverlay(engine: RenderEngine): LightOverlayHandle {
       if (!c.root.visible) return;
       c.text.text = `${toFt(r, ftPerCell)} ft`;
       const w = c.text.width + 12;
-      c.bg.clear().roundRect(0, 0, w, 18, 4).fill({ color: 0xffffff, alpha: 0.94 }).stroke({ color: pal.ink, width: 1, alpha: 0.25 });
+      c.bg.clear().roundRect(0, 0, w, 18, 4).fill({ color: pal.paper, alpha: 0.94 }).stroke({ color: pal.ink, width: 1, alpha: 0.25 });
       c.text.style.fill = pal.ink;
       c.root.position.set(r * zoom + 6, -30);
     });
@@ -325,6 +364,17 @@ export function mountLightOverlay(engine: RenderEngine): LightOverlayHandle {
         if (r <= 0) continue;
         inked(() => lines.circle(x, y, r), LINE_PX);
       }
+      return;
+    }
+    if (sel.sweep) {
+      // The cone moves: its rings dotted all round, and a hairline arc at the dim edge between
+      // the two edges it sweeps across (clockwise from From to To).
+      for (const r of [sel.bright, sel.dim]) {
+        if (r <= 0) continue;
+        inked(() => dashSpine(lines, arcPoints(x, y, r, 0, 360), 1.5 / zoom, 4 / zoom), THIN_PX, 0.55);
+      }
+      const span = (((sel.sweep.to - sel.sweep.from) % 360) + 360) % 360;
+      if (span > 0) inked(() => polyline(lines, arcPoints(x, y, sel.dim, sel.sweep!.from, sel.sweep!.from + span)), THIN_PX);
       return;
     }
     const a0 = sel.cone.direction - sel.cone.angle / 2;
@@ -439,7 +489,7 @@ export function mountLightOverlay(engine: RenderEngine): LightOverlayHandle {
     e.stopPropagation();
     const light = liveLight();
     if (!light) return;
-    const patch = dragPatch(light, drag.handle, worldAt(e), useStore.getState().mapSettings.cellScale.value || 5);
+    const patch = dragPatch(light, drag.handle, worldAt(e), useStore.getState().mapSettings.cellScale.value || 5, e.shiftKey, motionTime());
     for (const k of Object.keys(patch) as (keyof LightChild)[]) {
       if (!(k in drag.before)) (drag.before as Record<string, unknown>)[k] = structuredClone(light[k]);
     }
@@ -454,6 +504,8 @@ export function mountLightOverlay(engine: RenderEngine): LightOverlayHandle {
     window.removeEventListener('pointercancel', onCancel, true);
     const { before, layerId, id, handle } = drag;
     drag = null;
+    dragging = null;
+    dirty = true;
     const light = liveLight() ?? (() => {
       const layer = useStore.getState().layers.find((l) => l.id === layerId);
       const c = layer && layer.type === 'dungeon' ? layer.children.find((x) => x.id === id) : undefined;
@@ -465,7 +517,8 @@ export function mountLightOverlay(engine: RenderEngine): LightOverlayHandle {
     // The store shows the drag's end; put the start back and land the whole drag as one step.
     useStore.getState().updateChild(layerId, id, before as Partial<AnyChild>);
     if (e === null || JSON.stringify(after) === JSON.stringify(before)) return;
-    const cmd = setLightFields(id, after, before, handle === 'direction' ? 'Light direction' : handle === 'bright' ? 'Light bright' : 'Light dim');
+    const label = { direction: 'Light direction', bright: 'Light bright', dim: 'Light dim', from: 'Sweep edge', to: 'Sweep edge' }[handle];
+    const cmd = setLightFields(id, after, before, label);
     if (cmd) undoManager.execute(cmd);
   };
   const onUp = (e: PointerEvent): void => finish(e);
@@ -481,6 +534,7 @@ export function mountLightOverlay(engine: RenderEngine): LightOverlayHandle {
     const sole = soleLight(state);
     if (!sole) return false;
     drag = { handle, layerId: sole.layer.id, id: sole.light.id, before: {} };
+    dragging = handle;
     window.addEventListener('pointermove', onMove, true);
     window.addEventListener('pointerup', onUp, true);
     window.addEventListener('pointercancel', onCancel, true);

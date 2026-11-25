@@ -11,6 +11,8 @@ import { isLayerShown } from '../store/selectors';
 import { roomIndexOf } from '../shared/roomIndex';
 import { roomBadgePoints } from '../shared/roomUtils';
 import { inFrame, inRingsEvenOdd, lockedFrame } from '../shared/pieces';
+import { marqueeTabKinds } from './marqueeFilter';
+import type { SelectionKind } from '../store/selectionResolve';
 
 /**
  * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
@@ -141,6 +143,8 @@ export interface PickOptions {
   includeLocked?: boolean;
   includeLockedObjects?: boolean;
   skipOverhead?: boolean;
+  /** Lights whose icons are hidden answer too (`setLightPicking` ignored): the "Pick from here" list. */
+  allLights?: boolean;
 }
 
 /** How near a thin path a click must land to pick it, in cells. */
@@ -201,7 +205,7 @@ function* childHits(
         if (pointInAsset(child, point)) yield child;
         break;
       case 'light':
-        if (pointInLight(child, point, opts?.zoom)) yield child;
+        if ((opts?.allLights || lightPicking(child)) && pointInLight(child, point, opts?.zoom)) yield child;
         break;
       case 'door': {
         if (doorPositions === null) {
@@ -444,6 +448,22 @@ export function roomPickingEnabled(): boolean {
   return roomPicking();
 }
 
+let lightPicking: (light: LightChild) => boolean = () => true;
+
+/**
+ * Which lights a click, a hover or a marquee can take. A host that hides light icons (the
+ * editor's View > Light icons) leaves out the lights it does not draw, so no click target is
+ * left where nothing shows. Every light by default, as the table has it.
+ */
+export function setLightPicking(rule: ((light: LightChild) => boolean) | null): void {
+  lightPicking = rule ?? (() => true);
+}
+
+/** Whether `light` can be picked now (`setLightPicking`). */
+export function lightPickable(light: LightChild): boolean {
+  return lightPicking(light);
+}
+
 /** The room whose badge sits under `point` at `zoom` (screen px per world unit), or null. */
 export function roomBadgeAt(layer: DungeonLayer, point: [number, number], zoom: number): Room | null {
   const rooms = layer.rooms;
@@ -581,7 +601,11 @@ export function pickInLayer(
  * layer (unless the DM is looking under them, `ui.seeUnderOverhead`, when they do not
  * answer at all), then each shown, unlocked layer from the top, in `pickInLayer` order.
  */
+/** How many times the stack under a point has been walked: a work counter for tests (hover walks it once a move). */
+export const pickStats = { walks: 0 };
+
 function* stackHits(layers: DungeonLayer[], point: [number, number], opts?: PickOptions & { rooms?: boolean }): Generator<PickHit> {
+  pickStats.walks++;
   const state = useStore.getState();
   const open = layers.filter((l) => isLayerShown(state, l) && !l.locked);
   if (!state.ui.seeUnderOverhead && !opts?.skipOverhead) {
@@ -642,6 +666,59 @@ export function pickStackAtPoint(point: [number, number], opts: { zoom: number }
   if (offSizedMap(state, point)) return [];
   const layers = state.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
   return pickStackAt(layers, point, { zoom: opts.zoom, includeLockedObjects: true });
+}
+
+/** One object under the pointer in the "Pick from here" list. */
+export interface StackEntry {
+  hit: PickHit;
+  /** A light whose icon is hidden (View > Light icons off): listed, though a click passes it by. */
+  hidden: boolean;
+}
+
+/** The kind a pick is, as the Pick only filter names kinds. */
+export function pickKindOf(hit: PickHit): SelectionKind {
+  return hit.kind === 'child' ? hit.child.childType : hit.kind;
+}
+
+/**
+ * Everything under `point` a DM can pick, topmost first, each once: what a click could take and
+ * the lights whose icons are hidden, each flagged. The Select panel's Pick only filter
+ * (`ui.marqueeFilter`, `marqueeTabKinds`) keeps it to its kinds; Lights takes hidden lights too.
+ * What right-click's "Pick from here", a second click on the same spot and the hover count read.
+ */
+export function pickHereAt(point: [number, number], opts: { zoom: number }): StackEntry[] {
+  return keepPickOnly(pickStackHere(point, opts));
+}
+
+/**
+ * Everything under `point`, topmost first, hidden lights flagged, before the Pick only filter.
+ * Its first entry that is not hidden is `pickAt`'s answer, so a hover can take both the pick
+ * and the count from one walk.
+ */
+export function pickStackHere(point: [number, number], opts: { zoom: number }): StackEntry[] {
+  const state = useStore.getState();
+  if (offSizedMap(state, point)) return [];
+  const layers = state.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
+  return pickStackAt(layers, point, { zoom: opts.zoom, includeLockedObjects: true, allLights: true }).map((hit) => ({
+    hit,
+    hidden: hit.kind === 'child' && hit.child.childType === 'light' && !lightPicking(hit.child),
+  }));
+}
+
+/** `entries` kept to the Select panel's Pick only kinds (`ui.marqueeFilter`), or all of them with it off. */
+export function keepPickOnly(entries: readonly StackEntry[]): StackEntry[] {
+  const kinds = useStore.getState().ui.marqueeFilter === 'tab' ? marqueeTabKinds() : null;
+  return kinds ? entries.filter((e) => kinds.includes(pickKindOf(e.hit))) : [...entries];
+}
+
+/**
+ * How many objects the hover hint counts in a pick list: with Pick only off, the things that
+ * stand on the map (rooms, floors and plateaus left out, since nearly every point has those);
+ * with it on, every entry the filter let through.
+ */
+export function crowdCount(entries: readonly StackEntry[], filtered: boolean): number {
+  if (filtered) return entries.length;
+  return entries.filter(({ hit }) => hit.kind !== 'room' && !(hit.kind === 'child' && (hit.child.childType === 'shape' || hit.child.childType === 'plateau'))).length;
 }
 
 /** On a sized map nothing past the frame is drawn, so nothing there is picked. */

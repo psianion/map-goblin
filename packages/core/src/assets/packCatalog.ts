@@ -10,6 +10,8 @@
 import { getAssetPackManager } from '../engine/assetPackInstance';
 import { setBandSetTest } from '../shared/wallLook';
 import type { EntryRect } from '../engine/assetPackManager';
+import type { LightPresetId } from '../store/lightPresets';
+import type { LightStates } from '../shared/propLights';
 
 /** Grid cell size in pixels (200px per cell at the pack-standard 200ppi). */
 export const GRID_CELL_PX = 200;
@@ -36,6 +38,18 @@ export interface CatalogEntry {
   tags: string[];
   /** Variant family within `set` (written by the pack build); absent = a family of one. */
   family?: string;
+  /**
+   * A light prop (written by the pack build): the preset its light takes and, when its picture
+   * follows the light, its pictures by state as full asset ids. Absent = no light.
+   */
+  light?: { preset: LightPresetId; states?: LightStates };
+}
+
+/** A manifest's state keys as full asset ids in `packId`. */
+function qualifyStates(packId: string, states: LightStates): LightStates {
+  const out: LightStates = {};
+  for (const s of ['off', 'embers', 'on'] as const) if (states[s]) out[s] = `${packId}:${states[s]}`;
+  return out;
 }
 
 interface CatalogState {
@@ -89,6 +103,7 @@ function build(): CatalogState {
         label: e.material.replace(/_/g, ' '),
         tags: e.tags,
         family: e.family,
+        ...(e.light ? { light: { preset: e.light.preset, ...(e.light.states ? { states: qualifyStates(packId, e.light.states) } : {}) } } : {}),
       };
       byId.set(entry.id, entry);
       if (!byLocalId.has(entryId)) byLocalId.set(entryId, entry.id);
@@ -181,6 +196,37 @@ function current(): CatalogState {
 
 export function getCatalogEntry(id: string): CatalogEntry | undefined {
   return current().byId.get(id);
+}
+
+/**
+ * `id`'s variants: its family, except that a light prop whose picture follows its light counts
+ * models, not pictures. The members that are one prop's states (a brazier's Off, Embers and On)
+ * fold into one, in the state `id` shows: `light_brazier_1_c` gives braziers 1, 2 and 3, lit.
+ */
+export function familyVariants(id: string): CatalogEntry[] {
+  const members = familyMembers(id);
+  const states = current().byId.get(id)?.light?.states;
+  if (!states) return members;
+  const state = (['off', 'embers', 'on'] as const).find((s) => states[s] === id) ?? 'on';
+  const out: CatalogEntry[] = [];
+  const seen = new Set<string>();
+  for (const m of members) {
+    const own = m.light?.states;
+    if (!own) {
+      out.push(m);
+      continue;
+    }
+    const key = own.on ?? own.off ?? m.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(current().byId.get(own[state] ?? own.on ?? m.id) ?? m);
+  }
+  return out;
+}
+
+/** The light a prop brings (its pack entry's `light`), or undefined for a prop that brings none. */
+export function lightPropOf(assetId: string): CatalogEntry['light'] {
+  return current().byId.get(assetId)?.light;
 }
 
 function escapeRegExp(s: string): string {
