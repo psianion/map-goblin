@@ -7,7 +7,7 @@
 
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import type { Role } from '@dnd/core/src/shared/protocol'
-import type { PassStore, SessionRow, SessionStore } from './db/stores'
+import type { Identity, PassStore, SessionRow, SessionStore, Stores } from './db/stores'
 
 export interface TokenClaims {
   identityId: string
@@ -28,8 +28,8 @@ export interface TokenClaims {
   exp: number
 }
 
-/** A player's token: long enough that a weekly game does not re-issue mid-campaign, short enough to matter. */
-export const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/** A player's token: a month, renewed through `POST /api/seat/refresh` when the player comes back through the join page. */
+export const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
  * A DM's token (decision 12): a month, refreshed on use through `POST .../dm-token/refresh`,
@@ -82,6 +82,33 @@ export function verifyToken(secret: string, token: string | null | undefined): T
   if (sessionId !== undefined && typeof sessionId !== 'string') return null
   if (typeof exp !== 'number' || exp <= Date.now()) return null
   return { identityId, campaignId, role, ...(sessionId === undefined ? {} : { sessionId }), exp }
+}
+
+/**
+ * The seat a token names, only while it still means anything: an identity that has been
+ * banned, or a session that has ended, gets nothing no matter how well signed its token is.
+ * The WS upgrade and `POST /api/seat/refresh` both ask this, so they never disagree.
+ */
+export function checkSeat(
+  secret: string,
+  stores: Stores,
+  token: string | null | undefined,
+): { claims: TokenClaims; identity: Identity; session: SessionRow } | null {
+  const claims = verifyToken(secret, token)
+  if (!claims) return null
+
+  const identity = stores.identities.get(claims.identityId)
+  if (!identity || identity.banned === 1) return null
+
+  // A session-bound token opens that session or nothing — ending it, or replacing it with
+  // a new one under a fresh invite code, is what makes the token stop working. An unbound
+  // (DM) token still means "whatever table this campaign is running".
+  const session = claims.sessionId
+    ? stores.sessions.get(claims.sessionId)
+    : stores.sessions.getActiveByCampaign(claims.campaignId)
+  if (!session || session.active !== 1 || session.campaign_id !== claims.campaignId) return null
+
+  return { claims, identity, session }
 }
 
 const sign = (secret: string, payload: string): string =>

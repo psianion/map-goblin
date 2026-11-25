@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { endpoints } from '../endpoints';
-import { createCampaignAsDm, joinAsPlayer, startSession, uploadMapFile } from './auth';
+import { createCampaignAsDm, joinAsPlayer, renewSeat, startSession, uploadMapFile } from './auth';
 
 /** One stub fetch, told what to answer with. */
 function answer(status: number, body: unknown) {
@@ -72,6 +72,34 @@ describe('joinAsPlayer', () => {
     expect(url).toBe(`${endpoints.httpBase}/api/join`);
     expect(init.body).toBe(JSON.stringify({ code: 'ABC234', name: 'Borin' }));
     expect(init.headers).not.toHaveProperty('Authorization');
+  });
+});
+
+describe('renewSeat', () => {
+  it('posts the token and hands back a fresh one', async () => {
+    const fetchMock = answer(200, { token: 'fresh-token', exp: 1234 });
+
+    expect(await renewSeat('old-token')).toEqual({ token: 'fresh-token', exp: 1234 });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${endpoints.httpBase}/api/seat/refresh`);
+    expect(init.method).toBe('POST');
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer old-token' });
+  });
+
+  it('says refused when the server will not take the seat again', async () => {
+    answer(401, { error: 'seat refused' });
+    expect(await renewSeat('old-token')).toBe('refused');
+    answer(403, { error: 'banned' });
+    expect(await renewSeat('old-token')).toBe('refused');
+  });
+
+  it('says unreachable when there is no answer, or any other one', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) as unknown as typeof fetch;
+    expect(await renewSeat('old-token')).toBe('unreachable');
+    answer(500, {});
+    expect(await renewSeat('old-token')).toBe('unreachable');
+    answer(429, {});
+    expect(await renewSeat('old-token')).toBe('unreachable');
   });
 });
 

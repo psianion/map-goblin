@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FloatBox, Input, PrimaryButton, SecondaryButton } from '@dnd/ui';
 import { navigate } from '../router';
-import { joinAsPlayer, resolveInviteCode } from '../session/auth';
+import { UNREACHABLE, joinAsPlayer, renewSeat, resolveInviteCode } from '../session/auth';
 import { prepareTableForJoin } from '../session/prepareTableForJoin';
 import { rememberSeat, rememberedSeat, type RememberedSeat } from '../session/seatMemory';
 import { useSessionStore } from '../session/store';
@@ -42,22 +42,26 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
 
   /**
    * Into the table. `again`: the remembered seat. The same session takes the seat back as it
-   * was; a new session joins under the remembered name, which the server answers by handing
-   * back the token that name held.
+   * was, on a fresh token; a seat the server refuses, or a new session, joins under the
+   * remembered name, which the server answers by handing back the token that name held.
    */
   const join = async (again?: RememberedSeat) => {
     setBusy(true);
     setError(null);
     try {
       const sameSeat = again && table && again.sessionId === table.sessionId ? again : null;
-      const player = sameSeat
-        ? { token: sameSeat.token, identityId: sameSeat.identityId, campaignId: table!.campaignId, sessionId: sameSeat.sessionId }
-        : await joinAsPlayer(code.trim(), (again?.name ?? name).trim());
+      const renewed = sameSeat && (await renewSeat(sameSeat.token));
+      if (renewed === 'unreachable') throw new Error(UNREACHABLE);
+      const player =
+        sameSeat && renewed && renewed !== 'refused'
+          ? { token: renewed.token, identityId: sameSeat.identityId, campaignId: table!.campaignId, sessionId: sameSeat.sessionId }
+          : await joinAsPlayer(code.trim(), (again?.name ?? name).trim());
       rememberSeat(player.campaignId, {
         name: (again?.name ?? name).trim(),
         identityId: player.identityId,
         token: player.token,
         sessionId: player.sessionId,
+        code: code.trim(),
       });
       useSessionStore.getState().connect(player.token);
       setPreparing(true);

@@ -28,6 +28,17 @@ export function tokenExp(token: string): number | null {
   }
 }
 
+/** Whose seat a token is, read off its JSON half the same way; null if it does not read as one. */
+export function tokenSeat(token: string): { role: string; campaignId: string } | null {
+  try {
+    const payload = token.split('.')[0]!.replace(/-/g, '+').replace(/_/g, '/');
+    const { role, campaignId } = JSON.parse(atob(payload)) as { role?: unknown; campaignId?: unknown };
+    return typeof role === 'string' && typeof campaignId === 'string' ? { role, campaignId } : null;
+  } catch {
+    return null;
+  }
+}
+
 function readIndex(): StoredCampaign[] {
   try {
     const raw = JSON.parse(localStorage.getItem(INDEX_KEY) ?? '[]') as unknown;

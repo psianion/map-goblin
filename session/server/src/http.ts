@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isIP, type Socket } from 'node:net'
 import {
   DM_TOKEN_TTL_MS,
+  checkSeat,
   isAdminPass,
   issueToken,
   resolveInviteCode,
@@ -118,6 +119,7 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
     return refreshDmToken(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token' && !sub2)
     return mintDmToken(deps, req, res, id)
+  if (method === 'POST' && resource === 'seat' && id === 'refresh' && !sub) return refreshSeat(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'handoff' && !sub2)
     return mintHandoff(deps, req, res, id)
   if (method === 'POST' && resource === 'handoff' && id === 'redeem' && !sub) return redeemHandoff(deps, req, res)
@@ -237,6 +239,20 @@ function refreshDmToken(deps: RouteDeps, req: IncomingMessage, res: ServerRespon
   if (!dm) return
   const token = issueToken(deps.hmacSecret, dm.id, campaignId, 'dm')
   json(res, 200, { token, campaignId, exp: verifyToken(deps.hmacSecret, token)?.exp })
+}
+
+/**
+ * POST /api/seat/refresh — a token the socket would still take in, a fresh one for the
+ * same seat out. The join page calls it when a player comes back, so a weekly game never
+ * runs out; the table calls it when its socket will not open, and stops retrying a seat
+ * refused here. Bound stays bound to the same session, an unbound DM token stays unbound.
+ */
+function refreshSeat(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): void {
+  const seat = checkSeat(deps.hmacSecret, deps.stores, credential(req))
+  if (!seat) return json(res, 401, { error: 'seat refused' })
+  const { identityId, campaignId, role, sessionId } = seat.claims
+  const token = issueToken(deps.hmacSecret, identityId, campaignId, role, sessionId)
+  json(res, 200, { token, exp: verifyToken(deps.hmacSecret, token)?.exp })
 }
 
 /** Where players and the DM reach the table; the bot's invite links read the same setting. */
@@ -1086,7 +1102,7 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
     campaignId: session.campaign_id,
     sessionId: session.id,
     // Bound to *this* session: the invite got them into this table, not into every table
-    // the campaign runs for the next seven days.
+    // the campaign runs for the next month.
     token: issueToken(deps.hmacSecret, identity.id, session.campaign_id, 'player', session.id),
   })
 }
