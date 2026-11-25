@@ -2,11 +2,15 @@
 //
 // Not jsdom: vitest's jsdom env leaves Node's (undici) WebSocket as the global
 // while replacing globalThis.Event, so undici dispatches a jsdom Event into a
-// Node EventTarget and throws. Node 22's WebSocket is the same WHATWG API this
-// client uses in the browser, so the node env tests the real thing.
+// Node EventTarget and throws.
+//
+// The client runs on the `ws` client rather than Node's built-in WebSocket: on a
+// refused handshake Node 22's (undici 6) fires error, stays CONNECTING and never
+// fires close, while browsers and Node 24 fire error then close. `ws` does the
+// browser thing on every Node.
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { WebSocketServer } from 'ws';
+import { WebSocket as WsClient, WebSocketServer } from 'ws';
 import type { WebSocket as WsSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
@@ -71,6 +75,22 @@ function startServer() {
   };
 }
 
+class BrowserLikeWebSocket extends WsClient {
+  constructor(url: string) {
+    super(url);
+    // A browser ignores an unhandled error event; ws's EventEmitter would throw it.
+    this.on('error', () => {});
+  }
+}
+
+const nodeWebSocket = globalThis.WebSocket;
+beforeAll(() => {
+  globalThis.WebSocket = BrowserLikeWebSocket as unknown as typeof WebSocket;
+});
+afterAll(() => {
+  globalThis.WebSocket = nodeWebSocket;
+});
+
 let server: ReturnType<typeof startServer> | null = null;
 
 afterEach(async () => {
@@ -106,8 +126,7 @@ describe('a seat the server refuses', () => {
     client.connect();
 
     await vi.waitFor(() => expect(onRefused).toHaveBeenCalledTimes(1));
-    // Node's WebSocket sends a refused handshake twice by itself, so count from the refusal:
-    // the retry would have landed inside 500ms, and none does.
+    // Count from the refusal: the retry would have landed inside 500ms, and none does.
     const asked = server.attempts();
     await wait(900);
     expect(server.attempts()).toBe(asked);
@@ -165,6 +184,36 @@ describe('a seat the server refuses', () => {
     const asked = server.attempts();
     await wait(900);
     expect(server.attempts()).toBe(asked);
+  });
+
+  it('does not close a still-connecting socket on error, which would fire error again', () => {
+    // Closing a CONNECTING socket fails it and fires error again, the way Node 22 does.
+    const sockets: FakeSocket[] = [];
+    class FakeSocket {
+      static OPEN = 1;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor() {
+        sockets.push(this);
+      }
+      close() {
+        this.onerror?.();
+      }
+    }
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    try {
+      client = new WebSocketClient({ token: 'tok-err', url: 'ws://x' });
+      client.connect();
+      const socket = sockets[0]!;
+      expect(() => socket.onerror?.()).not.toThrow();
+      socket.onclose?.();
+      expect(client.status).toBe('reconnecting');
+    } finally {
+      globalThis.WebSocket = BrowserLikeWebSocket as unknown as typeof WebSocket;
+    }
   });
 });
 

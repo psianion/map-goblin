@@ -101,7 +101,7 @@ export class WebSocketClient {
       this.#startPing();
     };
     ws.onmessage = (ev: MessageEvent) => this.#receive(ev.data);
-    ws.onerror = () => ws.close(); // onclose does the retrying
+    // No onerror: browsers always follow error with close, and onclose does the retrying.
     ws.onclose = () => {
       if (this.#ws !== ws) return; // superseded by close()/reconnect
       this.#ws = null;
