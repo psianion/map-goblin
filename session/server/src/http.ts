@@ -22,7 +22,7 @@ import {
 import { createHandoffStore, type HandoffStore } from './handoff'
 import { writeCampaignExport } from './export'
 import { slug, type Mirror } from './mirror'
-import { fillTokenDefaults, reattachPc, spawnParty } from './party'
+import { fillTokenDefaults, reattachPc, storePartyStart } from './party'
 import { PROTOCOL_VERSION } from './config'
 import {
   MAX_ASSET_BYTES,
@@ -34,6 +34,7 @@ import {
 } from './db/stores'
 import type { TriggerDeps } from '@dnd/mechanics/triggers'
 import type { Vision } from './fog/vision'
+import { roomAnchor } from './fog/sceneMap'
 import { parseMapFile, unwrapMapFile } from './mapImport'
 import type { ScenePrep, StoredScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
 // D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
@@ -1202,19 +1203,15 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
         broadcast: () => {},
       })
     }
-    // Decision 16: the party stands in the starting room before anyone is in the door.
-    spawnParty(deps.modules, deps.vision, {
-      campaignId,
-      sessionId: session.id,
-      sceneId: start.sceneId,
-      roomId: start.roomId,
-      dmId: dm.id,
-      levelId,
-    })
+    // Table lobby pass: the starting room is where the party appears when the DM starts the table.
+    const room = deps.vision.sceneMapOf(start.sceneId)?.rooms.find((r) => r.id === start!.roomId)
+    if (room) {
+      storePartyStart(deps.modules, { campaignId, sessionId: session.id, sceneId: start.sceneId, centre: roomAnchor(room), levelId, dmId: dm.id })
+    }
   }
 
-  // Table fix pass F18: a start at a point (the party start, or the centre of the map). The
-  // party stands there, fanned out on standable cells.
+  // Table fix pass F18: a start at a point (the party start, or the centre of the map), stored
+  // as the party start area like a starting room.
   if (point) {
     const ctx = {
       campaignId,
@@ -1228,14 +1225,7 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
     const levels = map?.data.levels ?? []
     const levelId = levels.length > 1 && levels.some((l) => l.id === point!.levelId) ? point.levelId : undefined
     if (levelId) deps.modules.dispatch('triggers', 'set-start-level', { sceneId: point.sceneId, levelId }, ctx)
-    spawnParty(deps.modules, deps.vision, {
-      campaignId,
-      sessionId: session.id,
-      sceneId: point.sceneId,
-      point: { x: point.x, y: point.y },
-      dmId: dm.id,
-      levelId,
-    })
+    storePartyStart(deps.modules, { campaignId, sessionId: session.id, sceneId: point.sceneId, centre: point, levelId, dmId: dm.id })
   }
 
   json(res, 201, {

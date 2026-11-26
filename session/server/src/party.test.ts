@@ -1,13 +1,16 @@
-// Decision 16 over a real server: the party's PC tokens stand in the starting room when the
-// table opens, a returning player gets their PC back by name, players upload their own art
+// Decision 16 over a real server: the party's PC tokens stand in the party start area when the
+// DM starts the table, a returning player gets their PC back by name, players upload their own art
 // within the 2 MB cap, and token defs from before table v2 read with its defaults.
 
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { once } from 'node:events'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { WebSocket } from 'ws'
 import type { TokenDef, TokensState } from '@dnd/mechanics/tokens'
 import { createAdminPass } from './auth'
+import { PROTOCOL_VERSION } from './config'
 import { MAX_ASSET_BYTES } from './db/stores'
 import { startServer, type RunningServer } from './index'
 import { fillTokenDefaults } from './party'
@@ -76,44 +79,119 @@ async function call(
 const tokensOf = (server: RunningServer, campaignId: string) =>
   server.stores.moduleState.get(campaignId, 'tokens') as TokensState
 
-describe('PC tokens at session start', () => {
-  it('places every PC def in the starting room, and nothing for NPCs', async () => {
-    await withScene(async ({ server, base, campaignId, dmToken, sceneId }) => {
-      server.stores.moduleState.put(campaignId, 'tokens', {
-        library: {
-          bram: { ...oldDef('bram', 'Bram'), kind: 'pc', ownerIdentityId: 'seat-bram', ownerName: 'Bram' },
-          ysolde: { ...oldDef('ysolde', 'Ysolde'), kind: 'pc' },
-          goblin: oldDef('goblin', 'Goblin'),
-        },
-        byScene: {},
-      })
+/** A joined socket, its frames, a wait on a condition, and a command sender. */
+async function seat(port: number, token: string) {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/?token=${token}`)
+  const frames: Record<string, unknown>[] = []
+  socket.on('message', (raw: Buffer) => frames.push(JSON.parse(raw.toString()) as Record<string, unknown>))
+  await once(socket, 'open')
+  socket.send(JSON.stringify({ type: 'join', protocolVersion: PROTOCOL_VERSION }))
+  const until = async (done: () => boolean, ms = 3000): Promise<void> => {
+    const end = Date.now() + ms
+    while (!done()) {
+      if (Date.now() > end) throw new Error('timed out')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+  }
+  await until(() => frames.some((m) => m.type === 'session-state'))
+  const you = frames.find((m) => m.type === 'session-state')!.you as { identityId: string }
+  const command = (module: string, action: string, payload: unknown) =>
+    socket.send(JSON.stringify({ type: 'command', module, action, payload, seq: 1 }))
+  return { socket, frames, until, command, identityId: you.identityId }
+}
 
-      const opened = await call(base, 'POST', '/api/sessions', {
-        token: dmToken,
-        body: { campaignId, startingRoom: { sceneId, roomId: 'west' } },
-      })
-      expect(opened.status).toBe(201)
+describe('the party at Start (table lobby pass §3.5)', () => {
+  const library = {
+    bram: { ...oldDef('bram', 'Bram'), kind: 'pc' as const },
+    ysolde: { ...oldDef('ysolde', 'Ysolde'), kind: 'pc' as const },
+    cora: { ...oldDef('cora', 'Cora'), kind: 'pc' as const },
+    goblin: oldDef('goblin', 'Goblin'),
+  }
 
-      const placed = Object.values(tokensOf(server, campaignId).byScene[sceneId] ?? {})
-      expect(placed.map((t) => t.defId).sort()).toEqual(['bram', 'ysolde'])
-      expect(new Set(placed.map((t) => `${t.x},${t.y}`)).size).toBe(2)
-      // In the West Hall, not the East Vault (the rooms' centres are 12 cells apart).
-      for (const token of placed) expect(Math.abs(token.x - 5) + Math.abs(token.y - 5)).toBeLessThan(6)
-      expect(placed.find((t) => t.defId === 'bram')).toMatchObject({ kind: 'pc', ownerId: 'seat-bram' })
+  /** Opens the table on the West Hall, seats the DM and a player per name, each picking that PC. */
+  async function lobby(fixture: Fixture, picks: Record<string, string>) {
+    const { server, base, campaignId, dmToken, sceneId } = fixture
+    server.stores.moduleState.put(campaignId, 'tokens', { library, byScene: {} })
+    const opened = await call(base, 'POST', '/api/sessions', {
+      token: dmToken,
+      body: { campaignId, startingRoom: { sceneId, roomId: 'west' } },
+    })
+    expect(opened.status).toBe(201)
+    const dm = await seat(server.port, dmToken)
+    const players: Record<string, Awaited<ReturnType<typeof seat>>> = {}
+    for (const [name, defId] of Object.entries(picks)) {
+      const joined = await call(base, 'POST', '/api/join', { body: { code: opened.body.inviteCode, name } })
+      players[name] = await seat(server.port, joined.body.token as string)
+      players[name].command('tokens', 'pc-claim', { defId })
+      await dm.until(() => !!tokensOf(server, campaignId).library[defId]!.ownerIdentityId)
+    }
+    const onScene = () => Object.values(tokensOf(server, campaignId).byScene[sceneId] ?? {})
+    const start = async (count: number) => {
+      dm.command('table', 'start', { on: true })
+      await dm.until(() => onScene().length >= count)
+    }
+    const close = () => [dm, ...Object.values(players)].forEach((s) => s.socket.close())
+    return { dm, players, onScene, start, close, opened }
+  }
+
+  it('opening stores the area round the room and places nobody; Start fills it from the centre with the picked PCs only', async () => {
+    await withScene(async (fixture) => {
+      const t = await lobby(fixture, { Pim: 'bram', Yara: 'ysolde' })
+      const area = tokensOf(fixture.server, fixture.campaignId).partyStart?.[fixture.sceneId]
+      expect(area).toBeDefined()
+      expect(area!.x1 - area!.x0).toBe(2)
+      expect(t.onScene()).toEqual([])
+
+      await t.start(2)
+      const placed = t.onScene()
+      // Cora, picked by nobody, and the goblin stay off the map.
+      expect(placed.map((tok) => tok.defId).sort()).toEqual(['bram', 'ysolde'])
+      expect(new Set(placed.map((tok) => `${tok.x},${tok.y}`)).size).toBe(2)
+      const centre = { x: area!.x0 + 1.5, y: area!.y0 + 1.5 }
+      expect(placed.some((tok) => tok.x === centre.x && tok.y === centre.y)).toBe(true)
+      for (const tok of placed) {
+        expect(tok.x).toBeGreaterThanOrEqual(area!.x0)
+        expect(tok.x).toBeLessThanOrEqual(area!.x1 + 1)
+        expect(tok.y).toBeGreaterThanOrEqual(area!.y0)
+        expect(tok.y).toBeLessThanOrEqual(area!.y1 + 1)
+      }
+      expect(placed.find((tok) => tok.defId === 'bram')).toMatchObject({ kind: 'pc', ownerId: t.players.Pim!.identityId })
+      t.close()
     })
   })
 
-  it('does not place a PC twice when the table opens again', async () => {
-    await withScene(async ({ server, base, campaignId, dmToken, sceneId }) => {
-      server.stores.moduleState.put(campaignId, 'tokens', {
-        library: { bram: { ...oldDef('bram', 'Bram'), kind: 'pc' } },
-        byScene: {},
-      })
-      const open = () =>
-        call(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId, startingRoom: { sceneId, roomId: 'west' } } })
-      await open()
-      await open()
-      expect(Object.keys(tokensOf(server, campaignId).byScene[sceneId] ?? {})).toHaveLength(1)
+  it('a full area fans out round its centre, and a PC already on the scene does not move', async () => {
+    await withScene(async (fixture) => {
+      const t = await lobby(fixture, { Pim: 'bram', Yara: 'ysolde', Cy: 'cora' })
+      // One cell of area, and Cora already put down by hand somewhere else.
+      t.dm.command('tokens', 'set-party-start', { sceneId: fixture.sceneId, rect: { x0: 5, y0: 5, x1: 5, y1: 5 } })
+      t.dm.command('tokens', 'place', { sceneId: fixture.sceneId, defId: 'cora', x: 3.5, y: 3.5 })
+      await t.dm.until(() => t.onScene().length === 1)
+      await t.start(3)
+      const at = (defId: string) => t.onScene().find((tok) => tok.defId === defId)!
+      expect(at('cora')).toMatchObject({ x: 3.5, y: 3.5 })
+      const [first, second] = [at('bram'), at('ysolde')]
+      expect([first, second].some((tok) => tok.x === 5.5 && tok.y === 5.5)).toBe(true)
+      for (const tok of [first, second]) expect(Math.max(Math.abs(tok.x - 5.5), Math.abs(tok.y - 5.5))).toBeLessThanOrEqual(1)
+      expect(`${first.x},${first.y}`).not.toBe(`${second.x},${second.y}`)
+      t.close()
+    })
+  })
+
+  it('a seat that picks after Start lands beside the party', async () => {
+    await withScene(async (fixture) => {
+      const t = await lobby(fixture, { Pim: 'bram' })
+      await t.start(1)
+      const bram = t.onScene()[0]!
+      const late = await call(fixture.base, 'POST', '/api/join', { body: { code: t.opened.body.inviteCode, name: 'Late' } })
+      const seated = await seat(fixture.server.port, late.body.token as string)
+      seated.command('tokens', 'pc-create', { name: 'Latecomer' })
+      await t.dm.until(() => t.onScene().length === 2)
+      const made = t.onScene().find((tok) => tok.id !== bram.id)!
+      expect(made).toMatchObject({ name: 'Latecomer', ownerId: late.body.identityId })
+      expect(Math.max(Math.abs(made.x - bram.x), Math.abs(made.y - bram.y))).toBeLessThanOrEqual(1)
+      seated.socket.close()
+      t.close()
     })
   })
 })
@@ -121,9 +199,10 @@ describe('PC tokens at session start', () => {
 describe('a returning player', () => {
   it('gets their PC back by name', async () => {
     await withScene(async ({ server, base, campaignId, dmToken, sceneId }) => {
+      const bram = { ...oldDef('bram', 'Bram'), kind: 'pc' as const, ownerIdentityId: 'old-seat', ownerName: 'Bram' }
       server.stores.moduleState.put(campaignId, 'tokens', {
-        library: { bram: { ...oldDef('bram', 'Bram'), kind: 'pc', ownerIdentityId: 'old-seat', ownerName: 'Bram' } },
-        byScene: {},
+        library: { bram },
+        byScene: { [sceneId]: { t1: { ...bram, id: 't1', defId: 'bram', x: 5.5, y: 5.5, elevation: 0, z: 0, hidden: false, ownerId: 'old-seat' } } },
       })
       const opened = await call(base, 'POST', '/api/sessions', {
         token: dmToken,

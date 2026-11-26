@@ -164,8 +164,11 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
       const playerToken = joined.body.token as string
       const dm = await seat(server.port, dmToken)
       const pim = await seat(server.port, playerToken)
+      // Pim picks Bram in the lobby, and the DM's Start puts him in the party start area.
+      pim.command('tokens', 'pc-claim', { defId: 'bram' })
+      await pim.until(() => (server.stores.moduleState.get(campaignId, 'tokens') as TokensState).library.bram?.ownerIdentityId === joined.body.identityId)
       dm.command('table', 'start', { on: true })
-      await dm.until(() => server.stores.sessions.getActiveByCampaign(campaignId)?.started === 1)
+      await dm.until(() => tokensOf(server, campaignId, sceneId).length === 1)
       // Fog on, with Auto-explore on as it starts: the party clears what it sees.
       const fogOn = () => (server.stores.moduleState.get(campaignId, 'fog') as FogState | undefined)?.byScene[sceneId]?.on === true
       dm.command('fog', 'set-on', { sceneId, on: true })
@@ -234,8 +237,11 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
       dm.command('fog', 'set-on', { sceneId, on: true })
       await dm.until(() => (server.stores.moduleState.get(campaignId, 'fog') as FogState | undefined)?.byScene[sceneId]?.on === true)
       const pim = await seat(server.port, joined.body.token as string)
+      // Pim picks Bram in the lobby, and the DM's Start puts him in the party start area.
+      pim.command('tokens', 'pc-claim', { defId: 'bram' })
+      await pim.until(() => (server.stores.moduleState.get(campaignId, 'tokens') as TokensState).library.bram?.ownerIdentityId === joined.body.identityId)
       dm.command('table', 'start', { on: true })
-      await dm.until(() => server.stores.sessions.getActiveByCampaign(campaignId)?.started === 1)
+      await dm.until(() => tokensOf(server, campaignId, sceneId).length === 1)
       // The assignment is a step Auto-explore answers: the ground round the door clears, and the
       // door's live state follows it to the player.
       const bram = () => tokensOf(server, campaignId, sceneId)[0]!
@@ -262,7 +268,7 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
 })
 
 describe('the party start (F18, decision f)', () => {
-  it('19: a map with partyStart reads unchanged and the party spawns there, with nothing revealed', async () => {
+  it('19: a map with partyStart reads unchanged and the party appears there at Start, with nothing revealed', async () => {
     const parsed = parseMapFile(MAP)
     expect(parsed.ok && !parsed.migrated && parsed.data.mapSettings.partyStart).toEqual({ x: 15.5, y: 7.5, levelId: 'lvl-1' })
     await withTable(async ({ server, base, campaignId, dmToken, upload }) => {
@@ -280,11 +286,27 @@ describe('the party start (F18, decision f)', () => {
         startingPoint: { sceneId, x: 15.5, y: 7.5, levelId: 'lvl-1' },
       })
       expect(opened.status).toBe(201)
+      // Opening stores the area round the point and places nobody.
+      const tokens = () => server.stores.moduleState.get(campaignId, 'tokens') as TokensState
+      expect(tokens().partyStart?.[sceneId]).toMatchObject({ x0: 14, y0: 6, x1: 16, y1: 8 })
+      expect(tokensOf(server, campaignId, sceneId)).toEqual([])
+
+      // Pim picks Bram; Ayla, picked by nobody, stays off the map at Start.
+      const joined = await api(base, 'POST', '/api/join', undefined, { code: opened.body.inviteCode, name: 'Pim' })
+      const dm = await seat(server.port, dmToken)
+      const pim = await seat(server.port, joined.body.token as string)
+      pim.command('tokens', 'pc-claim', { defId: 'bram' })
+      await pim.until(() => tokens().library.bram?.ownerIdentityId === joined.body.identityId)
+      expect(tokensOf(server, campaignId, sceneId)).toEqual([])
+      dm.command('table', 'start', { on: true })
+      await dm.until(() => tokensOf(server, campaignId, sceneId).length > 0)
       const party = tokensOf(server, campaignId, sceneId)
-      expect(party.map((t) => t.defId).sort()).toEqual(['ayla', 'bram'])
-      for (const t of party) expect(Math.hypot(t.x - 15.5, t.y - 7.5)).toBeLessThan(3)
+      expect(party.map((t) => t.defId)).toEqual(['bram'])
+      expect(party[0]).toMatchObject({ x: 15.5, y: 7.5, ownerId: joined.body.identityId })
       // Fog starts off, so the start writes no fog at all.
       expect(server.stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
+      dm.socket.close()
+      pim.socket.close()
     })
   })
 })

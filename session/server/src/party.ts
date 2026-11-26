@@ -1,85 +1,168 @@
-// Decision 16 on the server: the party's PC tokens are on the map when the table opens, a
-// player who comes back under the same name gets their PC back, and token defs written
-// before table v2 read with its defaults.
+// Decision 16 on the server: the party's PC tokens are put on the map when the DM starts the
+// table (and a late pick beside the party), a player who comes back under the same name gets
+// their PC back, and token defs written before table v2 read with its defaults.
 
-import { OUTSIDE_MAP, SOLID_GROUND, fanAround, normalizeTokenDef, type TokensState } from '@dnd/mechanics/tokens'
+import {
+  OUTSIDE_MAP,
+  SOLID_GROUND,
+  fanAround,
+  normalizeTokenDef,
+  ownPcOf,
+  type PartyStartArea,
+  type TableFlags,
+  type Token,
+  type TokenDef,
+  type TokensState,
+} from '@dnd/mechanics/tokens'
 import type { Stores } from './db/stores'
-import { roomAnchor } from './fog/sceneMap'
 import type { Vision } from './fog/vision'
-import type { ModuleRegistry } from './modules/registry'
+import type { AfterWrite, DispatchContext, ModuleRegistry } from './modules/registry'
 
 /** Spots tried past one per PC, for a PC whose first spot is taken. */
 const SPARE_SPOTS = 24
 
+/** Where `placeParty` puts the party: the DM's area, or fanned out beside a point. */
+export type PartyTarget = { area: PartyStartArea } | { near: { x: number; y: number }; levelId?: string }
+
+const cellOf = (x: number, y: number): string => `${Math.floor(x)},${Math.floor(y)}`
+
 /**
- * Places every PC def not already on the scene, fanned out from the starting room's anchor
- * the way an encounter's monsters fan out. Placed as the DM through `tokens.place`, so each
- * token copies its def (art, owner, HP) and lands on the ground under it. A spot the tokens
- * module refuses (taken, a wall) moves on to the next. `levelId` is the starting room's level
- * on a map with several. Returns how many were placed.
- *
- * Table fix pass F18: the start may be a point instead of a room (the map's party start, or its
- * centre), and only standable spots are taken — a fan that lands on rock or off the ground moves
- * on, the way the walk grid would refuse a player there.
+ * Places each def on the scene: the standable, free cells of the area from its centre outward,
+ * then fanned out from the centre once the area is full (or from the point, for `near`), the way
+ * an encounter's monsters fan out. Placed as the DM through `tokens.place`, so each token copies
+ * its def (art, owner, HP) and lands on the ground under it. Only standable spots are taken: one
+ * on rock or off the ground moves on, the way the walk grid would refuse a player there. Returns
+ * how many were placed.
  */
-export function spawnParty(
+export function placeParty(
   modules: ModuleRegistry,
-  vision: Pick<Vision, 'sceneMapOf' | 'visionOf'>,
-  at: {
-    campaignId: string
-    sessionId: string
-    sceneId: string
-    roomId?: string
-    point?: { x: number; y: number }
-    dmId: string
-    levelId?: string
-  },
+  vision: Pick<Vision, 'visionOf'>,
+  defs: readonly TokenDef[],
+  target: PartyTarget,
+  at: Pick<DispatchContext, 'campaignId' | 'sessionId' | 'players' | 'broadcast'> & { sceneId: string },
 ): number {
+  if (defs.length === 0) return 0
   const state = modules.readState(at.campaignId, 'tokens') as TokensState | undefined
-  if (!state) return 0
-  const onScene = new Set(Object.values(state.byScene[at.sceneId] ?? {}).map((t) => t.defId))
-  const party = Object.values(state.library)
-    .map((def) => normalizeTokenDef(def))
-    .filter((def) => def.kind === 'pc' && !onScene.has(def.id))
-  if (party.length === 0) return 0
-  const room = at.roomId ? vision.sceneMapOf(at.sceneId)?.rooms.find((r) => r.id === at.roomId) : undefined
-  const centre = at.point ?? (room ? roomAnchor(room) : null)
-  if (!centre) return 0
+  const area = 'area' in target ? target.area : null
+  const levelId = area ? area.levelId : 'near' in target ? target.levelId : undefined
+  const centre = area
+    ? { x: Math.floor((area.x0 + area.x1) / 2) + 0.5, y: Math.floor((area.y0 + area.y1) / 2) + 0.5 }
+    : (target as { near: { x: number; y: number } }).near
+  const cells: { x: number; y: number }[] = []
+  if (area) {
+    for (let y = area.y0; y <= area.y1; y++) for (let x = area.x0; x <= area.x1; x++) cells.push({ x: x + 0.5, y: y + 0.5 })
+    cells.sort((a, b) => Math.hypot(a.x - centre.x, a.y - centre.y) - Math.hypot(b.x - centre.x, b.y - centre.y))
+  }
+  const spots = [...cells, ...fanAround(centre, defs.length + SPARE_SPOTS)]
+  const taken = new Set(Object.values(state?.byScene[at.sceneId] ?? {}).map((t) => cellOf(t.x, t.y)))
 
   const scene = vision.visionOf(at.sceneId)
-  const standable = (x: number, y: number, def: (typeof party)[number]): boolean => {
-    const why = scene?.walkRefusal?.({ ...def, defId: def.id, x, y, elevation: 0, z: 0, hidden: false, ownerId: null, ...(at.levelId ? { levelId: at.levelId } : {}) }, { x, y }, null)
+  const standable = (x: number, y: number, def: TokenDef): boolean => {
+    const why = scene?.walkRefusal?.({ ...def, defId: def.id, x, y, elevation: 0, z: 0, hidden: false, ownerId: null, ...(levelId ? { levelId } : {}) }, { x, y }, null)
     return !why || !(why.startsWith(OUTSIDE_MAP) || why.startsWith(SOLID_GROUND))
   }
-  const spots = fanAround(centre, party.length + SPARE_SPOTS)
-  const ctx = {
+  const ctx: DispatchContext = {
     campaignId: at.campaignId,
     sessionId: at.sessionId,
     activeSceneId: at.sceneId,
-    sender: { role: 'dm' as const, identityId: at.dmId },
-    players: [],
-    // Nobody is at the table yet: the session was opened a moment ago.
-    broadcast: () => {},
+    sender: { role: 'dm', identityId: 'server' },
+    players: at.players,
+    broadcast: at.broadcast,
   }
   let placed = 0
   let next = 0
-  for (const def of party) {
+  for (const def of defs) {
     while (next < spots.length) {
       const spot = spots[next++]!
-      if (!standable(spot.x, spot.y, def)) continue
+      if (taken.has(cellOf(spot.x, spot.y)) || !standable(spot.x, spot.y, def)) continue
       const refused = modules.dispatch(
         'tokens',
         'place',
-        { sceneId: at.sceneId, defId: def.id, x: spot.x, y: spot.y, ...(at.levelId ? { levelId: at.levelId } : {}) },
+        { sceneId: at.sceneId, defId: def.id, x: spot.x, y: spot.y, ...(levelId ? { levelId } : {}) },
         ctx,
       )
       if (!refused) {
+        taken.add(cellOf(spot.x, spot.y))
         placed++
         break
       }
     }
   }
   return placed
+}
+
+/** Beside the party: fanned out from the centre of the PC tokens on the scene, on their level. */
+function besideParty(onScene: readonly Token[]): PartyTarget | null {
+  const party = onScene.filter((t) => t.kind === 'pc' && !t.hidden)
+  if (party.length === 0) return null
+  const mean = (pick: (t: Token) => number) => party.reduce((sum, t) => sum + pick(t), 0) / party.length
+  const near = { x: Math.floor(mean((t) => t.x)) + 0.5, y: Math.floor(mean((t) => t.y)) + 0.5 }
+  return { near, ...(party[0]!.levelId ? { levelId: party[0]!.levelId } : {}) }
+}
+
+/**
+ * Table lobby pass §3.5, as an after-write rule. When the DM starts the table, every PC a seat
+ * at this table holds and that is not on the live scene yet goes into the scene's party start
+ * area (beside the party when the scene has none); PCs already there stay put, and a PC nobody
+ * picked stays off the map. After Start, a seat that picks or makes its PC with no token on the
+ * live scene gets it beside the party, else in the area. With neither, nothing is placed: the
+ * DM's roster shows that seat without a token.
+ */
+export function partyPlacement(vision: Pick<Vision, 'visionOf'>, flagsOf: (sessionId: string) => TableFlags | null): AfterWrite {
+  return ({ module, action }, ctx, registry) => {
+    const start = module === 'table' && action === 'start'
+    const pick = module === 'tokens' && (action === 'pc-claim' || action === 'pc-create')
+    if (!(start || pick) || !flagsOf(ctx.sessionId)?.started) return
+    const sceneId = ctx.activeSceneId
+    const state = registry.readState(ctx.campaignId, 'tokens') as TokensState | undefined
+    if (!sceneId || !state) return
+    const onScene = Object.values(state.byScene[sceneId] ?? {})
+    const area = state.partyStart?.[sceneId]
+    const at = { campaignId: ctx.campaignId, sessionId: ctx.sessionId, players: ctx.players, broadcast: ctx.broadcast, sceneId }
+
+    if (start) {
+      const seats = new Set(ctx.players.map((p) => p.identityId))
+      const here = new Set(onScene.map((t) => t.defId))
+      const defs = Object.values(state.library).filter(
+        (def) => def.kind === 'pc' && !!def.ownerIdentityId && seats.has(def.ownerIdentityId) && !here.has(def.id),
+      )
+      const target = area ? { area } : besideParty(onScene)
+      if (target) placeParty(registry, vision, defs, target, at)
+      return
+    }
+    if (onScene.some((t) => t.ownerId === ctx.sender.identityId)) return
+    const def = ownPcOf(state, ctx.sender.identityId)
+    const target = besideParty(onScene) ?? (area ? { area } : null)
+    if (def && target) placeParty(registry, vision, [def], target, at)
+  }
+}
+
+/**
+ * The host wizard's start, written as the scene's party start area when it has none: the 3 by 3
+ * cells round the chosen point or room anchor. Nobody is placed until the DM starts the table.
+ */
+export function storePartyStart(
+  modules: ModuleRegistry,
+  at: { campaignId: string; sessionId: string; sceneId: string; centre: { x: number; y: number }; levelId?: string; dmId: string },
+): void {
+  const state = modules.readState(at.campaignId, 'tokens') as TokensState | undefined
+  if (state?.partyStart?.[at.sceneId]) return
+  const [cx, cy] = [Math.floor(at.centre.x), Math.floor(at.centre.y)]
+  const refused = modules.dispatch(
+    'tokens',
+    'set-party-start',
+    { sceneId: at.sceneId, rect: { x0: cx - 1, y0: cy - 1, x1: cx + 1, y1: cy + 1 }, ...(at.levelId ? { levelId: at.levelId } : {}) },
+    {
+      campaignId: at.campaignId,
+      sessionId: at.sessionId,
+      activeSceneId: at.sceneId,
+      sender: { role: 'dm', identityId: at.dmId },
+      players: [],
+      // Nobody is at the table yet: the session was opened a moment ago.
+      broadcast: () => {},
+    },
+  )
+  if (refused) console.warn(`[party] party start refused: ${refused.message}`)
 }
 
 /**

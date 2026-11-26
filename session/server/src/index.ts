@@ -24,6 +24,7 @@ import { createVision } from './fog/vision'
 import { createTerrain } from './fog/terrain'
 import { clientAddress, createRequestHandler } from './http'
 import { createMirror, mirrorRootFor } from './mirror'
+import { partyPlacement } from './party'
 import { afterWrites, effectsClear, effectsTick, hiddenCombatants } from './modules/effectsTick'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
@@ -110,11 +111,13 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   // @dnd/mechanics; nothing else in the server changes when they do (D2).
   // Table v2 adds the effect-timer tick on a turned round beside the fog's auto-explore.
   // Table v2: the DM's pause and movement lock, read off the session's row (migration 006),
-  // which the table module writes through. A pause refuses every player command at dispatch.
+  // which the table module writes through. A pause refuses every player command at dispatch,
+  // and so does a table still in its lobby (009) but for the lobby's own. Starting the table
+  // puts the party on the map (`partyPlacement`).
   const table = sessionTable(stores)
   const modules = new ModuleRegistry(
     stores.moduleState,
-    afterWrites(autoExplore(vision), effectsTick, effectsClear, hiddenCombatants),
+    afterWrites(autoExplore(vision), effectsTick, effectsClear, hiddenCombatants, partyPlacement(vision, table.flagsOf)),
     table.seatGate,
   )
   modules.register(pingModule)

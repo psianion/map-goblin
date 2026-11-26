@@ -9,9 +9,10 @@ import { ANY_ROLE, type GameModule, type ModuleContext, type Viewer } from '../c
 import { refusal as refusalText } from '../doors/types'
 import { fanAround } from './fan'
 import { sightPartyIds } from './links'
-import { CLEAR_EFFECTS } from './types'
+import { CLEAR_EFFECTS, NO_OWN_PC, PC_ALREADY_OWNED, PC_TAKEN, PLAYER_PCS_OFF } from './types'
 import type {
   LevelFilterOf,
+  PartyStartArea,
   SceneVision,
   TableOf,
   TerrainOf,
@@ -51,6 +52,7 @@ import {
   parseSight,
   parseSpeed,
   parsePassive,
+  parseRing,
   snap,
   str,
 } from './validate'
@@ -96,8 +98,9 @@ const UPDATE_FIELDS = [
   'speed',
   'passive',
   'showHp',
+  'ring',
 ] as const
-const PLAYER_FIELDS: readonly string[] = ['name', 'sheet', 'imageAssetId', 'nameplate']
+const PLAYER_FIELDS: readonly string[] = ['name', 'sheet', 'imageAssetId', 'nameplate', 'ring']
 
 /** Refusal prefixes for a player's move while the DM holds the table (table v2). */
 export const TABLE_PAUSED = 'table-paused'
@@ -162,10 +165,12 @@ export function tokensModule(
     },
 
     forgetScene(state, sceneId) {
-      if (!(sceneId in state.byScene)) return state
+      if (!(sceneId in state.byScene) && !state.partyStart?.[sceneId]) return state
       const byScene = { ...state.byScene }
       delete byScene[sceneId]
-      return { ...state, byScene }
+      const partyStart = { ...state.partyStart }
+      delete partyStart[sceneId]
+      return { ...state, byScene, partyStart }
     },
 
     // D4: a hidden token is dropped whole for non-DMs — its position is exactly what must
@@ -178,7 +183,8 @@ export function tokensModule(
     redact(state, viewer) {
       if (viewer.role === 'dm') return state
       const library = redactLibrary(state.library, viewer)
-      let dropped = library !== state.library
+      // The party start area is the DM's: a player is told where the party stands at Start.
+      let dropped = library !== state.library || state.partyStart !== undefined
       const byScene: TokensState['byScene'] = {}
       for (const [sceneId, tokens] of Object.entries(state.byScene)) {
         const scene = visionOf(sceneId, viewer)
@@ -219,7 +225,10 @@ export function tokensModule(
         }
         byScene[sceneId] = visible
       }
-      return dropped ? { ...state, byScene, library } : state
+      if (!dropped) return state
+      const out: TokensState = { ...state, byScene, library }
+      delete out.partyStart
+      return out
     },
   }
 }
@@ -312,11 +321,15 @@ function run(
     case 'tick-effects':
       return tickEffects(p, ctx)
     case 'pc-claim':
+      return pcClaim(p, ctx)
     case 'pc-create':
+      return pcCreate(p, ctx, tableOf)
     case 'pc-update':
+      return pcUpdate(p, ctx)
     case 'pc-release':
+      return pcRelease(ctx)
     case 'set-party-start':
-      return bad(`tokens.${action} is not built yet`)
+      return setPartyStart(p, ctx)
     default:
       bad(`tokens has no action '${action}'`)
   }
@@ -388,7 +401,7 @@ function propagateDefEdit(
     nameplate: def.nameplate,
     showHp: def.showHp,
   }
-  const optionalFields = ['ac', 'speed', 'passive', 'ownerIdentityId', 'ownerName'] as const
+  const optionalFields = ['ac', 'speed', 'passive', 'ownerIdentityId', 'ownerName', 'ring'] as const
   const out: TokensState['byScene'] = {}
   for (const [sceneId, tokens] of Object.entries(byScene)) {
     const nextTokens: Record<string, Token> = {}
@@ -569,7 +582,7 @@ function update(p: Payload, ctx: Ctx, terrainOf: TerrainOf): void {
   if (ctx.sender.role !== 'dm') {
     if (token.ownerId !== ctx.sender.identityId) denied('you may only update a token you own')
     if (UPDATE_FIELDS.some((f) => !PLAYER_FIELDS.includes(f) && p[f] !== undefined)) {
-      denied('players may only change the name, art, nameplate or sheet link of their own token')
+      denied('players may only change the name, art, ring, nameplate or sheet link of their own token')
     }
   }
   if (UPDATE_FIELDS.every((f) => p[f] === undefined)) {
@@ -614,6 +627,10 @@ function update(p: Payload, ctx: Ctx, terrainOf: TerrainOf): void {
     next.imageAssetId = p.imageAssetId === null ? null : str(p.imageAssetId, 'imageAssetId', ID_MAX)
   }
   if (p.nameplate !== undefined) next.nameplate = oneOf(p.nameplate, NAMEPLATES, 'nameplate')
+  if (p.ring !== undefined) {
+    if (p.ring === null) delete next.ring
+    else next.ring = parseRing(p.ring)
+  }
   if (p.kind !== undefined) next.kind = oneOf(p.kind, KINDS, 'kind')
   if (p.showHp !== undefined) next.showHp = oneOf(p.showHp, HP_VISIBILITY, 'showHp')
   if (p.hp !== undefined) {
@@ -894,4 +911,144 @@ function setTokenLevel(p: Payload, ctx: Ctx): void {
   if (p.levelId === null) delete next.levelId
   else next.levelId = str(p.levelId, 'levelId', ID_MAX)
   put(ctx, sceneId, next)
+}
+
+// ─── table lobby pass: a seat's own character, and the party start area ─────────
+
+/** What a character a player makes sees by: 30 ft of normal sight, as the DM's sheet starts. */
+const PLAYER_PC_SIGHT: NonNullable<TokenDef['sight']> = { range: 6, angle: 360, visionMode: 'normal' }
+
+/** The widest party start area, in cells a side. */
+export const PARTY_START_MAX = 32
+
+/** The PC def a seat holds, if any: one per seat. */
+export function ownPcOf(state: TokensState, identityId: string): TokenDef | undefined {
+  return Object.values(state.library).find((def) => def.kind === 'pc' && def.ownerIdentityId === identityId)
+}
+
+function requireNoPc(ctx: Ctx): void {
+  if (ownPcOf(ctx.state, ctx.sender.identityId)) {
+    denied(refusalText(PC_ALREADY_OWNED, null, 'you already have a character'))
+  }
+}
+
+function requireOwnPc(ctx: Ctx): TokenDef {
+  return ownPcOf(ctx.state, ctx.sender.identityId) ?? denied(refusalText(NO_OWN_PC, null, 'you have no character'))
+}
+
+/**
+ * The def written to the library and the same fields onto every token placed from it, in one
+ * write. `fields` holding `undefined` deletes that field from both.
+ */
+function writePc(ctx: Ctx, def: TokenDef, tokenFields: Partial<Token>): void {
+  const { state } = ctx
+  const byScene: TokensState['byScene'] = {}
+  for (const [sceneId, tokens] of Object.entries(state.byScene)) {
+    let scene = tokens
+    for (const [id, token] of Object.entries(tokens)) {
+      if (token.defId !== def.id) continue
+      const next = { ...token, ...tokenFields }
+      for (const [key, value] of Object.entries(tokenFields)) {
+        if (value === undefined) delete (next as unknown as Record<string, unknown>)[key]
+      }
+      if (scene === tokens) scene = { ...tokens }
+      scene[id] = next
+    }
+    byScene[sceneId] = scene
+  }
+  ctx.setState({ ...state, library: { ...state.library, [def.id]: def }, byScene })
+}
+
+const senderName = (ctx: Ctx): string | undefined =>
+  ctx.players.find((p) => p.identityId === ctx.sender.identityId)?.name.slice(0, NAME_MAX)
+
+/** `pc-claim {defId}` — a PC nobody holds and nobody's name is saved on becomes the sender's. */
+function pcClaim(p: Payload, ctx: Ctx): void {
+  const defId = str(p.defId, 'defId', ID_MAX)
+  const def = ctx.state.library[defId]
+  if (!def || def.kind !== 'pc') bad('no such character')
+  // A PC saved for a name waits for that name: it attaches when they join (`reattachPc`).
+  if (def.ownerIdentityId || def.ownerName) denied(refusalText(PC_TAKEN, defId, 'that character is taken'))
+  requireNoPc(ctx)
+  const name = senderName(ctx)
+  const owner = { ownerIdentityId: ctx.sender.identityId, ...(name ? { ownerName: name } : {}) }
+  writePc(ctx, { ...def, ...owner }, { ...owner, ownerId: ctx.sender.identityId })
+}
+
+/** `pc-create {name, imageAssetId?, ring?}` — a medium PC of the sender's own, when the DM allows it. */
+function pcCreate(p: Payload, ctx: Ctx, tableOf: TableOf): void {
+  if (tableOf({ campaignId: ctx.campaignId, sessionId: ctx.sessionId })?.playersMakePcs === false) {
+    denied(refusalText(PLAYER_PCS_OFF, null, 'the DM has turned off making your own character'))
+  }
+  requireNoPc(ctx)
+  const { state } = ctx
+  if (Object.keys(state.library).length >= LIBRARY_MAX) bad('the token library is full')
+  const name = senderName(ctx)
+  const id = mintId('def')
+  const def: TokenDef = {
+    id,
+    ...parseDefFields({
+      name: p.name,
+      ...(p.imageAssetId === undefined ? {} : { imageAssetId: p.imageAssetId }),
+      ...(p.ring === undefined ? {} : { ring: p.ring }),
+      size: 'medium',
+      disposition: 'friendly',
+      kind: 'pc',
+      sight: PLAYER_PC_SIGHT,
+      ownerIdentityId: ctx.sender.identityId,
+      ...(name ? { ownerName: name } : {}),
+    }),
+  }
+  ctx.setState({ ...state, library: { ...state.library, [id]: def } })
+}
+
+/** `pc-update {name?, imageAssetId?, ring?}` — the sender's own PC, and every token placed from it. */
+function pcUpdate(p: Payload, ctx: Ctx): void {
+  const def = requireOwnPc(ctx)
+  if (p.name === undefined && p.imageAssetId === undefined && p.ring === undefined) {
+    bad('pc-update needs one of: name, imageAssetId, ring')
+  }
+  const fields: Partial<Token> = {}
+  if (p.name !== undefined) fields.name = str(p.name, 'name', NAME_MAX)
+  if (p.imageAssetId !== undefined) {
+    fields.imageAssetId = p.imageAssetId === null ? null : str(p.imageAssetId, 'imageAssetId', ID_MAX)
+  }
+  if (p.ring !== undefined) fields.ring = p.ring === null ? undefined : parseRing(p.ring)
+  const next = { ...def, ...fields }
+  if (fields.ring === undefined && 'ring' in fields) delete next.ring
+  writePc(ctx, next, fields)
+}
+
+/** `pc-release {}` — the sender lets their PC go; it stays in the library, and on the map, unheld. */
+function pcRelease(ctx: Ctx): void {
+  const def = requireOwnPc(ctx)
+  const next = { ...def }
+  delete next.ownerIdentityId
+  delete next.ownerName
+  writePc(ctx, next, { ownerId: null, ownerIdentityId: undefined, ownerName: undefined })
+}
+
+/** `set-party-start {sceneId?, rect | null, levelId?}` — the DM's rectangle of cells, corners in any order. */
+function setPartyStart(p: Payload, ctx: Ctx): void {
+  const { state } = ctx
+  const sceneId = sceneOf(p, ctx)
+  const partyStart = { ...state.partyStart }
+  if (p.rect === null) {
+    delete partyStart[sceneId]
+  } else {
+    const r = obj(p.rect, 'rect')
+    const cell = (v: unknown, field: string) => {
+      const n = num(v, field)
+      if (!Number.isInteger(n)) bad(`${field} must be a whole cell`)
+      return n
+    }
+    const [ax, ay, bx, by] = [cell(r.x0, 'rect.x0'), cell(r.y0, 'rect.y0'), cell(r.x1, 'rect.x1'), cell(r.y1, 'rect.y1')]
+    const area: PartyStartArea = { x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by) }
+    if (area.x1 - area.x0 >= PARTY_START_MAX || area.y1 - area.y0 >= PARTY_START_MAX) {
+      bad(`a party start is at most ${PARTY_START_MAX} cells a side`)
+    }
+    if (p.levelId !== undefined && p.levelId !== null) area.levelId = str(p.levelId, 'levelId', ID_MAX)
+    partyStart[sceneId] = area
+  }
+  ctx.setState({ ...state, partyStart })
 }
