@@ -65,6 +65,12 @@ describe('reaches', () => {
     expect(reaches(ended, alice)).toBe(false)
     expect(reaches({ type: 'pong', t: 1 }, alice)).toBe(true)
   })
+
+  it('a history frame reaches DM seats only', () => {
+    const history = { type: 'history' as const, undo: null, redo: null }
+    expect(reaches(history, dm)).toBe(true)
+    expect(reaches(history, alice)).toBe(false)
+  })
 })
 
 // Table fix pass, decision d: a template stands until the DM clears it.

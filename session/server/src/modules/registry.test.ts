@@ -401,7 +401,7 @@ describe('undo for the DM (table lobby pass §5)', () => {
     expect(t.state<DoorsState>('doors').byScene[SCENE].d2.open).toBe(true)
   })
 
-  it('reaches the router: a DM command is recorded and told to the DM, a player’s is not', () => {
+  it('reaches the router: a DM command is recorded and told to every DM seat, never to a player', () => {
     const t = table()
     const frames: { conn: string; msg: ServerMessage }[] = []
     const conn = (name: string, viewer: Viewer) =>
@@ -410,19 +410,33 @@ describe('undo for the DM (table lobby pass §5)', () => {
         deliver: (payload: string) => frames.push({ conn: name, msg: JSON.parse(payload) }),
       }) as unknown as ClientConnection
     const dmConn = conn('dm', DM)
+    const otherDm = conn('dm-2', { role: 'dm', identityId: 'dm-2' })
     const playerConn = conn('player', PLAYER)
-    const router = new CommandRouter(t.registry, new Broadcaster(() => [dmConn, playerConn], (m) => m))
+    const router = new CommandRouter(t.registry, new Broadcaster(() => [dmConn, otherDm, playerConn], (m) => m))
     const scope = { activeSceneId: SCENE, players: PLAYERS }
     const history = () => frames.filter((f) => f.msg.type === 'history')
+    const placed = { type: 'history', undo: { module: 'tokens', action: 'place' }, redo: null }
 
     router.handle(dmConn, { type: 'command', module: 'tokens', action: 'place', payload: { sceneId: SCENE, name: 'Rat', x: 0, y: 0 }, seq: 1 }, scope)
-    expect(history()).toEqual([{ conn: 'dm', msg: { type: 'history', undo: { module: 'tokens', action: 'place' }, redo: null } }])
+    expect(history()).toEqual([
+      { conn: 'dm', msg: placed },
+      { conn: 'dm-2', msg: placed },
+    ])
 
     router.handle(playerConn, { type: 'command', module: 'doors', action: 'toggle', payload: { sceneId: SCENE, id: 'd1' }, seq: 1 }, scope)
-    expect(history()).toHaveLength(1)
+    expect(history()).toHaveLength(2)
 
     router.history(dmConn, 'undo', scope)
-    expect(history().at(-1)).toEqual({ conn: 'dm', msg: { type: 'history', undo: null, redo: { module: 'tokens', action: 'place' } } })
+    expect(history().at(-1)).toEqual({ conn: 'dm-2', msg: { type: 'history', undo: null, redo: { module: 'tokens', action: 'place' } } })
     expect(t.tokensOf()).toEqual({})
+
+    // A scene delete empties the history, and the DM seats are told again.
+    t.registry.forgetScene(t.campaignId, SCENE)
+    router.sayHistory('sess-1')
+    expect(history().slice(-2)).toEqual([
+      { conn: 'dm', msg: { type: 'history', undo: null, redo: null } },
+      { conn: 'dm-2', msg: { type: 'history', undo: null, redo: null } },
+    ])
+    expect(history().some((f) => f.conn === 'player')).toBe(false)
   })
 })

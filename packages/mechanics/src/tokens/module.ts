@@ -377,7 +377,7 @@ function libraryUpsert(p: Payload, ctx: Ctx): void {
     // Issue #94 finding 4 — a def edit is meant to reach the table: every def-owned field
     // (everything but id/name) is carried onto tokens already placed from it. A brand new
     // def (`base` unset) has nothing placed from it yet, so there is nothing to walk.
-    byScene: base ? propagateDefEdit(state.byScene, id, def) : state.byScene,
+    byScene: base ? propagateDefEdit(state.byScene, id, def, base.ownerIdentityId) : state.byScene,
   })
 }
 
@@ -387,6 +387,7 @@ function propagateDefEdit(
   byScene: TokensState['byScene'],
   defId: string,
   def: TokenDef,
+  prevOwner: string | undefined,
 ): TokensState['byScene'] {
   const fields = {
     imageAssetId: def.imageAssetId,
@@ -426,6 +427,8 @@ function propagateDefEdit(
       }
       // A PC def handed to a player hands its placed tokens over too.
       if (def.ownerIdentityId) next.ownerId = def.ownerIdentityId
+      // A PC taken back takes back the tokens its old seat held.
+      else if (prevOwner && next.ownerId === prevOwner) next.ownerId = null
       nextTokens[tokenId] = next
     }
     out[sceneId] = nextTokens
@@ -896,6 +899,25 @@ function assign(p: Payload, ctx: Ctx): void {
   const identityId = p.identityId === null ? null : str(p.identityId, 'identityId', ID_MAX)
   if (identityId !== null && !ctx.players.some((player) => player.identityId === identityId)) {
     bad('no such player at this table')
+  }
+  // A free PC handed to a seat becomes that seat's character, as one handed from the roster
+  // does; unhanding it from the seat that holds it takes the character back. Only a seat
+  // with no character yet gets one, so one PC per seat holds.
+  const def = token.defId ? ctx.state.library[token.defId] : undefined
+  if (def?.kind === 'pc') {
+    if (identityId !== null && !def.ownerIdentityId && !ownPcOf(ctx.state, identityId)) {
+      const name = ctx.players.find((player) => player.identityId === identityId)?.name.slice(0, NAME_MAX)
+      const owner = { ownerIdentityId: identityId, ...(name ? { ownerName: name } : {}) }
+      writePc(ctx, { ...def, ...owner }, { ...owner, ownerId: identityId })
+      return
+    }
+    if (identityId === null && token.ownerId !== null && def.ownerIdentityId === token.ownerId) {
+      const next = { ...def }
+      delete next.ownerIdentityId
+      delete next.ownerName
+      writePc(ctx, next, { ownerId: null, ownerIdentityId: undefined, ownerName: undefined })
+      return
+    }
   }
   put(ctx, sceneId, withOwner(token, identityId, ctx))
 }

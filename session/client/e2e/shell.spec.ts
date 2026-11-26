@@ -1,5 +1,5 @@
 // @shell: the table's chrome (plan section 7). Unrun until step T.
-import { expect, test } from './fixtures';
+import { expect, startTable, test } from './fixtures';
 
 test.describe('@shell chrome', () => {
   test('light by default, dark from the View menu, and the desk follows', async ({ hostSession }) => {
@@ -75,6 +75,7 @@ test.describe('@shell chips, keys and dock heights', () => {
   test('Movement locked shows on a player seat, and a locked drag is told why', async ({ hostSession, joinAsPlayer }) => {
     const player = await joinAsPlayer('Bram');
     const { page } = hostSession;
+    await startTable(page, player);
     await page.keyboard.press('3');
     await page.getByRole('button', { name: 'Lock movement' }).click();
     await expect(player.getByTestId('locked-chip')).toHaveText('Movement locked');

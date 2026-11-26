@@ -1,9 +1,10 @@
 // @player: the player shell, and the phone layout at 390×844 (plan section 7). Unrun until step T.
-import { assertMapLoaded, expect, test } from './fixtures';
+import { assertMapLoaded, expect, startTable, test } from './fixtures';
 
 test.describe('@player player shell', () => {
-  test('a player gets the title card without a switcher, three rail tools, no dock', async ({ joinAsPlayer }) => {
+  test('a player gets the title card without a switcher, three rail tools, no dock', async ({ hostSession, joinAsPlayer }) => {
     const player = await joinAsPlayer('Bram');
+    await startTable(hostSession.page, player);
     await expect(player.getByTestId('title-card')).toBeVisible();
     await expect(player.getByTestId('title-switcher')).toHaveCount(0);
     await expect(player.getByTestId('rail-measure')).toBeVisible();
@@ -19,8 +20,9 @@ test.describe('@player player shell', () => {
     await expect(player.getByTestId('sheet-tab-log')).toBeVisible();
   });
 
-  test('F finds my token, and the character sheet opens from its tab', async ({ joinAsPlayer }) => {
+  test('F finds my token, and the character sheet opens from its tab', async ({ hostSession, joinAsPlayer }) => {
     const player = await joinAsPlayer('Bram');
+    await startTable(hostSession.page, player, 'Bram');
     await player.keyboard.press('f');
     const character = player.getByTestId('sheet-tab-character');
     if (await character.count()) {
@@ -35,6 +37,7 @@ test.describe('@player player shell', () => {
     await phone.goto(`/join/${hostSession.inviteCode}?e2e=1`);
     await phone.locator('#player-name').fill('Yara');
     await phone.getByRole('button', { name: 'Join' }).click();
+    await startTable(hostSession.page, phone);
     await expect(phone.getByTestId('phone-bar')).toBeVisible({ timeout: 30_000 });
     // The mark tools attach once the engine is up: a press before then lands on nothing.
     await assertMapLoaded(phone);
@@ -76,6 +79,7 @@ test.describe('@phone the fix pass at phone width', () => {
     await phone.goto(`/join/${hostSession.inviteCode}?e2e=1`);
     await phone.locator('#player-name').fill('Yara');
     await phone.getByRole('button', { name: 'Join' }).click();
+    await startTable(hostSession.page, phone);
     await assertMapLoaded(phone);
 
     const { page } = hostSession;

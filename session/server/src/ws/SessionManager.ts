@@ -284,7 +284,7 @@ export class SessionManager {
       state: this.snapshot(session, conn.identity),
       you: player,
     })
-    if (role === 'dm') this.router.sayHistory(conn)
+    if (role === 'dm') this.router.sayHistory(sessionId)
     // The templates standing on the table, after the snapshot, so the seat has a scene to put them on.
     for (const event of session.templates) this.broadcaster.sendTo(conn, { type: 'mark', event })
     this.broadcaster.broadcast(session.id, { type: 'player-joined', player }, conn)
@@ -334,6 +334,8 @@ export class SessionManager {
           you: player,
         })
       }
+      // A scene delete empties the undo history; the DM seats' buttons hear it here.
+      this.router.sayHistory(session.id)
       const { scenes, activeSceneId } = this.scenes(session)
       if (changedSceneId && activeSceneId === changedSceneId) {
         const changed = scenes.find((s) => s.id === changedSceneId)

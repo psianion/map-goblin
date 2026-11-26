@@ -15,7 +15,7 @@ export function armedLabel(
 ): string | null {
   if (placingName !== null) return `Placing ${placingName}, click the map, Esc cancels`;
   if (activeTool === 'fog') return toolDetail === 'Fog' ? 'Painting fog' : 'Clearing fog';
-  if (activeTool === 'template') return 'Template, drag a circle or click one to clear it, Esc puts it down';
+  if (activeTool === 'template') return 'Template';
   return null;
 }
 

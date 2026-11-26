@@ -84,7 +84,7 @@ describe('Dock', () => {
   it('names an armed fog brush and the template tool', () => {
     expect(armedLabel(null, 'fog', 'Clear')).toBe('Clearing fog');
     expect(armedLabel(null, 'fog', 'Fog')).toBe('Painting fog');
-    expect(armedLabel(null, 'template', null)).toBe('Template, drag a circle or click one to clear it, Esc puts it down');
+    expect(armedLabel(null, 'template', null)).toBe('Template');
     expect(armedLabel(null, 'ping', null)).toBeNull();
   });
 

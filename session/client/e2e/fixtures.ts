@@ -4,8 +4,9 @@
 //
 // `hostSession` stands the campaign up over the server's own routes rather than clicking
 // through the host flow every time: a campaign, the demo map with its first room lit, two PC
-// token types (Bram, Yara) placed when the session opens, and the DM's pass stored the way the
-// Host page stores it. The host flow itself is driven by `host-join.spec.ts`.
+// token types (Bram, Yara) placed once a seat picks one and the DM starts the table
+// (`startTable`), and the DM's pass stored the way the Host page stores it. The host flow
+// itself is driven by `host-join.spec.ts`.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -123,6 +124,20 @@ export async function joinTable(page: Page, code: string, name: string): Promise
   await page.locator('#player-name').fill(name);
   await page.getByRole('button', { name: 'Join' }).click();
   await expect(page.locator('[data-page="table"]')).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * Table lobby pass: a new table waits in the lobby. The seat picks `character` there when one is
+ * named, the DM presses Start, which puts the picked character in the party start area, and the
+ * seat leaves the lobby for the table.
+ */
+export async function startTable(dm: Page, seat: Page, character?: string): Promise<void> {
+  if (character) {
+    await seat.getByTestId('lobby-pc').filter({ hasText: character }).click();
+    await expect(seat.getByTestId('lobby-mine')).toHaveText(character);
+  }
+  await dm.getByTestId('lobby-start').click();
+  await expect(seat.getByTestId('lobby')).toBeHidden({ timeout: 30_000 });
 }
 
 /** The map the core store loaded, once the engine has it. */

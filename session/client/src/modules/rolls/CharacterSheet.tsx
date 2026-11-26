@@ -41,7 +41,7 @@ export function CharacterSheet() {
       ) : (
         <div className="flex flex-col gap-3 px-3 py-3">
           <div className="flex items-center gap-3">
-            <TokenPortrait name={token.name} assetId={token.imageAssetId} className="size-14" />
+            <TokenPortrait name={token.name} assetId={token.imageAssetId} ring={token.ring} className="size-14" />
             <div className="flex flex-col">
               <span className="text-sm font-medium text-text">{token.name}</span>
               {token.hp ? (

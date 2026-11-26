@@ -43,7 +43,7 @@ export class CommandRouter {
       error = { code: 'invalid-command', message: 'that command could not be run' }
     }
     if (error) this.broadcaster.sendTo(conn, { type: 'error', ...error })
-    if (was && !sameNames(was, this.modules.historyOf(ctx.sessionId))) this.sayHistory(conn)
+    if (was && !sameNames(was, this.modules.historyOf(ctx.sessionId))) this.sayHistory(ctx.sessionId)
   }
 
   /** A DM's undo or redo of the session's last recorded step. */
@@ -54,12 +54,12 @@ export class CommandRouter {
       console.error(`[history] ${op} threw`, err)
       this.broadcaster.sendTo(conn, { type: 'error', code: 'invalid-command', message: `that ${op} could not be run` })
     }
-    this.sayHistory(conn)
+    this.sayHistory(conn.identity.sessionId)
   }
 
-  /** Tells a DM seat what its undo and redo buttons would do. */
-  sayHistory(conn: ClientConnection): void {
-    this.broadcaster.sendTo(conn, { type: 'history', ...this.modules.historyOf(conn.identity.sessionId) })
+  /** Tells every DM seat of the session what its undo and redo buttons would do. */
+  sayHistory(sessionId: string): void {
+    this.broadcaster.broadcast(sessionId, { type: 'history', ...this.modules.historyOf(sessionId) })
   }
 
   private contextOf(conn: ClientConnection, scope: CommandScope): DispatchContext {

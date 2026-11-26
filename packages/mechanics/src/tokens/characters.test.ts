@@ -121,6 +121,44 @@ describe('a seat’s character', () => {
     expect(run(next, P2, 'pc-claim', { defId: 'bram' }).error).toBeUndefined()
   })
 
+  it('taken back by the DM’s roster, takes back the tokens its old seat held', () => {
+    const { run } = harness()
+    const held = run(start, P1, 'pc-claim', { defId: 'bram' }).next
+    const { error, next } = run(held, DM, 'library-upsert', { id: 'bram', ownerIdentityId: null, ownerName: null })
+    expect(error).toBeUndefined()
+    expect(next.library.bram!.ownerIdentityId).toBeUndefined()
+    expect(next.library.bram!.ownerName).toBeUndefined()
+    expect(next.byScene[SCENE]!.t1).toMatchObject({ ownerId: null })
+    expect(run(next, P1, 'move', { id: 't1', x: 2.5, y: 1.5 }).error).toMatchObject({ code: 'unauthorized' })
+  })
+
+  it('handed over on its token by the DM, is the seat’s character; unhanded, is free again', () => {
+    const { run } = harness()
+    const { error, next } = run(start, DM, 'assign', { id: 't1', identityId: 'p-1' })
+    expect(error).toBeUndefined()
+    expect(next.library.bram).toMatchObject({ ownerIdentityId: 'p-1', ownerName: 'Borin' })
+    expect(next.byScene[SCENE]!.t1).toMatchObject({ ownerId: 'p-1' })
+    const withSecond = { ...next, library: { ...next.library, cora: pc('cora') } }
+    expect(run(withSecond, P1, 'pc-claim', { defId: 'cora' }).error?.message.startsWith(PC_ALREADY_OWNED)).toBe(true)
+
+    const back = run(next, DM, 'assign', { id: 't1', identityId: null }).next
+    expect(back.library.bram!.ownerIdentityId).toBeUndefined()
+    expect(back.library.bram!.ownerName).toBeUndefined()
+    expect(back.byScene[SCENE]!.t1).toMatchObject({ ownerId: null })
+    expect(run(back, P2, 'pc-claim', { defId: 'bram' }).error).toBeUndefined()
+  })
+
+  it('leaves a non-PC token’s def alone when the DM hands the token over', () => {
+    const { run } = harness()
+    const gob = pc('gob', { kind: 'npc' })
+    const npc = { ...start, library: { ...start.library, gob }, byScene: { [SCENE]: { t2: placed(gob, 't2') } } }
+    const { error, next } = run(npc, DM, 'assign', { id: 't2', identityId: 'p-1' })
+    expect(error).toBeUndefined()
+    expect(next.library.gob!.ownerIdentityId).toBeUndefined()
+    expect(next.byScene[SCENE]!.t2).toMatchObject({ ownerId: 'p-1' })
+    expect(run(next, DM, 'assign', { id: 't2', identityId: null }).next.library.gob!.ownerIdentityId).toBeUndefined()
+  })
+
   it('are player commands; the DM keeps assign and the library', () => {
     const { run } = harness()
     for (const action of ['pc-claim', 'pc-create', 'pc-update', 'pc-release']) {

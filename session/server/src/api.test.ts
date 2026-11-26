@@ -739,6 +739,37 @@ describe('scenes (#47)', () => {
     })
   })
 
+  it('tells the DM seats their undo is empty after a scene delete, and never sends a player a history frame', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, playerToken } = await table(base, adminPass)
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+      const dm = (await joinSocket(server.port, dmToken)).socket
+      const player = (await joinSocket(server.port, playerToken)).socket
+      await nextMessage(dm, 'player-joined')
+      const heard: string[] = []
+      player.on('message', (raw: Buffer) => heard.push((JSON.parse(raw.toString()) as ServerMessage).type))
+
+      const placed = nextMessage(dm, 'history')
+      dm.send(JSON.stringify({ type: 'command', module: 'tokens', action: 'place', payload: { sceneId, name: 'Rat', x: 0, y: 0 }, seq: 1 }))
+      expect((await placed).undo).toEqual({ module: 'tokens', action: 'place' })
+
+      const emptied = nextMessage(dm, 'history')
+      expect((await api(base, 'DELETE', `/api/scenes/${sceneId}`, { token: dmToken })).status).toBe(200)
+      expect(await emptied).toEqual({ type: 'history', undo: null, redo: null })
+
+      const pong = nextMessage(player, 'pong')
+      player.send(JSON.stringify({ type: 'ping', t: 1 }))
+      await pong
+      expect(heard).not.toContain('history')
+      dm.terminate()
+      player.terminate()
+    })
+  })
+
   /**
    * The whole point of #47 D1: re-publishing a scene from a fresh file must not orphan
    * whatever fog and tokens already remember about it. The scene's own id is what those
