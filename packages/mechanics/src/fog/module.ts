@@ -25,6 +25,7 @@ import { FOG_BRUSH_OPS, clearedOn, sceneFogOf, type FogState, type SceneFog } fr
 export * from './light'
 export * from './region'
 export * from './types'
+export * from './undo'
 
 /**
  * The scene's cell-snapped confining rectangle, which is what a region cell is counted from.
