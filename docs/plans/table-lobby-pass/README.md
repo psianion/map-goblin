@@ -343,3 +343,31 @@ One tester, one run of the specs above after the last builder step, scoped to th
 - A seat's colour chosen by the player (today it is a hash) and shared by ring, pings and rulers.
 - Ruler and ping on the phone bar.
 - Roll requests closed at the end of a night (decision f).
+
+## 12. Finishing pass
+
+One builder, the whole stack, after the four builders and the first on-screen walk. Every item was seen on screen or read in code on 2026-11-27.
+
+### 12.1 The party always has somewhere to start
+
+- A scene that becomes the live scene with no stored area gets one at that moment: the 3 by 3 cells round the map's `partyStart`, else round the centre of the map, moved to the nearest standable cells. This covers a new table, a scene switch and a re-opened table. The DM always sees an outline, and Start always places the party.
+- New DM command `tokens.place-pc {defId}`: puts a character with no token on the live scene beside the party, else in the area. The roster offers it as "Put on the map" on a seat whose character is not on the map.
+- Handing a seat a character on a started table places it the same way.
+- The outline reads on pale floor, dark rock and black fog: a dark line under a light dashed line, a soft fill, its label on a pill.
+
+### 12.2 A client from before an update
+
+A seat whose client speaks an older protocol is told so and stops reconnecting: a card, "The table was updated. Reload to carry on.", with a Reload button. Today it shows "Reconnecting" for ever.
+
+### 12.3 The roster and the lobby
+
+- **Roster picker.** No name dropdown. Each seat shows its character as a portrait with its ring and name. Opening it shows every character as a picture with its name and state (free, this seat's, taken by a name, saved for a name) and "No character".
+- **Seat row.** Seat colour, name, ready mark or loading, the character, "Edit token", and "On the map" or "Put on the map".
+- **Lobby header.** The campaign's own name, sent to every seat as `campaignName` in the session state, and "Waiting for <the DM's name> to start".
+- **Joining a table that has not started** goes straight to the lobby; the lobby does the loading. No "Preparing map" wait on the join page first.
+- **"Pick your character" card.** A "Not now" button. The player's own panel keeps a way back to it.
+- **Redo** shows a toast, as undo does. The shortcuts sheet shows the Mac's own key on a Mac.
+
+### 12.4 Checks
+
+Unit tests with each item, including a table page that mounts before its session arrives (the blank page of the first browser run). The browser specs of 9.2 are updated where these items move them. Then: an on-screen walk of every feature on a throwaway stack, one browser run, speed timings against the live site, deploy.
