@@ -266,6 +266,27 @@ describe('fog rework migration (008)', () => {
   })
 })
 
+describe('table lobby migration (009)', () => {
+  it('keeps a table that exists running, and opens a new one in the lobby', () => {
+    const raw = new Sqlite(':memory:')
+    raw.pragma('foreign_keys = ON')
+    for (const sql of MIGRATIONS.slice(0, 8)) raw.exec(sql)
+    const campaign = new CampaignStore(raw).create('Old Keep')
+    raw
+      .prepare('INSERT INTO sessions (id, campaign_id, invite_code, active, created_at) VALUES (?, ?, ?, 1, ?)')
+      .run('live', campaign.id, 'LIVE', Date.now())
+
+    raw.exec(MIGRATIONS[8]!)
+
+    const sessions = new SessionStore(raw)
+    expect(sessions.get('live')).toMatchObject({ started: 1, players_make_pcs: 1, lobby_shows_scene: 0 })
+    const fresh = sessions.createSession(campaign.id, 'NEWT')
+    expect(fresh).toMatchObject({ started: 0, players_make_pcs: 1, lobby_shows_scene: 0 })
+    expect(sessions.get(fresh.id)).toMatchObject({ started: 0, players_make_pcs: 1, lobby_shows_scene: 0 })
+    raw.close()
+  })
+})
+
 describe('SessionStore', () => {
   it('resolves an invite code only while the session is active', () => {
     const campaign = new CampaignStore(db).create('C')

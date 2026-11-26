@@ -164,6 +164,8 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
       const playerToken = joined.body.token as string
       const dm = await seat(server.port, dmToken)
       const pim = await seat(server.port, playerToken)
+      dm.command('table', 'start', { on: true })
+      await dm.until(() => server.stores.sessions.getActiveByCampaign(campaignId)?.started === 1)
       // Fog on, with Auto-explore on as it starts: the party clears what it sees.
       const fogOn = () => (server.stores.moduleState.get(campaignId, 'fog') as FogState | undefined)?.byScene[sceneId]?.on === true
       dm.command('fog', 'set-on', { sceneId, on: true })
@@ -232,6 +234,8 @@ describe('the acceptance walk (outdoor-cave.spec steps 3 to 5, By sight)', () =>
       dm.command('fog', 'set-on', { sceneId, on: true })
       await dm.until(() => (server.stores.moduleState.get(campaignId, 'fog') as FogState | undefined)?.byScene[sceneId]?.on === true)
       const pim = await seat(server.port, joined.body.token as string)
+      dm.command('table', 'start', { on: true })
+      await dm.until(() => server.stores.sessions.getActiveByCampaign(campaignId)?.started === 1)
       // The assignment is a step Auto-explore answers: the ground round the door clears, and the
       // door's live state follows it to the player.
       const bram = () => tokensOf(server, campaignId, sceneId)[0]!

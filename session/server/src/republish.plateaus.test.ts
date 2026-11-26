@@ -102,6 +102,8 @@ describe('a live republish', () => {
       const player = await seat(server.port, joined.body.token as string)
       await dm.until((m) => m.type === 'session-state')
       await player.until((m) => m.type === 'session-state')
+      dm.command('table', 'start', { on: true })
+      await player.until((m) => m.type === 'state-update' && m.module === 'table' && (m.state as { started?: boolean }).started === true)
 
       dm.command('tokens', 'place', { name: 'Borin', x: 2.5, y: 2.5, disposition: 'friendly' })
       const placed = await dm.until((m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).length > 0)
@@ -163,6 +165,8 @@ describe('a live republish onto plateaus', () => {
       const player = await seat(server.port, joined.body.token as string)
       await dm.until((m) => m.type === 'session-state')
       await player.until((m) => m.type === 'session-state')
+      dm.command('table', 'start', { on: true })
+      await player.until((m) => m.type === 'state-update' && m.module === 'table' && (m.state as { started?: boolean }).started === true)
       dm.command('tokens', 'place', { name: 'Borin', x: 2.5, y: 2.5, disposition: 'friendly' })
       const placed = await dm.until((m) => m.type === 'state-update' && m.module === 'tokens' && tokensIn(m, sceneId).length > 0)
       const borin = tokensIn(placed, sceneId)[0]

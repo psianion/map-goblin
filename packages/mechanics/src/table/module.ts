@@ -14,8 +14,11 @@
 import { ANY_ROLE, type CommandError, type GameModule } from '../contract'
 import { refusal } from '../doors/types'
 import { TABLE_PAUSED } from '../tokens/module'
-import { Reject, bad, bool, obj } from '../tokens/validate'
+import { ID_MAX, Reject, bad, bool, obj, str } from '../tokens/validate'
 import type { TableFlags } from '../tokens/types'
+
+/** A `sceneId:mapId`. */
+const READY_KEY_MAX = ID_MAX * 2 + 1
 
 export interface TableState extends TableFlags {
   /** identityId → the `sceneId:mapId` that seat has finished loading. */
@@ -78,20 +81,37 @@ export const tableModule: GameModule<TableState> = {
       const p = obj(payload ?? {}, 'payload')
       const state = normalized(ctx.state)
       if (action === 'sync') {
+        // A session opening in this process: what the seats had loaded is said again by each.
         const flag = (key: keyof TableFlags) => (p[key] === undefined ? TABLE_INITIAL[key] : bool(p[key], key))
         return ctx.setState({
-          ...state,
-          paused: bool(p.paused, 'paused'),
-          movementLocked: bool(p.movementLocked, 'movementLocked'),
+          paused: flag('paused'),
+          movementLocked: flag('movementLocked'),
           started: flag('started'),
           playersMakePcs: flag('playersMakePcs'),
           lobbyShowsScene: flag('lobbyShowsScene'),
+          ready: {},
         })
       }
-      if (action === 'start' || action === 'set-lobby' || action === 'ready') bad(`table.${action} is not built yet`)
+      if (action === 'ready') {
+        const key = str(p.key, 'key', READY_KEY_MAX)
+        if (state.ready[ctx.sender.identityId] === key) return
+        return ctx.setState({ ...state, ready: { ...state.ready, [ctx.sender.identityId]: key } })
+      }
+      if (action === 'set-lobby') {
+        if (p.playersMakePcs === undefined && p.lobbyShowsScene === undefined) {
+          bad('set-lobby needs playersMakePcs or lobbyShowsScene')
+        }
+        return ctx.setState({
+          ...state,
+          ...(p.playersMakePcs === undefined ? {} : { playersMakePcs: bool(p.playersMakePcs, 'playersMakePcs') }),
+          ...(p.lobbyShowsScene === undefined ? {} : { lobbyShowsScene: bool(p.lobbyShowsScene, 'lobbyShowsScene') }),
+        })
+      }
       const on = bool(p.on, 'on')
       if (action === 'pause') ctx.setState({ ...state, paused: on })
       else if (action === 'lock-movement') ctx.setState({ ...state, movementLocked: on })
+      // On runs the party's placement and off clears what is on show: the server's after-write rules.
+      else if (action === 'start') ctx.setState({ ...state, started: on })
       else bad(`table has no action '${action}'`)
     } catch (err) {
       if (err instanceof Reject) return { code: err.code, message: err.message }

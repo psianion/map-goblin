@@ -3,6 +3,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Role } from '@dnd/core/src/shared/protocol'
+import type { TableFlags } from '@dnd/mechanics/tokens'
 import type { Database } from './db'
 
 /** D7 — `.mapbuilder` files reach 20MB on the wire; anything past that we do not accept. */
@@ -55,6 +56,12 @@ export interface SessionRow {
   paused: number
   /** SQLite boolean (migration 006): players may not move their tokens. */
   movement_locked: number
+  /** SQLite boolean (migration 009): players are on the map; 0 is the lobby. */
+  started: number
+  /** SQLite boolean (migration 009): a player may make their own character. */
+  players_make_pcs: number
+  /** SQLite boolean (migration 009): the lobby shows the scene's name and picture. */
+  lobby_shows_scene: number
 }
 
 export interface Identity {
@@ -308,7 +315,8 @@ export class SessionStore {
   constructor(db: Database) {
     this.#db = db
     this.#insert = db.prepare<[string, string, string, number]>(
-      'INSERT INTO sessions (id, campaign_id, invite_code, active, created_at) VALUES (?, ?, ?, 1, ?)',
+      // A new table opens in the lobby (migration 009); a row from before it keeps running.
+      'INSERT INTO sessions (id, campaign_id, invite_code, active, created_at, started, players_make_pcs, lobby_shows_scene) VALUES (?, ?, ?, 1, ?, 0, 1, 0)',
     )
     this.#byId = db.prepare<[string], SessionRow>('SELECT * FROM sessions WHERE id = ?')
     this.#byCode = db.prepare<[string], SessionRow>(
@@ -340,6 +348,9 @@ export class SessionStore {
       created_at: Date.now(),
       paused: 0,
       movement_locked: 0,
+      started: 0,
+      players_make_pcs: 1,
+      lobby_shows_scene: 0,
     }
     this.#db.transaction(() => {
       this.#endCampaign.run(campaignId)
@@ -371,11 +382,23 @@ export class SessionStore {
     this.#setScene.run(sceneId, sessionId)
   }
 
-  /** Table v2 — the DM's pause and movement lock (migration 006), written by the `table` module. */
-  setTableFlags(sessionId: string, flags: { paused: boolean; movementLocked: boolean }): void {
+  /**
+   * Table v2 — the DM's pause and movement lock (migration 006), and the lobby's three flags
+   * (009), written by the `table` module.
+   */
+  setTableFlags(sessionId: string, flags: TableFlags): void {
     this.#db
-      .prepare<[number, number, string]>('UPDATE sessions SET paused = ?, movement_locked = ? WHERE id = ?')
-      .run(flags.paused ? 1 : 0, flags.movementLocked ? 1 : 0, sessionId)
+      .prepare<[number, number, number, number, number, string]>(
+        'UPDATE sessions SET paused = ?, movement_locked = ?, started = ?, players_make_pcs = ?, lobby_shows_scene = ? WHERE id = ?',
+      )
+      .run(
+        flags.paused ? 1 : 0,
+        flags.movementLocked ? 1 : 0,
+        flags.started ? 1 : 0,
+        flags.playersMakePcs ? 1 : 0,
+        flags.lobbyShowsScene ? 1 : 0,
+        sessionId,
+      )
   }
 
   /** #47 — a deleted scene stops being anyone's active one, in whatever session had it. */

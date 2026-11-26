@@ -2,7 +2,8 @@
 
 import type { ClientMessage, MarkEvent, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
 import type { CommandError, Viewer } from '@dnd/mechanics/contract'
-import { TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
+import { TABLE_NOT_STARTED_ERROR, TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
+import type { TableFlags } from '@dnd/mechanics/tokens'
 import { PROTOCOL_VERSION } from '../config'
 import type { Vision } from '../fog/vision'
 import type { ModuleRegistry } from '../modules/registry'
@@ -56,10 +57,11 @@ export interface SessionManagerOptions {
   /** Has this identity been banned since it connected? Defaults to no, for the same reason. */
   isBanned?: (identityId: string) => boolean
   /**
-   * Table v2 — the session row's pause and movement lock. When a session opens in this process
-   * the `table` slice is set from it (internal `table.sync`), so the seats are shown the row.
+   * Table v2 — the session row's pause and movement lock, and the lobby's flags. When a session
+   * opens in this process the `table` slice is set from it (internal `table.sync`), so the
+   * seats are shown the row.
    */
-  tableFlags?: (sessionId: string) => { paused: boolean; movementLocked: boolean } | null
+  tableFlags?: (sessionId: string) => TableFlags | null
 }
 
 export class SessionManager {
@@ -204,10 +206,12 @@ export class SessionManager {
           players: [...session.players.values()],
         })
       case 'mark': {
-        // v6 — relayed, never stored: a mark is a gesture, not state (plan 4.3). A paused
-        // table takes no gesture from a player's seat either (the registry refuses commands).
-        if (conn.identity.role !== 'dm' && this.tableFlags(session.id)?.paused) {
-          return this.broadcaster.sendTo(conn, { type: 'error', ...TABLE_PAUSED_ERROR })
+        // v6 — relayed, never stored: a mark is a gesture, not state (plan 4.3). A table in the
+        // lobby, or paused, takes no gesture from a player's seat either (the registry refuses commands).
+        if (conn.identity.role !== 'dm') {
+          const flags = this.tableFlags(session.id)
+          if (flags && !flags.started) return this.broadcaster.sendTo(conn, { type: 'error', ...TABLE_NOT_STARTED_ERROR })
+          if (flags?.paused) return this.broadcaster.sendTo(conn, { type: 'error', ...TABLE_PAUSED_ERROR })
         }
         const parsed = parseMark(msg.mark, conn.identity.role)
         if ('error' in parsed) {
