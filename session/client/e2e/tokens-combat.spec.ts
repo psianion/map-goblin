@@ -58,6 +58,14 @@ test.describe('@play tokens and combat', () => {
     const { page } = hostSession;
     const player = await joinAsPlayer('Bram');
     await startTable(page, player, 'Bram');
+    // Nobody picked Yara, so she is not on the map: the DM puts her there, and the order has two.
+    await page.evaluate(() => {
+      type Store = { session: { modules: { tokens: { library: Record<string, { id: string; name: string }> } } } | null; sendCommand(m: string, a: string, p: unknown): void };
+      const store = (window as unknown as { __sessionStore: { getState(): Store } }).__sessionStore.getState();
+      const yara = Object.values(store.session!.modules.tokens.library).find((d) => d.name === 'Yara')!;
+      store.sendCommand('tokens', 'place-pc', { defId: yara.id });
+    });
+    await expect.poll(() => tokenPoint(page, 'Yara').then(() => true, () => false)).toBe(true);
     await page.keyboard.press('4');
     await page.getByTestId('encounter-start').click();
     await page.getByTestId('encounter-roll-npcs').click();

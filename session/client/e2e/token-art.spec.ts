@@ -58,9 +58,10 @@ test.describe('@play token art', () => {
     const token = await myToken(player);
     expect(token?.imageAssetId).toBeTruthy();
 
-    // The portrait in the party sheet wears the same ring.
-    await player.getByTestId('sheet-tab-party').click();
-    await expect(player.getByTestId('party-row').filter({ hasText: 'Bram' }).locator('[data-ring]')).toHaveAttribute('data-ring', '#be185d');
+    // The portrait in the DM's party sheet wears the same ring (the Party tab is the DM's).
+    const dm = hostSession.page;
+    await dm.getByTestId('sheet-tab-party').click();
+    await expect(dm.getByTestId('party-row').filter({ hasText: 'Bram' }).locator('[data-ring]')).toHaveAttribute('data-ring', '#be185d');
   });
 
   test('Edit my token on the map changes the ring mid-game', async ({ hostSession, joinAsPlayer }) => {

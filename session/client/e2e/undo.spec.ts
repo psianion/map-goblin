@@ -1,6 +1,5 @@
 // @play — the DM's undo and redo: a token move, a delete, a fog stroke and a door, each taken
-// back by key and by the top-bar buttons, and put forward again. Written, never run by the
-// builders: the tester runs it once.
+// back by key and by the top-bar buttons, and put forward again.
 import type { Page } from '@playwright/test';
 import { dragToken, expect, test, tokenAt } from './fixtures';
 
@@ -42,12 +41,19 @@ const clearedCells = (page: Page): Promise<number> =>
     return count;
   });
 
+/** Past the lobby: its "Not started" strip floats over the map's corner, where a test token may sit. */
+async function startTheTable(page: Page): Promise<void> {
+  await page.getByTestId('lobby-start').click();
+  await expect(page.getByTestId('lobby-strip')).toBeHidden();
+}
+
 const undoKey = (page: Page) => page.keyboard.press('Control+z');
 const redoKey = (page: Page) => page.keyboard.press('Control+Shift+z');
 
 test.describe('@play undo', () => {
   test('token move and delete, by key and by button, and redo', async ({ hostSession }) => {
     const { page } = hostSession;
+    await startTheTable(page);
     await expect(page.getByTestId('history-undo')).toBeDisabled();
     await send(page, 'tokens', 'place', { name: 'Undo Rat', size: 'medium', disposition: 'hostile', x: 3.5, y: 3.5 });
     await expect.poll(() => tokenAt(page, 'Undo Rat')).not.toBeNull();
@@ -85,28 +91,34 @@ test.describe('@play undo', () => {
 
   test('a fog stroke is one step, by key, and redo', async ({ hostSession }) => {
     const { page } = hostSession;
+    await startTheTable(page);
+    // Everything cleared first, then a Fog stroke across the middle of the map: the Clear brush
+    // only opens ground with floor on it, and this map's middle row may be rock.
     await send(page, 'fog', 'set-on', { on: true });
-    await page.keyboard.press('w');
-    await page.keyboard.press('b');
+    await send(page, 'fog', 'clear-all', {});
+    await expect.poll(() => clearedCells(page)).toBeGreaterThan(0);
+    const all = await clearedCells(page);
+    await page.keyboard.press('Shift+W');
     const box = (await page.getByTestId('game-canvas').boundingBox())!;
-    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.5);
+    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.45);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5, { steps: 20 });
+    await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.45, { steps: 30 });
     await page.mouse.up();
     await page.keyboard.press('Escape');
-    await expect.poll(() => clearedCells(page)).toBeGreaterThan(0);
+    await expect.poll(() => clearedCells(page)).toBeLessThan(all);
     const stroke = await clearedCells(page);
     await expect.poll(() => topUndo(page)).toBe('fog.region-set');
 
     await undoKey(page);
-    await expect.poll(() => clearedCells(page)).toBe(0);
-    await expect.poll(() => topUndo(page)).toBe('fog.set-on');
+    await expect.poll(() => clearedCells(page)).toBe(all);
+    await expect.poll(() => topUndo(page)).toBe('fog.clear-all');
     await redoKey(page);
     await expect.poll(() => clearedCells(page)).toBe(stroke);
   });
 
   test('a door, by button, and redo by key', async ({ hostSession }) => {
     const { page } = hostSession;
+    await startTheTable(page);
     await page.keyboard.press('2');
     await page.getByTestId('map-family-doors').click();
     // The first lockable door: an archway has no leaf to open.

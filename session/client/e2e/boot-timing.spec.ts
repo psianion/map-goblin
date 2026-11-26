@@ -113,7 +113,14 @@ test.describe('@boot table boot timing', () => {
 
     if (!baseline) {
       const packs = manifests();
-      const allowed = setsTheMapNames(JSON.parse(readFileSync(DEMO_MAP, 'utf8')), packs);
+      const doc = readFileSync(DEMO_MAP, 'utf8');
+      const allowed = setsTheMapNames(JSON.parse(doc), packs);
+      // A map with doors draws them from its walls' door kit, a set the map itself never names.
+      if (doc.includes('"childType":"door"') || doc.includes('"childType": "door"')) {
+        for (const [packId, m] of packs) {
+          for (const e of Object.values(m.entries)) if (e.set && /door/i.test(e.set)) allowed.add(`${packId}/${e.set}`);
+        }
+      }
       const strays = packFiles
         .map((f) => {
           const [, packId, file] = new URL(f.url).pathname.match(/\/packs\/([^/]+)\/(.+)$/) ?? [];

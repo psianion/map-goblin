@@ -132,7 +132,8 @@ test.describe('@map the fog, on the outdoor cave', () => {
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.partyStart);
     await expect.poll(() => roomsHeld(player)).toContain('room-hall');
     await expect.poll(() => tokenAt(player, 'Goblin')).not.toBeNull();
-    expect(await probe(player, 'visible')).toBe(false);
+    // The player's map mounted a moment ago, at Start: its fog layer may still be on its way.
+    await expect.poll(() => probe(player, 'visible').catch(() => null)).toBe(false);
 
     // 2. The DM turns fog on from the Fog card, which arms the Clear brush. The player sees fog
     // everywhere, and their own token.
