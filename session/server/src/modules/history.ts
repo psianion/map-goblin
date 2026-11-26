@@ -6,6 +6,26 @@
 // leaf, compared by reference. Handlers keep unchanged subtrees by reference, so a token move on
 // a 200-token scene walks the scene's keys and one token, not the whole slice.
 
+import { fogHistory } from '@dnd/mechanics/fog'
+
+/**
+ * The modules a DM's command is recorded for (§5.2). Everything else (table, rolls, ping,
+ * scenes) is either not undoable or keeps its truth outside module state.
+ */
+export const RECORDED_MODULES: ReadonlySet<string> = new Set([
+  'tokens',
+  'fog',
+  'doors',
+  'triggers',
+  'initiative',
+  'story',
+  'pins',
+  'crossings',
+])
+
+/** The modules that put a leaf back their own way. */
+export const MERGE_RULES: Readonly<Record<string, MergeRule>> = { fog: fogHistory }
+
 export type Path = readonly string[]
 
 /** One changed leaf. `undefined` on either side is "absent". */
@@ -60,6 +80,16 @@ export interface DiffStats {
   visited: number
 }
 
+/**
+ * A `log` (the slice's own, or a scene's in triggers) is never part of a step: an undo neither
+ * drops the lines written since nor brings back old ones.
+ */
+const skipped = (key: string): boolean => key === 'log'
+
+/** A copied array holding the very same items is no change (triggers copies its lists). */
+const sameItems = (a: unknown, b: unknown): boolean =>
+  Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => item === b[i])
+
 /** The leaves that differ between two states. Empty when nothing changed. */
 export function diff(before: unknown, after: unknown, rule?: MergeRule, stats?: DiffStats): Change[] {
   const out: Change[] = []
@@ -69,7 +99,7 @@ export function diff(before: unknown, after: unknown, rule?: MergeRule, stats?: 
 
 function walk(a: unknown, b: unknown, path: string[], out: Change[], rule?: MergeRule, stats?: DiffStats): void {
   if (stats) stats.visited++
-  if (a === b) return
+  if (a === b || sameItems(a, b)) return
   const mode = rule?.at(path)
   if (mode !== 'leaf') {
     const through = mode === 'through'
@@ -77,12 +107,13 @@ function walk(a: unknown, b: unknown, path: string[], out: Change[], rule?: Merg
     const ob = isPlain(b) ? b : through && b === undefined ? EMPTY : null
     if (oa && ob) {
       for (const key of Object.keys(oa)) {
+        if (skipped(key)) continue
         path.push(key)
         walk(oa[key], ob[key], path, out, rule, stats)
         path.pop()
       }
       for (const key of Object.keys(ob)) {
-        if (has(oa, key)) continue
+        if (has(oa, key) || skipped(key)) continue
         path.push(key)
         walk(undefined, ob[key], path, out, rule, stats)
         path.pop()

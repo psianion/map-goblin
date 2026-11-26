@@ -15,6 +15,7 @@ import type {
 } from '@dnd/mechanics/contract'
 import type { ModuleStateStore } from '../db/stores'
 import type { SceneTagged } from '../ws/Broadcaster'
+import { History, MERGE_RULES, RECORDED_MODULES, applyChanges, diff, type Change, type StepName } from './history'
 
 /** What the caller supplies; the registry adds `state` and `setState` on top. */
 export type DispatchContext = Omit<ModuleContext<unknown>, 'state' | 'setState'>
@@ -62,7 +63,6 @@ const CASCADES: Record<string, readonly string[]> = {
     'region-set',
     'clear-all',
     'fog-all',
-    'restore',
   ],
 }
 
@@ -90,8 +90,20 @@ export type AfterWrite = (
  */
 export type SeatGate = (sessionId: string, module: string, action: string) => CommandError | null
 
+/** A module's state before its first write in a recorded dispatch, and after its last. */
+interface Written {
+  before: unknown
+  now: unknown
+}
+
 export class ModuleRegistry {
   private readonly modules = new Map<string, GameModule<unknown>>()
+  /** Undo for the DM (§5): per session, in memory, gone with the session. */
+  private readonly histories = new Map<string, { campaignId: string; history: History }>()
+  /** Set only while `dispatchRecorded` runs. */
+  private recording: { campaignId: string; written: Map<string, Written> } | null = null
+  /** The work recording costs, counted for the guard tests (§8). */
+  readonly historyStats = { diffs: 0, visited: 0 }
 
   constructor(
     private readonly store: ModuleStateStore,
@@ -133,8 +145,76 @@ export class ModuleRegistry {
     return this.run(found, action, payload, ctx)
   }
 
+  /**
+   * Table lobby pass §5.1 — a DM's command off the wire, recorded for undo. Each module's state
+   * is noted before its first write in this dispatch, cascades and after-write rules included,
+   * and the whole dispatch is diffed once when it returns. A command whose own module is not
+   * recorded records nothing, whatever it causes (Start placing the party is not a step).
+   */
+  dispatchRecorded(
+    module: string,
+    action: string,
+    payload: unknown,
+    ctx: DispatchContext,
+    group?: string,
+  ): CommandError | null {
+    if (!RECORDED_MODULES.has(module)) return this.dispatch(module, action, payload, ctx)
+    const written = new Map<string, Written>()
+    this.recording = { campaignId: ctx.campaignId, written }
+    let error: CommandError | null
+    try {
+      error = this.dispatch(module, action, payload, ctx)
+    } finally {
+      this.recording = null
+    }
+    if (error || written.size === 0) return error
+    this.historyStats.diffs++
+    const changes: Record<string, Change[]> = {}
+    for (const [name, { before, now }] of written) {
+      if (RECORDED_MODULES.has(name)) changes[name] = diff(before, now, MERGE_RULES[name], this.historyStats)
+    }
+    let entry = this.histories.get(ctx.sessionId)
+    if (!entry) this.histories.set(ctx.sessionId, (entry = { campaignId: ctx.campaignId, history: new History() }))
+    entry.history.record({
+      name: { module, action },
+      seat: ctx.sender.identityId,
+      group,
+      sceneId: sceneOf(payload, ctx.activeSceneId),
+      changes,
+    })
+    return null
+  }
+
+  /**
+   * The session's last step put back (undo) or forward again (redo), leaf by leaf onto the
+   * current state, so whatever else changed since stays. Persisted and told to the table like
+   * a write, tagged with the step's scene, with the slices those writes re-redact re-sent. No
+   * cascade and no after-write rule runs.
+   */
+  stepHistory(op: 'undo' | 'redo', ctx: DispatchContext): void {
+    const step = this.histories.get(ctx.sessionId)?.history[op]()
+    if (!step) return
+    const written: string[] = []
+    for (const [name, changes] of Object.entries(step.changes)) {
+      const module = this.modules.get(name)
+      if (!module || changes.length === 0) continue
+      const state = this.load(ctx.campaignId, module)
+      this.store.put(ctx.campaignId, name, applyChanges(state, changes, op === 'undo' ? 'before' : 'after', MERGE_RULES[name]))
+      written.push(name)
+    }
+    const retracts = written.flatMap((name) => RETRACTS[name] ?? []).filter((name) => !written.includes(name))
+    for (const name of new Set([...written, ...retracts])) this.refresh(name, ctx, step.sceneId)
+  }
+
+  /** What the DM's undo and redo buttons would do now. */
+  historyOf(sessionId: string): { undo: StepName | null; redo: StepName | null } {
+    return this.histories.get(sessionId)?.history.names() ?? { undo: null, redo: null }
+  }
+
   /** The session's undo history goes with it. */
-  forgetHistory(_sessionId: string): void {}
+  forgetHistory(sessionId: string): void {
+    this.histories.delete(sessionId)
+  }
 
   /**
    * The one door into an action that is not in a module's `commands` map — skipping both
@@ -192,6 +272,10 @@ export class ModuleRegistry {
       // D3 — one call persists and tells the table. The broadcast carries the *raw* state;
       // per-viewer redaction happens once, at the Broadcaster choke point (D4).
       setState: (next) => {
+        if (this.recording?.campaignId === ctx.campaignId) {
+          const seen = this.recording.written.get(found.name)
+          this.recording.written.set(found.name, { before: seen ? seen.before : read(), now: next })
+        }
         loaded = { value: next }
         this.store.put(ctx.campaignId, found.name, next)
         say({ type: 'state-update', module: found.name, state: next })
@@ -275,6 +359,10 @@ export class ModuleRegistry {
    * state is rewritten: a module never written for this campaign has nothing to forget.
    */
   forgetScene(campaignId: string, sceneId: string): void {
+    // A step may name the scene that just went; the campaign's sessions start their undo over.
+    for (const [sessionId, entry] of this.histories) {
+      if (entry.campaignId === campaignId) this.histories.delete(sessionId)
+    }
     for (const module of this.modules.values()) {
       const forget = (module as { forgetScene?: (state: unknown, sceneId: string) => unknown }).forgetScene
       if (!forget) continue
@@ -284,6 +372,10 @@ export class ModuleRegistry {
   }
 
   private load(campaignId: string, module: GameModule<unknown>): unknown {
+    // In a recorded dispatch a module written once is read back as the very object it wrote,
+    // so the second write shares the first one's untouched subtrees and the diff skips them.
+    const live = this.recording?.campaignId === campaignId ? this.recording.written.get(module.name) : undefined
+    if (live) return live.now
     return this.store.get(campaignId, module.name) ?? module.initialState
   }
 }

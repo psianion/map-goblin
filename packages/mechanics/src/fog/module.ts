@@ -10,12 +10,10 @@ import { FOG_LAYER_TYPES, FOG_LOOK_RANGES, type FogLayer, type FogLook } from '@
 import { actorOf, logged, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
 import {
-  REGION_CELL_MAX,
   clearCells,
   fillRegion,
   rebaseRegion,
   setCells,
-  toBytes,
   type Cell,
   type Frame,
   type RegionMask,
@@ -61,7 +59,6 @@ export function fogModule(
       'set-on': ['dm'],
       'clear-all': ['dm'],
       'fog-all': ['dm'],
-      restore: ['dm'],
       'set-auto-explore': ['dm'],
       'set-fog-look': ['dm'],
       'region-set': ['dm'],
@@ -91,8 +88,8 @@ interface CellLookups {
 }
 
 /**
- * Fog rework — the commands of the one model: the switch, the brush, the two bulk acts, their
- * undo, the party's own sight, and the two settings.
+ * Fog rework — the commands of the one model: the switch, the brush, the two bulk acts, the
+ * party's own sight, and the two settings.
  *
  * Every write re-bases each level's record onto the current frame first (`rebaseRegion`), so
  * a republish that moved the map keeps cleared ground where it was on the map.
@@ -148,19 +145,6 @@ function run(action: string, p: Payload, ctx: Ctx, cells: CellLookups): void {
       const scene = sceneFogOf(ctx.state, sceneId)
       return setScene(ctx, sceneId, withCleared(scene, {}), { action: 'fogged-all' })
     }
-    case 'restore': {
-      const sceneId = sceneOf(p, ctx)
-      const scene = sceneFogOf(ctx.state, sceneId)
-      const frame = frameFor(ctx, sceneId, cells.frameOf)
-      const levels = cells.levelsOf(ctx.campaignId, sceneId)
-      const cleared: Record<string, RegionMask> = {}
-      for (const [levelId, raw] of Object.entries(obj(p.cleared, 'cleared'))) {
-        oneOf(levelId, levels, 'cleared key')
-        const mask = rebaseRegion(parseMask(raw, `cleared.${levelId}`), frame)
-        if (mask) cleared[levelId] = mask
-      }
-      return setScene(ctx, sceneId, withCleared(scene, cleared), { action: 'changed-fog' })
-    }
     // Server-internal (see `commands` above): the cells one party sweep just earned, per level,
     // applied as ONE write so persistence, the broadcast, D5's geometry delta and the retract
     // re-sends all ride the path a DM's own clear rides.
@@ -215,30 +199,6 @@ function withCleared(scene: SceneFog, cleared: Record<string, RegionMask>): Scen
 /** The level a brush stroke names: one the scene's map has. */
 function levelOf(p: Payload, ctx: Ctx, sceneId: string, cells: CellLookups): string {
   return oneOf(p.levelId, cells.levelsOf(ctx.campaignId, sceneId), 'levelId')
-}
-
-/**
- * A cell record off the wire (`restore`): four whole numbers and bits of exactly the length they
- * call for, so a hand-made record cannot write past its own grid.
- */
-function parseMask(value: unknown, field: string): RegionMask {
-  const o = obj(value, field)
-  const whole = (v: unknown, name: string): number => {
-    const n = num(v, `${field}.${name}`)
-    if (!Number.isInteger(n)) bad(`${field}.${name} must be a whole number`)
-    return n
-  }
-  const [minX, minY, cols, rows] = [whole(o.minX, 'minX'), whole(o.minY, 'minY'), whole(o.cols, 'cols'), whole(o.rows, 'rows')]
-  if (cols < 0 || rows < 0 || cols * rows > REGION_CELL_MAX) bad(`${field} is not a cell record this scene can hold`)
-  const bits = typeof o.bits === 'string' ? o.bits : bad(`${field}.bits must be a string`)
-  let length: number
-  try {
-    length = toBytes(bits).length
-  } catch {
-    bad(`${field}.bits must be base64`)
-  }
-  if (length !== Math.ceil((cols * rows) / 8)) bad(`${field}.bits does not fit ${cols} by ${rows} cells`)
-  return { minX, minY, cols, rows, bits }
 }
 
 function frameFor(ctx: Ctx, sceneId: string, frameOf: SceneFrame): Frame {

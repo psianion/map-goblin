@@ -45,6 +45,13 @@ describe('diff', () => {
     ])
   })
 
+  it('sees no change in a copied array of the same items, nor in any log', () => {
+    const item = { x: 1 }
+    const before = { prompts: [item], log: ['a'], byScene: { s1: { log: ['a'] } } }
+    const after = { prompts: [item], log: ['a', 'b'], byScene: { s1: { log: [] } } }
+    expect(diff(before, after)).toEqual([])
+  })
+
   it('visits one scene key per token and the moved token only', () => {
     const tokens: Record<string, { x: number; y: number }> = {}
     for (let i = 0; i < 200; i++) tokens[`t${i}`] = { x: i, y: 0 }
