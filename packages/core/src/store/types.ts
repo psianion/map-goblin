@@ -598,6 +598,12 @@ export interface SelectionSlice {
    * "4 here, right-click to pick" past one. Absent or 0 when nothing is counted.
    */
   hoverCount?: number;
+  /**
+   * The rock (a cliff's art, or a wall's set) of the edge the Door tool's Opening last hovered, when
+   * an Opening there lays a cave-mouth piece: the dock's Kit tiles and Width follow it. Absent once
+   * the pointer is on an edge that lays none.
+   */
+  hoverMouthKit?: string;
   clipboard: ChildClipboard | null;
   selectedRegion: [number, number][][] | null;
 }
@@ -1038,6 +1044,7 @@ export interface MapBuilderStore {
   setSelectedIds: (ids: string[]) => void;
   setHoveredId: (id: string | null) => void;
   setHoverCount: (n: number) => void;
+  setHoverMouthKit: (kit: string | undefined) => void;
   setSelectedRegion: (region: [number, number][][] | null) => void;
   setClipboard: (clipboard: ChildClipboard | null) => void;
 

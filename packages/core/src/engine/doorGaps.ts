@@ -10,13 +10,21 @@ import { doorOpeningCuts, type ResolvedDoor, type ResolvedWall } from '../shared
 import { doorWallLook, edgeStyles, ringStyles } from '../shared/wallLook';
 import { isBandSet } from '../assets/packCatalog';
 import { doorPostDepth } from '../assets/doorKits';
+import { wallMouthPiece } from '../assets/caveWallKit';
 import { layerDrawStyle, layerLevelLook } from './levelLook';
 import type { DoorGap } from './wallNodeRenderer';
 
-/** A door's cuts as gaps in the rock of the wall set `setId`: an Opening's a mouth's, a framed door's widened by its posts. */
-export function rockGaps<G extends Omit<DoorGap, 'mouth'>>(cuts: G[], door: DoorChild, setId: string | undefined): (G & { mouth?: true })[] {
+/**
+ * A door's cuts as gaps in the rock of the wall set `setId`: an Opening's a mouth's, a framed door's
+ * widened by its posts. An Opening in rock whose kit has a mouth piece its width carries that piece
+ * on its own wall's cut (the first).
+ */
+export function rockGaps<G extends Omit<DoorGap, 'mouth' | 'entrance'>>(cuts: G[], door: DoorChild, setId: string | undefined): (G & { mouth?: true; entrance?: string })[] {
   if (!setId || !isBandSet(setId)) return cuts;
-  if (door.bare) return cuts.map((c) => ({ ...c, mouth: true }));
+  if (door.bare) {
+    const piece = wallMouthPiece(setId, door.width, door.piece);
+    return cuts.map((c, k) => ({ ...c, mouth: true, ...(piece && k === 0 && { entrance: piece.key }) }));
+  }
   const post = doorPostDepth(door, setId);
   return post > 0 ? cuts.map((c) => ({ ...c, width: c.width + 2 * post })) : cuts;
 }

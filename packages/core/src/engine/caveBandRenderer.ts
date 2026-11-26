@@ -13,7 +13,7 @@ import { bentMesh, endTangents, MITRE_MOST_DEG, type BendEnd, type PieceBend } f
 import { layerFloorFallback } from './levelLook';
 import { resolveTexture } from '../assets/textureLoader';
 import { GRID_CELL_PX, bandSetArt, hasLiveTexture, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
-import { bandPiecesFor, caveBandPieces, jointsOf, kitConnectors, kitDeadEnds, kitEnds, kitRockWidth, kitSteps, mirrorPiece, pieceSkew, type CaveKitPiece } from '../assets/caveWallKit';
+import { bandPiecesFor, caveBandPieces, jointsOf, kitConnectors, kitDeadEnds, kitEnds, kitEntrances, kitRockWidth, kitSteps, mirrorPiece, pieceSkew, type CaveKitPiece } from '../assets/caveWallKit';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '../store/types';
@@ -401,20 +401,24 @@ const ON_EDGE = 0.05;
  * left bare. Null when no gap lies on the line; none for a ring open all round.
  */
 function layWallRuns(line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], closed: boolean, opts: WalkOptions): WalkPlacement[] | null {
-  const { pts, cum, joined } = openingArcs(line, gaps, closed);
+  const { pts, cum, joined, mouths } = openingArcs(line, gaps, closed);
   if (joined.length === 0) return null;
   const total = cum[cum.length - 1];
   if (closed && joined.length === 1 && joined[0][1] - joined[0][0] >= total - WALL_END_JOIN) return [];
   const half = kitOverlap(set) / 2;
-  // Each stretch from where it opens to where it closes, and whether an opening bounds each end.
-  const stretches: [number, number, boolean, boolean][] = joined.slice(1).map((o, k) => [joined[k][1], o[0], true, true]);
+  const last = joined.length - 1;
+  // Each stretch from where it opens to where it closes, whether an opening bounds each end, and
+  // whether a mouth piece lies across that opening (the walk then lays right up to that end).
+  const stretches: [number, number, boolean, boolean, boolean, boolean][] = joined.slice(1).map((o, k) => [joined[k][1], o[0], true, true, mouths[k], mouths[k + 1]]);
   if (closed) {
-    stretches.push([joined[joined.length - 1][1], joined[0][0] + total, true, true]);
+    // Past an opening across the seam, the stretch starts on round the ring from its start.
+    const from = joined[last][1];
+    stretches.push(from >= total ? [from - total, joined[0][0], true, true, mouths[last], mouths[0]] : [from, joined[0][0] + total, true, true, mouths[last], mouths[0]]);
   } else {
-    stretches.unshift([0, joined[0][0], false, true]);
-    stretches.push([joined[joined.length - 1][1], total, true, false]);
+    stretches.unshift([0, joined[0][0], false, true, false, mouths[0]]);
+    stretches.push([joined[last][1], total, true, false, mouths[last], false]);
   }
-  return stretches.flatMap(([from, to, open0, open1]) => {
+  return stretches.flatMap(([from, to, open0, open1, mouth0, mouth1]) => {
     if (to - from < EXACT_SLIVER) return [];
     const run = subLine(pts, cum, from, to, closed);
     const n = run.length;
@@ -425,7 +429,7 @@ function layWallRuns(line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], closed
     const exact = layExactRun(run as Polygon, set);
     if (exact) return exact;
     const carried: Vec[] = [...(open0 ? [sub(run[0], mul(t0, half))] : []), ...run, ...(open1 ? [add(run[n - 1], mul(t1, half))] : [])];
-    return layChain(carried, [], set, opts);
+    return layChain(carried, [], set, opts, false, [false, false], [false, false], [mouth0, mouth1]);
   });
 }
 
@@ -434,38 +438,123 @@ function layWallRuns(line: Polygon, gaps: DoorGap[], set: CaveKitPiece[], closed
  * (the line, its first point repeated at the end when `closed`), in order, touching ones
  * joined and one across a ring's seam running on past its end.
  */
-function openingArcs(line: Polygon, gaps: DoorGap[], closed: boolean): { pts: Vec[]; cum: number[]; joined: [number, number][] } {
+function openingArcs(line: Polygon, gaps: DoorGap[], closed: boolean): { pts: Vec[]; cum: number[]; joined: [number, number][]; mouths: boolean[] } {
   const pts: Vec[] = line.map(([x, y]) => [x, y]);
   if (closed) pts.push(pts[0]);
   const cum = arcLengths(pts);
   const total = cum[cum.length - 1];
-  const spans: [number, number][] = [];
+  const spans: [number, number, boolean][] = [];
   for (const g of gaps) {
-    let best: { d: number; e: number; s: number } | null = null;
-    for (let e = 0; e + 1 < pts.length; e++) {
-      const L = cum[e + 1] - cum[e];
-      if (L < 1e-9) continue;
-      const along = sub(pts[e + 1], pts[e]);
-      const s = Math.max(0, Math.min(L, dot(sub(g.position, pts[e]), along) / L));
-      const d = dist(g.position, add(pts[e], mul(along, s / L)));
-      if (!best || d < best.d) best = { d, e, s };
-    }
+    const best = nearestOnLine(pts, cum, g.position);
     if (!best || best.d > ON_EDGE) continue;
+    if (g.entrance) {
+      // A mouth piece's opening runs along the line, round its bends, its chord its width; split at a ring's seam.
+      const { s, a } = mouthArc(pts, cum, best, g.width, closed);
+      const [from, to] = [s - a, s + a];
+      if (closed && from < 0) spans.push([0, to, true], [from + total, total, true]);
+      else if (closed && to > total) spans.push([from, total, true], [0, to - total, true]);
+      else spans.push([Math.max(0, from), Math.min(total, to), true]);
+      continue;
+    }
     const L = cum[best.e + 1] - cum[best.e];
-    spans.push([cum[best.e] + Math.max(0, best.s - g.width / 2), cum[best.e] + Math.min(L, best.s + g.width / 2)]);
+    spans.push([cum[best.e] + Math.max(0, best.s - g.width / 2), cum[best.e] + Math.min(L, best.s + g.width / 2), false]);
   }
   spans.sort((a, b) => a[0] - b[0]);
   const joined: [number, number][] = [];
-  for (const [a, b] of spans) {
+  const mouths: boolean[] = [];
+  for (const [a, b, mouth] of spans) {
     const last = joined[joined.length - 1];
-    if (last && a <= last[1] + WALL_END_JOIN) last[1] = Math.max(last[1], b);
-    else joined.push([a, b]);
+    if (last && a <= last[1] + WALL_END_JOIN) {
+      last[1] = Math.max(last[1], b);
+      mouths[mouths.length - 1] ||= mouth;
+    } else {
+      joined.push([a, b]);
+      mouths.push(mouth);
+    }
   }
   // An opening across a ring's seam is one opening: its ends at the seam are no wall's.
   if (closed && joined.length > 1 && joined[0][0] <= WALL_END_JOIN && joined[joined.length - 1][1] >= total - WALL_END_JOIN) {
     joined[joined.length - 1][1] = total + joined.shift()![1];
+    const first = mouths.shift()!;
+    mouths[mouths.length - 1] ||= first;
   }
-  return { pts, cum, joined };
+  return { pts, cum, joined, mouths };
+}
+
+/** The point of `pts` (arc lengths `cum`) nearest `p`: its distance, the segment and how far along it. Null for a line with no length. */
+function nearestOnLine(pts: Vec[], cum: number[], p: readonly number[]): { d: number; e: number; s: number } | null {
+  let best: { d: number; e: number; s: number } | null = null;
+  for (let e = 0; e + 1 < pts.length; e++) {
+    const L = cum[e + 1] - cum[e];
+    if (L < 1e-9) continue;
+    const along = sub(pts[e + 1], pts[e]);
+    const s = Math.max(0, Math.min(L, dot(sub(p as Vec, pts[e]), along) / L));
+    const d = dist(p as Vec, add(pts[e], mul(along, s / L)));
+    if (!best || d < best.d) best = { d, e, s };
+  }
+  return best;
+}
+
+/**
+ * Where an opening `width` wide centred on `at` (`nearestOnLine`) lies along `pts`: its middle, and
+ * how far either way along the line its ends lie for the chord between them to be its width.
+ */
+function mouthArc(pts: Vec[], cum: number[], at: { e: number; s: number }, width: number, closed: boolean): { s: number; a: number } {
+  const total = cum[cum.length - 1];
+  const s = cum[at.e] + at.s;
+  const point = (x: number): Vec => pointAtArc(pts, cum, closed ? ((x % total) + total) % total : x);
+  let a = width / 2;
+  for (let k = 0; k < 6; k++) {
+    const chord = dist(point(s - a), point(s + a));
+    if (chord < 1e-9) break;
+    a = Math.min(a * (width / chord), closed ? total / 2 : total);
+  }
+  return { s, a };
+}
+
+/** How far from where it is looked for, cells, the rock's joint beside a mouth piece is taken as the one it meets. */
+const MOUTH_MEET = 0.5;
+
+/**
+ * The mouth pieces laid across the openings of `gaps` that carry one (`DoorGap.entrance`), on `line`
+ * (wound void-left as the rock's walk takes it; a ring when `closed`) of the kit `set`, beside `rock`,
+ * what the walk laid there. Each laps the rock's joint either side of its opening by the kit's overlap,
+ * as two of the rock's own pieces lap, so its art spans the opening and meets the rock's art; where no
+ * rock joint lies there, its joint is half the overlap past the opening's end, on the rock's joint
+ * line. Shoved to the void side as the rock is, so its hollow faces the ground outside.
+ */
+export function mouthPieces(line: Polygon, gaps: readonly DoorGap[], set: CaveKitPiece[], closed: boolean, rock: readonly WalkPlacement[] = []): WalkPlacement[] {
+  if (!gaps.some((g) => g.entrance)) return [];
+  const pts: Vec[] = line.map(([x, y]) => [x, y]);
+  if (closed) pts.push(pts[0]);
+  const cum = arcLengths(pts);
+  const total = cum[cum.length - 1];
+  const point = (x: number): Vec => pointAtArc(pts, cum, closed ? ((x % total) + total) % total : x);
+  const half = kitOverlap(set) / 2;
+  const out = kitOut(set);
+  const joints = rock.flatMap((pl) => jointsOf(pl.piece, pl.at));
+  // The rock's joint at the line's arc length `x`, carried `along` the line from there: on its joint line, twice the shove out.
+  const rockJoint = (x: number, along: number): Vec => {
+    const t = norm(sub(point(x + 0.05), point(x - 0.05)));
+    const want = add(add(point(x), mul(t, along)), mul([t[1], -t[0]], 2 * out));
+    let best: Vec | null = null;
+    for (const j of joints) if (dist(j, want) <= MOUTH_MEET && (!best || dist(j, want) < dist(best, want))) best = j;
+    return best ?? want;
+  };
+  const laid: WalkPlacement[] = [];
+  for (const g of gaps) {
+    const piece = g.entrance ? kitEntrances(set).find((p) => p.key === g.entrance) : undefined;
+    const at = piece ? nearestOnLine(pts, cum, g.position) : null;
+    if (!piece || !at || at.d > ON_EDGE) continue;
+    const { s, a } = mouthArc(pts, cum, at, g.width, closed);
+    const [R0, R1] = [rockJoint(s - a, half), rockJoint(s + a, -half)];
+    const u = norm(sub(R1, R0));
+    const shove = mul([u[1], -u[0]], out);
+    const P = sub(sub(R0, mul(u, 2 * half)), shove);
+    const Q = sub(add(R1, mul(u, 2 * half)), shove);
+    laid.push({ piece, P, Q, i: 0, nudge: 0, branch: 'entrance', at: placePiece(piece, P, Q, out, 0, 0) });
+  }
+  return laid;
 }
 
 /**
@@ -854,7 +943,7 @@ function keptLaying(kind: string, line: Polygon, gaps: DoorGap[], set: CaveKitPi
   if (!set.some((p) => p.exact)) return lay();
   let kept = keptLayings.get(set);
   if (!kept) keptLayings.set(set, (kept = new Map()));
-  const key = `${kind}|${size}|${JSON.stringify(line)}|${JSON.stringify(gaps.map((g) => [g.position, g.width]))}`;
+  const key = `${kind}|${size}|${JSON.stringify(line)}|${JSON.stringify(gaps.map((g) => (g.entrance ? [g.position, g.width, 1] : [g.position, g.width])))}`;
   const hit = kept.get(key);
   if (hit) return hit;
   bandWork.layings++;
@@ -2285,8 +2374,10 @@ const TAPER_GAP_REACH = 0.5;
  * `withConnectors` tapers. A door's posts stand against the tapered tips.
  */
 export function mouthEnds(gaps: readonly DoorGap[], size = 1): ((end: Vec) => boolean) | undefined {
-  if (gaps.length === 0) return undefined;
-  return (p) => gaps.some((g) => dist(p, g.position) <= g.width / 2 + TAPER_GAP_REACH * size);
+  // An opening with a mouth piece across it is met by that piece: the rock ends there untapered.
+  const tapered = gaps.filter((g) => !g.entrance);
+  if (tapered.length === 0) return undefined;
+  return (p) => tapered.some((g) => dist(p, g.position) <= g.width / 2 + TAPER_GAP_REACH * size);
 }
 
 /**
@@ -3221,8 +3312,8 @@ export function layOutlineBand(rings: Polygon[], set: CaveKitPiece[] = caveBandP
  * ground under the rock shaded `fillColor` the way a floor's band strip is. The rock and
  * the strip stop at `gaps` (a painted cave's doors), and are laid at `size`. A measured
  * kit's rock is drawn to its own floor line, so it gets no strip. A piece whose art has not
- * decoded yet shows it when it lands (see {@link placeBand}). `onLaid` is told each ring as the
- * walk took it, with what it laid.
+ * decoded yet shows it when it lands (see {@link placeBand}). An Opening with a mouth piece has it
+ * laid across it ({@link mouthPieces}). `onLaid` is told each ring as the walk took it, with what it laid.
  * `laid` is what {@link layOutlineBand} laid for these rings already, when the caller has it.
  */
 export function drawOutlineBand(
@@ -3242,7 +3333,9 @@ export function drawOutlineBand(
   let at = parent.children.length;
   oriented.forEach((edge, i) => {
     onLaid?.(edge, laid[i]);
-    at = placeBand(parent, withConnectors(laid[i], set, size, mouthEnds(gaps, size)), art, 0xffffff, at, strip ? { edge, closed: true, gaps, color: fillColor, size } : undefined);
+    const drawn = withConnectors(laid[i], set, size, mouthEnds(gaps, size));
+    const mouths = mouthPieces(edge, gaps, set, true, laid[i]);
+    at = placeBand(parent, mouths.length > 0 ? [...drawn, ...mouths] : drawn, art, 0xffffff, at, strip ? { edge, closed: true, gaps, color: fillColor, size } : undefined);
   });
 }
 

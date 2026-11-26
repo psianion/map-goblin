@@ -334,6 +334,41 @@ export function bandPiecesFor(setId: string | undefined): CaveKitPiece[] {
   return isMeasuredBandSet(setId) ? measuredKit(setId!).pool : caveBandPieces();
 }
 
+/** How near a whole number of cells an Opening's width lies for it to take a mouth piece that wide. */
+const MOUTH_WIDTH_SLACK = 0.05;
+
+/**
+ * The plain cave-mouth pieces of the measured kit of `setId`, `width` cells wide, in key order: what an
+ * Opening that wide in a wall of that rock may be laid with. Empty for any other set, and for a width
+ * the kit has none of.
+ */
+export function wallMouths(setId: string | undefined, width: number): CaveKitPiece[] {
+  if (!isMeasuredBandSet(setId)) return [];
+  const w = Math.round(width);
+  if (Math.abs(width - w) > MOUTH_WIDTH_SLACK) return [];
+  return kitEntrances(bandPiecesFor(setId))
+    .filter((p) => !p.shadow && Math.round(p.chordCells) === w)
+    .sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+}
+
+/** The widths, whole cells, the measured kit of `setId` has mouth pieces for; empty for a kit with none. */
+export function wallMouthWidths(setId: string | undefined): number[] {
+  if (!isMeasuredBandSet(setId)) return [];
+  return [...new Set(kitEntrances(bandPiecesFor(setId)).map((p) => Math.round(p.chordCells)))].sort((a, b) => a - b);
+}
+
+/** The width of `widths` nearest `asked` cells (the wider on a tie); `asked` itself where there are none. */
+export function nearestMouthWidth(widths: readonly number[], asked: number): number {
+  if (widths.length === 0) return asked;
+  return widths.reduce((best, w) => (Math.abs(w - asked) <= Math.abs(best - asked) ? w : best));
+}
+
+/** The mouth piece an Opening `width` cells wide in a wall of `setId`'s rock is laid with: `piece` where the kit has it that wide, else its first; null where it has none. */
+export function wallMouthPiece(setId: string | undefined, width: number, piece?: string): CaveKitPiece | null {
+  const all = wallMouths(setId, width);
+  return all.find((p) => p.key === piece) ?? all[0] ?? null;
+}
+
 /** A measured kit's run-end pieces. Empty for a set without measurements. */
 export function bandEndPiecesFor(setId: string): CaveKitPiece[] {
   return isMeasuredBandSet(setId) ? measuredKit(setId).ends : [];

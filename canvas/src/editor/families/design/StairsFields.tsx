@@ -76,9 +76,13 @@ export function DoorSelectionPanel() {
   return tool ? <ToolPanel tool={tool} /> : null;
 }
 
-/** The Door tool's Kit column: the stair kits with the Stairs style, the cave mouths with a mouth picked or the Opening style on a cliff with mouths, else the door kits. */
+/**
+ * The Door tool's Kit column: the stair kits with the Stairs style; the cave mouths with a mouth
+ * picked (a cliff's, or an Opening's on a wall with mouth pieces) or the Opening style last over an
+ * edge whose rock lays them; else the door kits.
+ */
 export function KitColumn() {
   const stairs = useStore((s) => s.tools.settings.doorStairs === true);
-  const mouths = useStore((s) => pickedEntrance(s) !== null || (s.tools.settings.doorBare === true && s.tools.settings.doorStyle === 'archway' && entranceKitSwatches(s).length > 1));
+  const mouths = useStore((s) => pickedEntrance(s) !== null || entranceKitSwatches(s).length > 1);
   return stairs ? <StairKitColumn /> : mouths ? <EntranceKitColumn /> : <DoorKitColumn />;
 }

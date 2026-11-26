@@ -31,6 +31,7 @@ import {
   layBandChain,
   layBandRing,
   mouthEnds,
+  mouthPieces,
   orientRings,
   placeBand,
   planDrawnBand,
@@ -66,6 +67,11 @@ export interface DoorGap {
   ring?: number;
   /** An erased mouth, not a door: a run stopping at it ends in a taper rather than a jamb. */
   mouth?: boolean;
+  /**
+   * An Opening laid with a cave-mouth piece of the rock's kit, by its key: the piece lies across
+   * it (`mouthPieces`) and the rock stops at its ends untapered, however the line curves there.
+   */
+  entrance?: string;
 }
 
 /**
@@ -1043,14 +1049,18 @@ export function renderNodeWalls(
         const [head, tail] = turns.pieces[r];
         const placed = layBandChain(run, gaps, bandPiecesFor(look.setId), size, false, [false, false], [false, false], isOriented ? [head, tail] : [tail, head]);
         if (!fill) options.onRockLaid?.({ placed, closed: false, size });
+        const mouths = mouthPieces(run, gaps, bandPiecesFor(look.setId), false, placed);
         pools.set(
           wallsContainer,
           placeBand(
             wallsContainer,
             // A transition is laid over the rock's end as it stands: the run is not bent to meet it.
-            head || tail
-              ? [...withConnectors(placed.filter((pl) => pl.branch !== 'transition'), bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), ...placed.filter((pl) => pl.branch === 'transition')]
-              : withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)),
+            [
+              ...(head || tail
+                ? [...withConnectors(placed.filter((pl) => pl.branch !== 'transition'), bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), ...placed.filter((pl) => pl.branch === 'transition')]
+                : withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size))),
+              ...mouths,
+            ],
             band,
             bandTint(look.setId, look.tint),
             pools.get(wallsContainer) ?? 0,
@@ -1100,7 +1110,14 @@ export function renderNodeWalls(
       if (measured) options.onRockLaid?.({ placed, closed: true, size });
       pools.set(
         wallsContainer,
-        placeBand(wallsContainer, withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), band, bandTint(look.setId, look.tint), pools.get(wallsContainer) ?? 0, fill),
+        placeBand(
+          wallsContainer,
+          [...withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), ...mouthPieces(oriented[i], gaps, bandPiecesFor(look.setId), true, placed)],
+          band,
+          bandTint(look.setId, look.tint),
+          pools.get(wallsContainer) ?? 0,
+          fill,
+        ),
       );
       continue;
     }
@@ -1160,7 +1177,7 @@ export function renderNodeWalls(
         const laid = run.closed ? layBandRing(run.points, gaps, pieces, size) : layBandChain(run.points, gaps, pieces, size);
         const fill = strip ? { edge: run.points, closed: run.closed, gaps, color, size } : undefined;
         if (!strip) options.onRockLaid?.({ placed: laid, closed: run.closed, size });
-        at = placeBand(target, withConnectors(laid, pieces, size), band, bandTint(look.setId, look.tint), at, fill);
+        at = placeBand(target, [...withConnectors(laid, pieces, size), ...mouthPieces(run.points, gaps, pieces, run.closed, laid)], band, bandTint(look.setId, look.tint), at, fill);
       }
       pools.set(target, at);
       continue;

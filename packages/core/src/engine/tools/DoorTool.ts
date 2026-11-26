@@ -7,7 +7,7 @@ import { nextAuthoredName } from '../../shared/authoredName';
 import { projectPointOntoLineSegment, snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
 import { floorEdgeOpenSpans, mouthBridges } from '../../shared/caveFloor';
 import { bandSize, isMeasuredBandSet } from '../../assets/packCatalog';
-import { bandPiecesFor, kitRockWidth } from '../../assets/caveWallKit';
+import { bandPiecesFor, kitRockWidth, nearestMouthWidth, wallMouths, wallMouthWidths } from '../../assets/caveWallKit';
 import {
   doorWallId,
   polylineLength,
@@ -695,6 +695,8 @@ export class DoorTool implements DrawingTool {
   private updateEntranceGhost(layer: DungeonLayer, point: Point): boolean {
     const plan = layer.locked ? null : this.entrancePlan(layer, point);
     if (!plan) return false;
+    const art = plan.plateau.edgeArt;
+    this.hoverMouth(art && entranceWidths(art).length > 0 ? art : undefined);
     if (!plan.info) {
       this.clearGhost();
       return true;
@@ -706,6 +708,16 @@ export class DoorTool implements DrawingTool {
     this.ghost.tint = plan.valid ? 0xffffff : INVALID_TINT;
     this.ghost.addChild(new Graphics().poly(entranceFootprint(plan.info).flat(), true).fill({ color: 0x2b2420, alpha: 0.35 }).stroke({ color: 0x2b2420, width: 0.06, alpha: 0.9 }));
     return true;
+  }
+
+  /**
+   * Tells the dock the rock of the edge under the pointer where an Opening there lays a mouth piece
+   * (`selection.hoverMouthKit`); an edge that lays none clears it, and open floor leaves it, so the
+   * dock still shows the last edge when the pointer goes to it.
+   */
+  private hoverMouth(kit: string | undefined): void {
+    const store = useStore.getState();
+    if (store.selection.hoverMouthKit !== kit) store.setHoverMouthKit(kit);
   }
 
   /** The release of a placement press that stayed a click: the leaf the ghost showed. */
@@ -774,6 +786,11 @@ export class DoorTool implements DrawingTool {
     const settings = useStore.getState().tools.settings;
     const wallLength = polylineLength(wall.points);
     const style = settings.doorStyle ?? 'single';
+    // An Opening in rock whose kit has mouth pieces is as wide as one of them, laid with the dock's pick.
+    const mouthWidths = this.openingStyle() ? wallMouthWidths(wallSetOf(wall, layer).textureSetId) : [];
+    const mouthWidth = nearestMouthWidth(mouthWidths, settings.doorWidth || 1);
+    const mouths = mouthWidths.length > 0 ? wallMouths(wallSetOf(wall, layer).textureSetId, mouthWidth) : [];
+    const mouth = mouths[settings.entranceVariant ?? 0] ?? mouths[0];
     const draft: DoorChild = {
       id: '',
       name: '',
@@ -786,12 +803,13 @@ export class DoorTool implements DrawingTool {
       angle: snap.angle,
       // The width the DM asked for, fitted to the wall: a shorter wall takes a
       // narrower door. Only a wall shorter than the style's minimum is left too
-      // short, and `isPlaceable`'s width-vs-wall check previews that red.
-      width: clampDoorWidth(settings.doorWidth || 1, style, wallLength, settings.doorBare),
+      // short, and `isPlaceable`'s width-vs-wall check previews that red. A mouth keeps its width.
+      width: mouthWidths.length > 0 ? mouthWidth : clampDoorWidth(settings.doorWidth || 1, style, wallLength, settings.doorBare),
       style,
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
       ...newDoorLook(style),
+      ...(mouth && { piece: mouth.key }),
     };
 
     // Anchor it the way a render will, so a door as wide as its wall — hence
@@ -893,6 +911,11 @@ export class DoorTool implements DrawingTool {
     if (!plan) {
       this.clearGhost();
       return;
+    }
+    // On a wall (not open floor, nor across a gap) the dock follows the wall's rock.
+    if (this.openingStyle() && !plan.piece) {
+      const setId = wallSetOf(plan.wall, layer).textureSetId;
+      this.hoverMouth(wallMouthWidths(setId).length > 0 ? setId : undefined);
     }
 
     const { door } = plan;

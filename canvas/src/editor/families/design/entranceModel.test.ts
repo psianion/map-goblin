@@ -1,12 +1,13 @@
-// A picked cave mouth's Kit tiles and Width: the kit's mouths of its width as pictures, a pick
-// changing its piece and its hollow in one undo step, and Width keeping to the widths the kit has.
+// A cave mouth's Kit tiles and Width, picked or next: the kit's mouths of its width as pictures, a
+// pick changing its piece (and a cliff mouth's hollow) in one undo step, Width keeping to the widths
+// the kit has, and with none picked the tiles following the edge the Opening style last hovered.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import type { CliffEntrance, DungeonLayer, PlateauChild } from '@/store/types';
+import type { CliffEntrance, DoorChild, DungeonLayer, PlateauChild } from '@/store/types';
 import { resetAssetPackManager, seedPack } from '@dnd/core/src/testing/seedCatalog';
 import type { BandMeasure, ManifestEntry } from '@dnd/core/src/engine/packManifest';
-import { entranceKitSwatches, entranceKitValue, pickEntranceKit, resizePickedEntrance } from './entranceModel';
+import { dockMouth, entranceKitSwatches, entranceKitValue, pickedMouthDoor, pickEntranceKit, resizePickedEntrance, resizePickedMouthDoor } from './entranceModel';
 
 const SET = 'Test_Cliff_Mouths';
 const entry = (material: string, gridSize: string, band: BandMeasure): ManifestEntry => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set: SET, tags: [], band });
@@ -72,13 +73,97 @@ describe('a picked cave mouth', () => {
     expect([span().from, span().to]).toEqual([1, 3]);
   });
 
-  it('with none picked, a tile is the piece the next mouths take', () => {
+  it('with none picked, a tile is the piece the next mouths take, on the edge the Opening last hovered', () => {
     useStore.getState().setSelectedIds([]);
-    useStore.getState().updateToolSettings({ doorWidth: 2 });
-    useStore.getState().setActiveLayerId(layer().id);
+    useStore.getState().updateToolSettings({ doorWidth: 2, doorStyle: 'archway', doorBare: true, doorStairs: false });
+    useStore.getState().setHoverMouthKit(SET);
     expect(entranceKitSwatches(useStore.getState()).map((t) => t.value)).toEqual(['0', '1']);
     pickEntranceKit('1');
     expect(useStore.getState().tools.settings.entranceVariant).toBe(1);
     expect(span().piece).toBeUndefined();
+  });
+});
+
+describe('the dock with nothing picked', () => {
+  beforeEach(() => {
+    undoManager.clear();
+    resetAssetPackManager();
+    useStore.getState().resetToDefault();
+    seed();
+    useStore.setState((s) => {
+      (s.layers.find((l) => l.type === 'dungeon') as DungeonLayer).children.push({ id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [16, 10], [16, 14], [10, 14]]], height: 2, edge: 'cliff', edgeArt: SET } as PlateauChild);
+    });
+    useStore.getState().setSelectedIds([]);
+    useStore.getState().updateToolSettings({ doorWidth: 1, doorStyle: 'archway', doorBare: true, doorStairs: false });
+  });
+
+  it('shows no mouth tiles and the asked width until the pointer is on an edge that lays mouth pieces, whatever cliffs the layer has', () => {
+    useStore.getState().setHoverMouthKit(undefined);
+    expect(entranceKitSwatches(useStore.getState())).toEqual([]);
+    expect(dockMouth(useStore.getState())).toBeNull();
+  });
+
+  it('over such an edge shows its mouths at the width an Opening there takes: Width 1 reads 2 beside 2-wide tiles', () => {
+    useStore.getState().setHoverMouthKit(SET);
+    expect(dockMouth(useStore.getState())).toEqual({ kit: SET, width: 2 });
+    expect(entranceKitSwatches(useStore.getState()).map((t) => t.label)).toEqual(['Mouth 1', 'Mouth 2']);
+    useStore.getState().updateToolSettings({ doorWidth: 3 });
+    expect(dockMouth(useStore.getState())).toEqual({ kit: SET, width: 3 });
+    expect(entranceKitSwatches(useStore.getState())).toHaveLength(1);
+    // Another style lays no mouth: the tiles go.
+    useStore.getState().updateToolSettings({ doorStyle: 'single', doorBare: false });
+    expect(entranceKitSwatches(useStore.getState())).toEqual([]);
+  });
+});
+
+describe('a picked Opening on a cave wall whose rock has mouth pieces', () => {
+  const door = () => layer().children.find((c) => c.id === 'o1') as DoorChild;
+  const cave = (kit: string) => ({ id: 'cave', name: 'cave', childType: 'shape', visible: true, shapeType: 'polygon', contours: [[[0, 0], [10, 0], [10, 8], [0, 8]]], textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff', edgeMaterial: kit, styleOverrides: { wallTextureSetId: '' } });
+  const open = (kit: string) => {
+    useStore.setState((s) => {
+      const l = s.layers.find((x) => x.type === 'dungeon') as DungeonLayer;
+      l.children.push(cave(kit) as never, { id: 'o1', name: 'Opening 1', childType: 'door', visible: true, wallId: '', position: [5, 0], angle: 0, width: 2, style: 'archway', state: 'closed', isSecret: false, bare: true } as DoorChild);
+    });
+    useStore.getState().setSelectedIds(['o1']);
+  };
+
+  beforeEach(() => {
+    undoManager.clear();
+    resetAssetPackManager();
+    useStore.getState().resetToDefault();
+    seed();
+  });
+
+  it('shows its rock’s mouths of its width as tiles, its piece on, and a tile changes its piece in one undo step', () => {
+    open(SET);
+    expect(pickedMouthDoor(useStore.getState())?.setId).toBe(SET);
+    expect(entranceKitSwatches(useStore.getState()).map((t) => t.value)).toEqual(['0', '1']);
+    expect(entranceKitValue(useStore.getState())).toBe('0');
+    pickEntranceKit('1');
+    expect(door().piece).toBe('mouth_a2_2x2');
+    expect(entranceKitValue(useStore.getState())).toBe('1');
+    undoManager.undo();
+    expect(door().piece).toBeUndefined();
+  });
+
+  it('resizes to the widths its rock has, Width reading it, and drops a piece the new width has not', () => {
+    open(SET);
+    pickEntranceKit('1');
+    expect(resizePickedMouthDoor(['o1'], 1)).toBe(true);
+    expect(door().width).toBe(2);
+    expect(dockMouth(useStore.getState())?.width).toBe(2);
+    resizePickedMouthDoor(['o1'], 3);
+    expect(door().width).toBe(3);
+    expect(door().piece).toBeUndefined();
+    expect(dockMouth(useStore.getState())?.width).toBe(3);
+    undoManager.undo();
+    expect([door().width, door().piece]).toEqual([2, 'mouth_a2_2x2']);
+  });
+
+  it('is a plain Opening in rock with no mouth pieces: no tiles, and its width is left to the door', () => {
+    open('GG_Unmeasured_Rock');
+    expect(pickedMouthDoor(useStore.getState())).toBeNull();
+    expect(entranceKitSwatches(useStore.getState())).toEqual([]);
+    expect(resizePickedMouthDoor(['o1'], 3)).toBe(false);
   });
 });

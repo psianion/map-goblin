@@ -102,7 +102,7 @@ type MapBuilderState = Omit<
   | 'setDividerMode' | 'setRoomWalls' | 'setPendingSplit' | 'setSeeUnderOverhead' | 'setLabelsHidden' | 'setMarqueeFilter' | 'setPropReplaceIds' | 'setCompare'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
-  | 'setSelectedIds' | 'setHoveredId' | 'setHoverCount' | 'setSelectedRegion'
+  | 'setSelectedIds' | 'setHoveredId' | 'setHoverCount' | 'setHoverMouthKit' | 'setSelectedRegion'
   | 'setClipboard'
   | 'trackRecentUse' | 'toggleFavourite'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage' | 'removeCustomImage'

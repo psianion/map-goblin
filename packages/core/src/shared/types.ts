@@ -552,6 +552,11 @@ export interface DoorChild extends LayerChild {
    */
   bare?: boolean;
   /**
+   * An Opening in a wall whose rock is a kit with cave-mouth pieces: the one laid across it, by its
+   * key. Absent = the kit's first of the opening's width. Ignored on any other wall.
+   */
+  piece?: string;
+  /**
    * Table only, never in a file: where the referee resolved this door on the full map, baked into
    * a player's partial copy by the server. A player's copy lacks the walls, floors and rooms the
    * door's pose and look are read from, so a door carrying this is drawn exactly as given:

@@ -11,7 +11,7 @@ import { DOOR_WIDTH_MAX } from '@/editor/models/selectionModel';
 import { DoorAngleControl } from './controls';
 import { DoorSelectionPanel, KitColumn } from './StairsFields';
 import { pickedStairs, resizePickedStairs } from './stairsModel';
-import { pickedEntrance, resizePickedEntrance } from './entranceModel';
+import { dockMouth, pickedEntrance, resizePickedEntrance, resizePickedMouthDoor } from './entranceModel';
 
 const STYLE_CHOICES: DoorStyleChoice[] = [...PLACEABLE_DOOR_STYLES, 'opening', 'stairs'];
 
@@ -56,10 +56,11 @@ export const doorWidth = defineSetting<number>({
   // Whole cells for every style: an Opening steps 1, 2, 3 as a door does.
   range: { min: 1, max: DOOR_WIDTH_MAX, step: 1, unit: 'sq' },
   bind: {
-    // Picked stairs or a picked cave mouth: its width, and a change resizes it. Else the width of the next door.
+    // Picked stairs or a picked cave mouth: its width, and a change resizes it. Else the width of the
+    // next door; the next mouth's, one the kit has, where the Opening lays a mouth piece.
     read: (s) => {
       const span = pickedStairs(s)?.span ?? pickedEntrance(s)?.span;
-      return span ? Math.round(span.to - span.from) : s.tools.settings.doorWidth;
+      return span ? Math.round(span.to - span.from) : (dockMouth(s)?.width ?? s.tools.settings.doorWidth);
     },
     // Never narrower than the style allows: a double needs room for two leaves.
     write: (store, width) => {
@@ -72,6 +73,7 @@ export const doorWidth = defineSetting<number>({
         resizePickedEntrance(st.selection.selectedIds, width);
         return;
       }
+      if (resizePickedMouthDoor(st.selection.selectedIds, width)) return;
       st.updateToolSettings({ doorWidth: Math.max(width, minDoorWidth(st.tools.settings.doorStyle, st.tools.settings.doorBare)) });
     },
   },
