@@ -1,4 +1,4 @@
-import { Container } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import type { DoorChild, DungeonLayer, WallSegment } from '../../store/types';
@@ -37,11 +37,11 @@ import { findDoorway, overDoorway } from '../../shared/doorwaySeal';
 import { doorwayEditCommand, revertDoorwayLive, writeDoorwayLive } from '../../store/doorwayCommands';
 import { notify } from '../../shared/notify';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
-import { stairSpanAt, stairsAt, type StairPlan } from '../../shared/stairPlace';
-import type { PlateauChild, StairSpan } from '../../shared/types';
-import { stairsPick, stairsSelectionId } from '../../store/selectionResolve';
+import { entranceAt, entranceFootprint, entranceSpanAt, stairSpanAt, stairsAt, type StairPlan } from '../../shared/stairPlace';
+import type { CliffEntrance, PlateauChild, StairSpan } from '../../shared/types';
+import { entrancePick, entranceSelectionId, stairsPick, stairsSelectionId } from '../../store/selectionResolve';
 import { stairKitFor } from '../../assets/stairKits';
-import { drawStairs } from '../plateauRenderer';
+import { drawStairs, entranceVariants, entranceWidths, withMouth } from '../plateauRenderer';
 
 
 /**
@@ -313,6 +313,23 @@ function withSpan(plateau: PlateauChild, span: StairSpan | null, without?: strin
   return next.length > 0 ? next : undefined;
 }
 
+/** `plateau`'s cave mouths with `span` in place of the one of its id (or added), none left = absent. */
+export function withEntrance(plateau: PlateauChild, span: CliffEntrance | null, without?: string): CliffEntrance[] | undefined {
+  const kept = (plateau.entrances ?? []).filter((s) => s.id !== (span?.id ?? without));
+  const next = span ? [...kept, span] : kept;
+  return next.length > 0 ? next : undefined;
+}
+
+/**
+ * How wide a cave mouth in `plateau`'s cliff is made when `asked` cells are: the nearest width its
+ * kit has entrance pieces for (the wider on a tie), any whole width for a kit with none.
+ */
+export function entranceWidth(plateau: Pick<PlateauChild, 'edgeArt'>, asked: number): number {
+  const widths = entranceWidths(plateau.edgeArt);
+  if (widths.length === 0) return Math.max(1, Math.round(asked));
+  return widths.reduce((best, w) => (Math.abs(w - asked) <= Math.abs(best - asked) ? w : best));
+}
+
 /** What a click would place, and whether it would be allowed to. */
 interface DoorPlan {
   /** Transient — the commit fills in the id, the name and the room binding. */
@@ -404,6 +421,10 @@ export class DoorTool implements DrawingTool {
   private hoveredStairs: string | null = null;
   /** Stairs under a held pointer: where the press started, and the plateau's stairs before any slide. */
   private stairsPress: { layerId: string; plateauId: string; span: StairSpan; before: StairSpan[] | undefined; point: Point; moved: boolean } | null = null;
+  /** A cave mouth under the cursor: the Delete target when nothing is picked. */
+  private hoveredEntrance: string | null = null;
+  /** A cave mouth under a held pointer: where the press started, and the plateau's mouths before any slide. */
+  private entrancePress: { layerId: string; plateauId: string; span: CliffEntrance; before: CliffEntrance[] | undefined; point: Point; moved: boolean } | null = null;
 
   constructor(previewContainer: Container) {
     this.ghost = new Container();
@@ -433,6 +454,15 @@ export class DoorTool implements DrawingTool {
       return;
     }
     const locked = reason === 'Layer is locked';
+
+    // A cave mouth under the pointer is picked whatever the style, unless a door stands there.
+    const at = raw ?? point;
+    const mouth = entranceAt(activeLayer, [at.x, at.y]);
+    if (mouth && !doorAt(at, activeLayer)) {
+      store.setSelectedIds([entranceSelectionId(mouth.plateau.id, mouth.span.id)]);
+      if (!locked) this.entrancePress = { layerId: activeLayer.id, plateauId: mouth.plateau.id, span: mouth.span, before: mouth.plateau.entrances, point, moved: false };
+      return;
+    }
 
     if (store.tools.settings.doorStairs) {
       this.stairsDown(activeLayer, raw ?? point, point, locked);
@@ -499,6 +529,9 @@ export class DoorTool implements DrawingTool {
     }
 
     store.setSelectedIds([]);
+
+    // The Opening style on a cliff edge makes a cave mouth there, before any wall along it is opened.
+    if (this.placeEntrance(activeLayer, point)) return;
 
     // The ghost the pointer has been showing *is* the placement — same snap at
     // the same point, so what was previewed is exactly what lands, invalidity
@@ -594,6 +627,84 @@ export class DoorTool implements DrawingTool {
     this.ghostKey = key;
     this.ghost.tint = plan.valid ? 0xffffff : INVALID_TINT;
     drawStairs(this.ghost, [{ ...plan.flight, span: { ...plan.flight.span, ...(kit && { kit }) } }]);
+  }
+
+  /** Whether the Door tool's style is Opening: a bare archway, not Stairs. */
+  private openingStyle(): boolean {
+    const s = useStore.getState().tools.settings;
+    return !s.doorStairs && s.doorBare === true && (s.doorStyle ?? 'single') === 'archway';
+  }
+
+  /** The cave mouth a click with the Opening style would make at `point`, or null off every cliff edge. */
+  private entrancePlan(layer: DungeonLayer, point: Point) {
+    if (!this.openingStyle()) return null;
+    const asked = useStore.getState().tools.settings.doorWidth || 1;
+    return entranceSpanAt(layer, [point.x, point.y], (p) => entranceWidth(p, asked));
+  }
+
+  /**
+   * A press with the Opening style on a cliff edge: a cave mouth there, its piece the dock's pick
+   * among the kit's of that width, picked. True when the press was on a cliff edge (taken, laid or
+   * not); false where it falls to the walls as an Opening.
+   */
+  private placeEntrance(layer: DungeonLayer, point: Point): boolean {
+    const plan = this.entrancePlan(layer, point);
+    if (!plan) return false;
+    if (!plan.valid) return true;
+    const variants = entranceVariants(plan.plateau.edgeArt, plan.span.to - plan.span.from);
+    const pick = variants[useStore.getState().tools.settings.entranceVariant ?? 0] ?? variants[0];
+    const span = withMouth(layer, plan.plateau, { id: crypto.randomUUID(), ...plan.span, ...(pick && { piece: pick.key }) });
+    undoManager.execute(new UpdateChildCommand('Place cave mouth', layer.id, plan.plateau.id, { entrances: plan.plateau.entrances }, { entrances: withEntrance(plan.plateau, span) }));
+    this.clearGhost();
+    useStore.getState().setSelectedIds([entranceSelectionId(plan.plateau.id, span.id)]);
+    return true;
+  }
+
+  /** A held press on a cave mouth, past the drag slop: it slides along its edge under the pointer, keeping its width. */
+  private entranceSlide(layer: DungeonLayer, point: Point): void {
+    const press = this.entrancePress!;
+    if (!press.moved && Math.hypot(point.x - press.point.x, point.y - press.point.y) <= DRAG_SLOP) return;
+    if (layer.locked) {
+      notify.warning('Layer is locked');
+      this.entrancePress = null;
+      return;
+    }
+    press.moved = true;
+    const width = press.span.to - press.span.from;
+    const plan = entranceSpanAt(layer, [point.x, point.y], () => width, press.span.id);
+    if (!plan || !plan.valid || plan.plateau.id !== press.plateauId) return;
+    const plateau = layer.children.find((c): c is PlateauChild => c.id === press.plateauId && c.childType === 'plateau');
+    if (!plateau) return;
+    useStore.getState().updateChild(layer.id, plateau.id, { entrances: withEntrance(plateau, withMouth(layer, plateau, { ...press.span, ...plan.span })) });
+  }
+
+  /** The release of a cave mouth's slide: put back, then replayed as one undo step. */
+  private entranceRelease(): void {
+    const press = this.entrancePress!;
+    this.entrancePress = null;
+    if (!press.moved) return;
+    const pick = entrancePick(useStore.getState(), entranceSelectionId(press.plateauId, press.span.id));
+    if (!pick) return;
+    const after = pick.plateau.entrances;
+    useStore.getState().updateChild(press.layerId, press.plateauId, { entrances: press.before });
+    undoManager.execute(new UpdateChildCommand('Move cave mouth', press.layerId, press.plateauId, { entrances: press.before }, { entrances: after }));
+  }
+
+  /** The outline of the cave mouth a click with the Opening style would make, red where it may not. True while there is one. */
+  private updateEntranceGhost(layer: DungeonLayer, point: Point): boolean {
+    const plan = layer.locked ? null : this.entrancePlan(layer, point);
+    if (!plan) return false;
+    if (!plan.info) {
+      this.clearGhost();
+      return true;
+    }
+    const key = ['entrance', plan.plateau.id, plan.span.ring, plan.span.from, plan.span.to, plan.valid].join(':');
+    if (key === this.ghostKey) return true;
+    this.clearGhost();
+    this.ghostKey = key;
+    this.ghost.tint = plan.valid ? 0xffffff : INVALID_TINT;
+    this.ghost.addChild(new Graphics().poly(entranceFootprint(plan.info).flat(), true).fill({ color: 0x2b2420, alpha: 0.35 }).stroke({ color: 0x2b2420, width: 0.06, alpha: 0.9 }));
+    return true;
   }
 
   /** The release of a placement press that stayed a click: the leaf the ghost showed. */
@@ -826,6 +937,12 @@ export class DoorTool implements DrawingTool {
       this.stairsSlide(activeLayer, point);
       return;
     }
+    if (this.entrancePress) {
+      this.entranceSlide(activeLayer, point);
+      return;
+    }
+    const mouth = entranceAt(activeLayer, [(raw ?? point).x, (raw ?? point).y]);
+    this.hoveredEntrance = mouth ? entranceSelectionId(mouth.plateau.id, mouth.span.id) : null;
     const over = stairsAt(activeLayer, [(raw ?? point).x, (raw ?? point).y]);
     this.hoveredStairs = over ? stairsSelectionId(over.plateau.id, over.span.id) : null;
     if (useStore.getState().tools.settings.doorStairs) {
@@ -856,13 +973,16 @@ export class DoorTool implements DrawingTool {
     if (this.pendingLeaf) return;
 
     this.hoveredDoorId = doorAt(raw ?? point, activeLayer)?.id ?? null;
-    // Over stairs a click picks them: no door ghost there.
-    if (!this.hoveredDoorId && this.hoveredStairs) {
+    // Over stairs or a cave mouth a click picks them: no door ghost there.
+    if (!this.hoveredDoorId && (this.hoveredStairs || this.hoveredEntrance)) {
       this.clearGhost();
       return;
     }
     this.hoveredStairs = null;
+    this.hoveredEntrance = null;
 
+    // On a cliff edge the Opening style shows the cave mouth a click would make.
+    if (!this.hoveredDoorId && this.updateEntranceGhost(activeLayer, point)) return;
     this.updateGhost(activeLayer, point);
   }
 
@@ -922,6 +1042,10 @@ export class DoorTool implements DrawingTool {
   onPointerUp(_point?: Point): void {
     if (this.stairsPress) {
       this.stairsRelease();
+      return;
+    }
+    if (this.entrancePress) {
+      this.entranceRelease();
       return;
     }
     if (this.pendingLeaf) {
@@ -988,6 +1112,20 @@ export class DoorTool implements DrawingTool {
       this.hoveredStairs = null;
       return;
     }
+    // A picked cave mouth, else the one under the cursor: the cliff closes again.
+    const mouthId = store.selection.selectedIds.find((id) => id.startsWith('entrance:')) ?? this.hoveredEntrance;
+    const mouth = mouthId ? entrancePick(store, mouthId) : null;
+    if (mouth && mouth.layer.id === layer.id) {
+      const reason = blockedLayerReason(layer);
+      if (reason) {
+        notify.warning(reason);
+        return;
+      }
+      undoManager.execute(new UpdateChildCommand('Delete cave mouth', layer.id, mouth.plateau.id, { entrances: mouth.plateau.entrances }, { entrances: withEntrance(mouth.plateau, null, mouth.span.id) }));
+      store.setSelectedIds([]);
+      this.hoveredEntrance = null;
+      return;
+    }
     // Delete removes the selection; hover stays the target when nothing is
     // selected, which is how the tool worked before it could select.
     const selected = store.selection.selectedIds.find((id) =>
@@ -1018,8 +1156,8 @@ export class DoorTool implements DrawingTool {
 
   /** A placed door is draggable, so say so before the user finds out by accident. */
   getHoverCursor(): string | null {
-    if (this.dragFrom || this.stairsPress?.moved) return 'grabbing';
-    return this.hoveredDoorId || this.hoveredStairs ? 'move' : null;
+    if (this.dragFrom || this.stairsPress?.moved || this.entrancePress?.moved) return 'grabbing';
+    return this.hoveredDoorId || this.hoveredStairs || this.hoveredEntrance ? 'move' : null;
   }
 
   cancel(): void {
@@ -1030,6 +1168,10 @@ export class DoorTool implements DrawingTool {
     if (this.stairsPress?.moved) useStore.getState().updateChild(this.stairsPress.layerId, this.stairsPress.plateauId, { stairs: this.stairsPress.before });
     this.stairsPress = null;
     this.hoveredStairs = null;
+    // And a cave mouth.
+    if (this.entrancePress?.moved) useStore.getState().updateChild(this.entrancePress.layerId, this.entrancePress.plateauId, { entrances: this.entrancePress.before });
+    this.entrancePress = null;
+    this.hoveredEntrance = null;
     if (this.dragLayerFrom && this.sealAt && this.pressedDoorId) {
       revertDoorwayLive(this.dragLayerFrom, this.pressedDoorId);
     } else if (layer && this.dragFrom && this.pressedDoorId) {
@@ -1051,6 +1193,6 @@ export class DoorTool implements DrawingTool {
   }
 
   isActive(): boolean {
-    return this.dragFrom !== null || this.pendingLeaf !== null || this.stairsPress?.moved === true;
+    return this.dragFrom !== null || this.pendingLeaf !== null || this.stairsPress?.moved === true || this.entrancePress?.moved === true;
   }
 }

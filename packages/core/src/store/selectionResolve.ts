@@ -2,7 +2,7 @@
 // the shortcuts, the menus, the cards, align, move to layer, delete, copy) reads it through
 // `resolveSelection` instead of walking the layers for its own subset.
 
-import type { AnyChild, ChildType, DungeonLayer, Layer, PlateauChild, Room, StairSpan, WallSegment } from './types';
+import type { AnyChild, ChildType, CliffEntrance, DungeonLayer, Layer, PlateauChild, Room, StairSpan, WallSegment } from './types';
 
 /** The kinds a selection can hold: every child kind, drawn walls, and rooms. */
 export type SelectionKind = ChildType | 'wall' | 'room';
@@ -28,6 +28,23 @@ export function stairsPick(state: { layers: readonly Layer[] }, id: string): { l
     for (const c of (layer as DungeonLayer).children) {
       if (c.childType !== 'plateau') continue;
       const span = c.stairs?.find((s) => stairsSelectionId(c.id, s.id) === id);
+      if (span) return { layer: layer as DungeonLayer, plateau: c, span };
+    }
+  }
+  return null;
+}
+
+/** The selection id of a cave mouth in a cliff (`PlateauChild.entrances`): the Door tool picks one by it. */
+export const entranceSelectionId = (plateauId: string, spanId: string): string => `entrance:${plateauId}:${spanId}`;
+
+/** The cave mouth a selection id names, with its plateau and layer; null for any other id. */
+export function entrancePick(state: { layers: readonly Layer[] }, id: string): { layer: DungeonLayer; plateau: PlateauChild; span: CliffEntrance } | null {
+  if (!id.startsWith('entrance:')) return null;
+  for (const layer of state.layers) {
+    if (layer.type !== 'dungeon') continue;
+    for (const c of (layer as DungeonLayer).children) {
+      if (c.childType !== 'plateau') continue;
+      const span = c.entrances?.find((s) => entranceSelectionId(c.id, s.id) === id);
       if (span) return { layer: layer as DungeonLayer, plateau: c, span };
     }
   }
@@ -137,6 +154,7 @@ export function liveSelectionIds(
     for (const c of dl.children) {
       live.add(c.id);
       if (c.childType === 'plateau') for (const s of c.stairs ?? []) live.add(stairsSelectionId(c.id, s.id));
+      if (c.childType === 'plateau') for (const s of c.entrances ?? []) live.add(entranceSelectionId(c.id, s.id));
     }
     for (const w of dl.standaloneWalls ?? []) live.add(w.id);
     for (const r of dl.rooms ?? []) live.add(r.id);

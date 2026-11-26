@@ -694,8 +694,8 @@ export function useCanvasInput(
                 ? { kind: 'multi', count: selected.length }
                 : hit.kind === 'wall'
                   ? { kind: 'wall', wallId: hit.id }
-                  : // Stairs have no menu of their own: the map's, with Pick from here.
-                    hit.kind === 'stairs'
+                  : // Stairs and cave mouths have no menu of their own: the map's, with Pick from here.
+                    hit.kind === 'stairs' || hit.kind === 'entrance'
                     ? { kind: 'canvas' }
                     : { kind: 'child', childId: hit.id },
         });

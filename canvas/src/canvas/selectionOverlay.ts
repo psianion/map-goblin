@@ -5,8 +5,9 @@ import type { RenderEngine } from '@/engine/RenderEngine';
 import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { getChildFootprint, getWallBounds, wallReach } from '@dnd/core/src/engine/hitTest';
 import { dashSpine } from '@dnd/core/src/engine/wallNodeRenderer';
-import { isLockedObject, resolveSelection, stairsPick } from '@dnd/core/src/store/selectionResolve';
-import { stairFlights } from '@dnd/core/src/shared/plateaus';
+import { entrancePick, isLockedObject, resolveSelection, stairsPick } from '@dnd/core/src/store/selectionResolve';
+import { layerPlateaus, stairFlights } from '@dnd/core/src/shared/plateaus';
+import { entranceFootprint } from '@dnd/core/src/shared/stairPlace';
 import { flightFootprint } from '@dnd/core/src/engine/plateauRenderer';
 import type { Polygon } from '@dnd/core/src/types/geometry';
 
@@ -15,7 +16,8 @@ import type { Polygon } from '@dnd/core/src/types/geometry';
  * member stays selectable but is left out of the box, so it gets a dashed outline of its
  * own and a padlock at its top-left corner instead of handles.
  *
- * Picked stairs have no gizmo either, so their flight gets a solid outline here.
+ * Picked stairs have no gizmo either, so their flight gets a solid outline here; a picked cave
+ * mouth likewise, round its span.
  *
  * Built like the prop overlay (propOverlay.ts): one root in the engine's screen-space
  * overlay, the world camera copied onto it every frame, drawn in world units, redrawn
@@ -36,7 +38,7 @@ type Box = { x: number; y: number; width: number; height: number };
 export interface SelectionOverlayModel {
   /** The world box of each locked selected member, with its id. */
   locked: { id: string; box: Box }[];
-  /** The footprint of each picked flight of stairs: they have no gizmo, so this is their outline. */
+  /** The footprint of each picked flight of stairs or cave mouth: they have no gizmo, so this is their outline. */
   stairs: Polygon[];
 }
 
@@ -47,6 +49,9 @@ export function selectionOverlayModel(state: MapBuilderStore): SelectionOverlayM
     const pick = stairsPick(state, id);
     const flight = pick && stairFlights(pick.layer).find((f) => f.plateau.id === pick.plateau.id && f.span.id === pick.span.id);
     if (flight) stairs.push(flightFootprint(flight));
+    const mouth = entrancePick(state, id);
+    const info = mouth && layerPlateaus(mouth.layer).entrances.find((e) => e.plateau.id === mouth.plateau.id && e.span.id === mouth.span.id);
+    if (info) stairs.push(entranceFootprint(info));
   }
   const sel = resolveSelection(state, state.selection.selectedIds);
   const locked: SelectionOverlayModel['locked'] = [];
@@ -66,7 +71,7 @@ function overlayKeys(s: MapBuilderStore): unknown[] {
   const out: unknown[] = [s.selection.selectedIds];
   if (ids.size === 0) return out;
   for (const id of ids) {
-    const pick = stairsPick(s, id);
+    const pick = stairsPick(s, id) ?? entrancePick(s, id);
     if (pick) out.push(pick.plateau);
   }
   for (const l of s.layers) {

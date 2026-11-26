@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { SceneFog } from '@dnd/mechanics/fog'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the plateau model is pure, as fog/terrain.ts reads it
-import { crossingsAlongLayers, elevationAtLayers, hiddenTops, stairFlights } from '@dnd/core/src/shared/plateaus'
+import { crossingsAlongLayers, elevationAtLayers, hiddenTops, layerPlateaus, stairFlights } from '@dnd/core/src/shared/plateaus'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
 import { redactMapForViewer } from './redactMap'
@@ -82,5 +82,19 @@ describe('plateaus on the player’s copy of the map', () => {
     const flights = (data: SerializedMapData) => dungeons(data).flatMap((l) => stairFlights(l)).map((f) => [f.top, f.down, f.length])
     expect(flights(player)).toEqual(flights(s.data))
     expect(flights(s.data)).toHaveLength(1)
+  })
+
+  it('ships a plateau’s cave mouths with it, standing where the DM’s do', () => {
+    const mouth = { id: 'mouth-1', ring: 0, from: 1, to: 3, mouth: [1.6, 2.4] }
+    const s = scene('plateau-test', (data) => {
+      const plateau = dungeons(data).flatMap((l) => l.children).find((c) => c.childType === 'plateau')!
+      Object.assign(plateau, { entrances: [mouth] })
+    })
+    const player = redactMapForViewer(s, DARK, {})
+    const mouthsOf = (data: SerializedMapData) => dungeons(data).flatMap((l) => l.children.flatMap((c) => (c.childType === 'plateau' ? (c.entrances ?? []) : [])))
+    expect(mouthsOf(player)).toEqual([mouth])
+    const standing = (data: SerializedMapData) => dungeons(data).flatMap((l) => layerPlateaus(l).entrances).map((e) => [e.line, e.mouth, e.drop])
+    expect(standing(player)).toEqual(standing(s.data))
+    expect(standing(s.data)).toHaveLength(1)
   })
 })

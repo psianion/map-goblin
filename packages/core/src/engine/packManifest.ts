@@ -118,6 +118,8 @@ export interface BandMeasure {
   entrance?: boolean
   /** An entrance dark inside, for an opening onto unlit ground. */
   shadow?: boolean
+  /** An entrance's hollow along its low side, as shares of the way from joint 0 to joint 1. Absent = its middle third. */
+  mouth?: [number, number]
   /** Rock turning into a cut-stone wall: laid where the two meet, in line or at a right angle. Never inside a run. */
   transition?: 'straight' | 'corner'
   /** Which of a transition's joints lies on the wall's centre line. */

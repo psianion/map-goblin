@@ -317,6 +317,26 @@ export interface PlateauChild extends LayerChild, RingGeometry {
   crossingId?: string;
   /** Flights of stairs down this plateau's edge, placed with the Door tool. Absent = none. */
   stairs?: StairSpan[];
+  /** Cave mouths in this plateau's cliff, placed with the Door tool. Absent = none. */
+  entrances?: CliffEntrance[];
+}
+
+/**
+ * A cave mouth in a plateau's or pit's cliff: the stretch of one of its rings it covers, measured
+ * as a stair span's is. Its cliff kit's entrance piece lies across it; a kit with none leaves a
+ * plain gap. With a walled floor just behind it on the high side, its mouth is crossed freely,
+ * hides nothing and opens that floor's wall; with none, it is art only and stands as the cliff.
+ */
+export interface CliffEntrance {
+  id: string;
+  /** The ring: 0 the outline, k the plateau's hole k. */
+  ring: number;
+  from: number;
+  to: number;
+  /** The entrance piece (`CaveKitPiece.key` of its plain art). Absent = the kit's first of this width. */
+  piece?: string;
+  /** The hollow, as lengths along the ring like `from` and `to`. Absent = the span's middle third. */
+  mouth?: [number, number];
 }
 
 /**

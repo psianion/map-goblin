@@ -8,7 +8,7 @@ import { useStore } from '../store/store';
 import { caveEdges } from '../shared/caveFloor';
 import { laidFor } from '../shared/rockLines';
 import { seatLine } from './caveBandRenderer';
-import { cliffKey, laidRuns, ledgeRuns, walkCliff, walksForward, type CliffWalks } from './plateauRenderer';
+import { cliffKey, entrancePlacements, laidRuns, ledgeRuns, walkStretch, walksForward, type CliffWalks, type LaidEntrance } from './plateauRenderer';
 import { cliffChoice } from './plateauKit';
 import { isBandSet, isMeasuredBandSet } from '../assets/packCatalog';
 import { hasPlateaus, layerPlateaus, type EdgeRun } from '../shared/plateaus';
@@ -60,7 +60,7 @@ export function cliffRockLines(layer: DungeonLayer): { walks: CliffWalks; lines:
     const byRun = new Map<string, WalkPlacement[][]>();
     for (const { run, cliffs } of laidRuns(layer, band)) {
       if (!cliffs) continue;
-      const placed = cliffs.map((c) => walkCliff(c.run, c.merged, c.opens));
+      const placed = cliffs.map(walkStretch);
       byRun.set(cliffKey(run), placed);
       const { setId } = cliffChoice(run.owner?.edgeArt);
       if (!isBandSet(setId)) missing.push(run.points);
@@ -71,9 +71,54 @@ export function cliffRockLines(layer: DungeonLayer): { walks: CliffWalks; lines:
         });
       }
     }
+    for (const e of entrancePlacements(layer, band)) {
+      const line = entranceLineOf(e);
+      if (line) lines.push(line);
+    }
     walks.set(band, byRun);
   }
   return { walks, lines, missing };
+}
+
+/**
+ * The line a cliff entrance's piece was laid on: `edge` its span as drawn, its runs the piece's
+ * seat line with the low ground on their left, broken across its mouth where a walled floor stands
+ * behind it (`EntranceInfo.behind`), so light, sight and the walk find the mouth open and the
+ * rock either side of it closed.
+ */
+export function entranceLineOf(e: LaidEntrance): RockLine | null {
+  const seat = seatLine([e.pl]).map(round);
+  if (seat.length < 2) return null;
+  const [A, B] = e.ends;
+  const d: [number, number] = [B[0] - A[0], B[1] - A[1]];
+  const l2 = d[0] * d[0] + d[1] * d[1] || 1;
+  const along = (p: readonly number[]): number => ((p[0] - A[0]) * d[0] + (p[1] - A[1]) * d[1]) / l2;
+  let runs: [number, number][][] = [seat];
+  if (e.info.behind) {
+    const [m0, m1] = [along(e.info.mouth[0]), along(e.info.mouth[e.info.mouth.length - 1])].sort((p, q) => p - q);
+    const cutAt = (p: [number, number], q: [number, number], t: number): [number, number] => {
+      const [tp, tq] = [along(p), along(q)];
+      const k = Math.abs(tq - tp) < 1e-12 ? 0 : (t - tp) / (tq - tp);
+      return round([p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]);
+    };
+    const before: [number, number][] = [];
+    const after: [number, number][] = [];
+    seat.forEach((p, k) => {
+      const t = along(p);
+      const prev = seat[k - 1];
+      if (prev) {
+        const tp = along(prev);
+        if ((tp < m0) !== (t < m0)) before.push(cutAt(prev, p, m0));
+        if ((tp > m1) !== (t > m1)) after.push(cutAt(prev, p, m1));
+      }
+      if (t <= m0) before.push(p);
+      if (t >= m1) after.push(p);
+    });
+    runs = [before, after].filter((r) => r.length >= 2);
+  }
+  if (runs.length === 0) return null;
+  const lowLeft = walksForward({ drop: e.info.drop, owner: e.info.plateau }) === e.info.drop > 0;
+  return { kind: 'cliff', edge: [A, B].map(round), closed: false, runs: lowLeft ? runs : runs.map((r) => [...r].reverse()).reverse() };
 }
 
 /** Whether two lists of rock lines are the same, point for point: what a rebuild that changed nothing stores. */

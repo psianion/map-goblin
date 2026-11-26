@@ -131,7 +131,7 @@ export function plateauLookKey(children: readonly AnyChild[]): string {
   for (const c of children) {
     if (c.childType === 'shape') pieces++;
     if (c.childType === 'plateau') {
-      key += `${pieces}:${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.faceArt ?? ''}:${c.faceDir ?? ''}:${c.topArt ?? ''}:${c.borderWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''}:${(c.stairs ?? []).map((s) => `${s.id}/${s.ring}/${s.from}/${s.to}/${s.kit ?? ''}`).join(';')},`;
+      key += `${pieces}:${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.faceArt ?? ''}:${c.faceDir ?? ''}:${c.topArt ?? ''}:${c.borderWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''}:${(c.stairs ?? []).map((s) => `${s.id}/${s.ring}/${s.from}/${s.to}/${s.kit ?? ''}`).join(';')}:${(c.entrances ?? []).map((s) => `${s.id}/${s.ring}/${s.from}/${s.to}/${s.piece ?? ''}/${s.mouth?.join('/') ?? ''}`).join(';')},`;
     }
   }
   return key;

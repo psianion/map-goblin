@@ -11,6 +11,7 @@ import { DOOR_WIDTH_MAX } from '@/editor/models/selectionModel';
 import { DoorAngleControl } from './controls';
 import { DoorSelectionPanel, KitColumn } from './StairsFields';
 import { pickedStairs, resizePickedStairs } from './stairsModel';
+import { pickedEntrance, resizePickedEntrance } from './entranceModel';
 
 const STYLE_CHOICES: DoorStyleChoice[] = [...PLACEABLE_DOOR_STYLES, 'opening', 'stairs'];
 
@@ -55,16 +56,20 @@ export const doorWidth = defineSetting<number>({
   // Whole cells for every style: an Opening steps 1, 2, 3 as a door does.
   range: { min: 1, max: DOOR_WIDTH_MAX, step: 1, unit: 'sq' },
   bind: {
-    // Picked stairs: their width, and a change resizes them. Else the width of the next door.
+    // Picked stairs or a picked cave mouth: its width, and a change resizes it. Else the width of the next door.
     read: (s) => {
-      const stairs = pickedStairs(s);
-      return stairs ? Math.round(stairs.span.to - stairs.span.from) : s.tools.settings.doorWidth;
+      const span = pickedStairs(s)?.span ?? pickedEntrance(s)?.span;
+      return span ? Math.round(span.to - span.from) : s.tools.settings.doorWidth;
     },
     // Never narrower than the style allows: a double needs room for two leaves.
     write: (store, width) => {
       const st = store.getState();
       if (pickedStairs(st)) {
         resizePickedStairs(st.selection.selectedIds, width);
+        return;
+      }
+      if (pickedEntrance(st)) {
+        resizePickedEntrance(st.selection.selectedIds, width);
         return;
       }
       st.updateToolSettings({ doorWidth: Math.max(width, minDoorWidth(st.tools.settings.doorStyle, st.tools.settings.doorBare)) });
@@ -125,7 +130,7 @@ export const doorTool = defineTool({
   engine: ['door'],
   settings: [doorStyle, doorWidth, doorAngle, doorSecret, doorFreestanding],
   dock: [{ id: 'door.kit', caption: 'Kit', render: KitColumn }],
-  // Picked stairs show their card; anything else keeps the tool's panel.
+  // Picked stairs or a picked cave mouth show their card; anything else keeps the tool's panel.
   selectionPanel: DoorSelectionPanel,
   hint: (s) => ({
     label: 'Door',
@@ -133,6 +138,8 @@ export const doorTool = defineTool({
       t(
         s.tools.settings.doorStairs
           ? 'Click a plateau or pit edge to lay stairs down it · drag stairs along their edge · Delete removes the picked stairs · '
+          : s.tools.settings.doorBare && s.tools.settings.doorStyle === 'archway' && !s.tools.settings.doorFreestanding
+          ? 'Click a wall to open it · on a cliff edge it makes a cave mouth · drag a mouth along its edge · Delete removes the picked mouth · '
           : s.tools.settings.doorFreestanding
           ? 'Click anywhere to stand a door free · double-click a door opens or shuts it · '
           : 'Click a wall to hang a door · between two walls it spans the gap · on open floor it stands free · double-click a door opens or shuts it · ',

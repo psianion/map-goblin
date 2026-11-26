@@ -55,6 +55,8 @@ const BandSchema = z.object({
   entrance: z.boolean().optional(),
   /** An entrance dark inside, for an opening onto unlit ground. */
   shadow: z.boolean().optional(),
+  /** An entrance's hollow along its low side, as shares of the way from joint 0 to joint 1. Absent = its middle third. */
+  mouth: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]).optional(),
   /** Rock turning into a cut-stone wall: laid where the two meet, in line (`straight`) or at a right angle (`corner`). Never inside a run. */
   transition: z.enum(['straight', 'corner']).optional(),
   /** Which of a transition's joints lies on the wall's centre line. */

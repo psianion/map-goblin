@@ -1029,3 +1029,69 @@ describe('DoorTool, Stairs style', () => {
     expect(selectedIds()).toEqual([]);
   });
 });
+
+describe('DoorTool, a cave mouth with the Opening style', () => {
+  let tool: DoorTool;
+  let ghost: Ghost;
+  // The same +2 cliff, 10..14 square, its kit with no entrance pieces: a mouth is a plain gap.
+  const PLATEAU = { id: 'p1', name: 'Plateau 1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 2, edge: 'cliff' };
+  type Mouth = { id: string; ring: number; from: number; to: number; mouth?: [number, number] };
+  const plateau = () => layer().children.find((c) => c.id === 'p1') as unknown as { entrances?: Mouth[]; stairs?: unknown[] };
+  const spans = () => (plateau().entrances ?? []).map(({ ring, from, to, mouth }) => ({ ring, from, to, mouth }));
+
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.setState((s) => {
+      (s.layers.find((l) => l.type === 'dungeon') as DungeonLayer).children.push(structuredClone(PLATEAU) as never);
+    });
+    useStore.getState().updateToolSettings({ doorStairs: false, doorStyle: 'archway', doorBare: true, doorWidth: 2 });
+    const preview = new Container();
+    tool = new DoorTool(preview);
+    ghost = preview.children[0] as unknown as Ghost;
+  });
+
+  it('shows the mouth on a cliff edge', () => {
+    tool.onPointerMove({ x: 12.3, y: 9.8 });
+    expect(ghost.children.length).toBeGreaterThan(0);
+    expect(ghost.tint).toBe(0xffffff);
+  });
+
+  it('makes a mouth Width cells wide on the edge, its gap the whole span, picked, in one undo step, and no wall Opening', () => {
+    click(tool, 12.3, 9.8);
+    expect(spans()).toEqual([{ ring: 0, from: 1, to: 3, mouth: [1, 3] }]);
+    expect(selectedIds()).toEqual([`entrance:p1:${plateau().entrances![0].id}`]);
+    expect(doors()).toHaveLength(0);
+    undoManager.undo();
+    expect(spans()).toEqual([]);
+  });
+
+  it('picks a mouth on a click whatever the style, and lays nothing over it', () => {
+    click(tool, 12.3, 9.8);
+    const id = selectedIds()[0];
+    for (const settings of [{ doorStairs: true }, { doorStairs: false, doorStyle: 'single' as const, doorBare: false, doorFreestanding: true }]) {
+      useStore.getState().setSelectedIds([]);
+      useStore.getState().updateToolSettings(settings);
+      click(tool, 12, 9.6);
+      expect(selectedIds()).toEqual([id]);
+      expect(doors()).toHaveLength(0);
+      expect(plateau().stairs).toBeUndefined();
+      expect(spans()).toHaveLength(1);
+    }
+  });
+
+  it('slides a picked mouth along the edge in one undo step, keeping its width', () => {
+    click(tool, 12.3, 9.8);
+    drag(tool, [12, 9.6], [10.6, 9.6]);
+    expect(spans()).toEqual([{ ring: 0, from: 0, to: 2, mouth: [0, 2] }]);
+    undoManager.undo();
+    expect(spans()).toEqual([{ ring: 0, from: 1, to: 3, mouth: [1, 3] }]);
+  });
+
+  it('deletes the picked mouth, the cliff whole again', () => {
+    click(tool, 12.3, 9.8);
+    tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));
+    expect(plateau().entrances).toBeUndefined();
+    expect(selectedIds()).toEqual([]);
+  });
+});

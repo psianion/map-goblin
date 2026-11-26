@@ -1,11 +1,12 @@
-// Where the Door tool's Stairs style lays a flight: the plateau or pit edge under the pointer (its
-// drawn ring, or the cliff's saved rock line where it has one), and a run of whole cells along
-// that edge of the plateau's own outline, as wide as asked. Pure: the tool and its tests read it.
+// Where the Door tool's Stairs style lays a flight, and where its Opening style makes a cave mouth
+// in a cliff: the plateau or pit edge under the pointer (its drawn ring, or the cliff's saved rock
+// line where it has one), and a run of whole cells along that edge of the plateau's own outline, as
+// wide as asked. Pure: the tool and its tests read it.
 
 import type { DungeonLayer } from '../store/types';
-import type { PlateauChild, StairSpan } from './types';
+import type { CliffEntrance, PlateauChild, StairSpan } from './types';
 import type { Polygon } from '../types/geometry';
-import { layerPlateaus, shapeRing, stairFlights, type StairFlight } from './plateaus';
+import { edgeOf, layerPlateaus, shapeRing, stairFlights, type EntranceInfo, type StairFlight } from './plateaus';
 import { alongRock } from './rockLines';
 
 type Vec = [number, number];
@@ -61,14 +62,41 @@ function outlineEdge(plateau: PlateauChild, a: Vec, b: Vec): { ring: number; p: 
  * same plateau being moved: it is no obstacle. Null off every edge, or on one shorter than a cell.
  */
 export function stairSpanAt(layer: Pick<DungeonLayer, 'children' | 'rockLines'> & { mergedFloor?: Polygon[] | null }, point: Vec, width: number, ignore?: string): StairPlan | null {
+  const hit = spanAt(layer, point, () => width, () => true);
+  if (!hit) return null;
+  const { owner, span } = hit;
+  const others = (owner.stairs ?? []).filter((s) => s.id !== ignore);
+  const overlaps = occupied(owner, ignore).some((s) => s.ring === span.ring && s.from < span.to - EPS && s.to > span.from + EPS);
+  const probe = { ...owner, stairs: [...others, { ...span, id: '\u0000plan' }] } as PlateauChild;
+  const flight = stairFlights({ children: layer.children.map((c) => (c === owner ? probe : c)), mergedFloor: layer.mergedFloor }).find((f) => f.span.id === '\u0000plan') ?? null;
+  return { plateau: owner, span, flight, valid: !overlaps && flight !== null };
+}
+
+/** The stretches of `plateau`'s edge its stairs and cave mouths hold, but the one `ignore` names. */
+const occupied = (plateau: PlateauChild, ignore?: string): { ring: number; from: number; to: number }[] =>
+  [...(plateau.stairs ?? []), ...(plateau.entrances ?? [])].filter((s) => s.id !== ignore);
+
+/**
+ * The span a click at `point` would take on the nearest raised edge within reach whose plateau
+ * `accept`s it (its rock line's stretch where the cliff saved one): `width(plateau)` whole cells
+ * along the plateau's own outline edge it lies on, centred on the pointer as near as whole cells
+ * from the edge's start allow. An edge shorter than the width takes as many whole cells as it
+ * holds. Null off every edge, or on one shorter than a cell.
+ */
+function spanAt(
+  layer: Pick<DungeonLayer, 'children' | 'rockLines'>,
+  point: Vec,
+  width: (plateau: PlateauChild) => number,
+  accept: (plateau: PlateauChild) => boolean,
+): { owner: PlateauChild; span: Omit<StairSpan, 'id' | 'kit'> } | null {
   let best: { d: number; a: Vec; b: Vec; owner: PlateauChild } | null = null;
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
       const edges = band.edges[ri];
-      if (!edges.some((e) => e.drop !== 0 && e.owner)) return;
+      if (!edges.some((e) => e.drop !== 0 && e.owner && accept(e.owner))) return;
       const consider = (i: number, d: number) => {
         const e = edges[i];
-        if (e.drop === 0 || !e.owner || (best && best.d <= d)) return;
+        if (e.drop === 0 || !e.owner || !accept(e.owner) || (best && best.d <= d)) return;
         best = { d, a: ring[i] as Vec, b: ring[(i + 1) % ring.length] as Vec, owner: e.owner };
       };
       ring.forEach((a, i) => consider(i, segDist(point, a, ring[(i + 1) % ring.length]).d));
@@ -86,15 +114,73 @@ export function stairSpanAt(layer: Pick<DungeonLayer, 'children' | 'rockLines'> 
   const L = Math.hypot(q[0] - p[0], q[1] - p[1]);
   const cells = Math.floor(L + EPS);
   if (cells < 1) return null;
-  const w = Math.min(cells, Math.max(1, Math.round(width)));
+  const w = Math.min(cells, Math.max(1, Math.round(width(hit.owner))));
   const t = segDist(point, p, q).t * L;
   const start = Math.max(0, Math.min(cells - w, Math.round(t - w / 2)));
-  const span = { ring: edge.ring, from: edge.s0 + start, to: edge.s0 + start + w };
-  const others = (hit.owner.stairs ?? []).filter((s) => s.id !== ignore);
-  const overlaps = others.some((s) => s.ring === span.ring && s.from < span.to - EPS && s.to > span.from + EPS);
-  const probe = { ...hit.owner, stairs: [...others, { ...span, id: '\u0000plan' }] } as PlateauChild;
-  const flight = stairFlights({ children: layer.children.map((c) => (c === hit.owner ? probe : c)), mergedFloor: layer.mergedFloor }).find((f) => f.span.id === '\u0000plan') ?? null;
-  return { plateau: hit.owner, span, flight, valid: !overlaps && flight !== null };
+  return { owner: hit.owner, span: { ring: edge.ring, from: edge.s0 + start, to: edge.s0 + start + w } };
+}
+
+/** What a click with the Opening style would make on a cliff edge: a cave mouth. */
+export interface EntrancePlan {
+  plateau: PlateauChild;
+  span: Omit<CliffEntrance, 'id' | 'piece' | 'mouth'>;
+  /** It would stand as this (its mouth the span's middle third); null where it has no drop under it. */
+  info: EntranceInfo | null;
+  /** Laid on no stairs or other mouth of the plateau, with a drop under it. */
+  valid: boolean;
+}
+
+/**
+ * The cave mouth a click at `point` would make with the Opening style: on the nearest cliff edge
+ * within reach, as stairs snap (`stairSpanAt`), `width(plateau)` whole cells wide. `ignore` is a
+ * mouth of the same plateau being moved. Null off every cliff edge.
+ */
+export function entranceSpanAt(
+  layer: Pick<DungeonLayer, 'children' | 'rockLines'>,
+  point: Vec,
+  width: (plateau: PlateauChild) => number,
+  ignore?: string,
+): EntrancePlan | null {
+  const hit = spanAt(layer, point, width, (p) => edgeOf(p) === 'cliff');
+  if (!hit) return null;
+  const { owner, span } = hit;
+  const overlaps = occupied(owner, ignore).some((s) => s.ring === span.ring && s.from < span.to - EPS && s.to > span.from + EPS);
+  const others = (owner.entrances ?? []).filter((s) => s.id !== ignore);
+  const probe = { ...owner, entrances: [...others, { ...span, id: '\u0000plan' }] } as PlateauChild;
+  const info = layerPlateaus({ children: layer.children.map((c) => (c === owner ? probe : c)) }).entrances.find((e) => e.span.id === '\u0000plan') ?? null;
+  return { plateau: owner, span, info, valid: !overlaps && info !== null };
+}
+
+/** How near a cave mouth's span, across the edge, a point picks it, cells. */
+const MOUTH_PICK = 0.6;
+
+/** The cave mouth under `point`: within reach of its span's line. */
+export function entranceAt(layer: Pick<DungeonLayer, 'children'>, point: Vec): { plateau: PlateauChild; span: CliffEntrance } | null {
+  if (!layer.children.some((c) => c.childType === 'plateau' && (c.entrances?.length ?? 0) > 0)) return null;
+  for (const e of layerPlateaus(layer).entrances) {
+    const [a, b] = [e.line[0], e.line[e.line.length - 1]];
+    const w = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (w < EPS) continue;
+    const u: Vec = [(b[0] - a[0]) / w, (b[1] - a[1]) / w];
+    const rel: Vec = [point[0] - a[0], point[1] - a[1]];
+    const along = rel[0] * u[0] + rel[1] * u[1];
+    const across = Math.abs(rel[0] * u[1] - rel[1] * u[0]);
+    if (along >= 0 && along <= w && across <= MOUTH_PICK) return { plateau: e.plateau, span: e.span };
+  }
+  return null;
+}
+
+/** The outline a picked cave mouth is shown by: its span, MOUTH_PICK either side of the edge. */
+export function entranceFootprint(e: Pick<EntranceInfo, 'line'>): Polygon {
+  const [a, b] = [e.line[0], e.line[e.line.length - 1]];
+  const w = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const n: Vec = [((b[1] - a[1]) / w) * MOUTH_PICK, (-(b[0] - a[0]) / w) * MOUTH_PICK];
+  return [
+    [a[0] + n[0], a[1] + n[1]],
+    [b[0] + n[0], b[1] + n[1]],
+    [b[0] - n[0], b[1] - n[1]],
+    [a[0] - n[0], a[1] - n[1]],
+  ];
 }
 
 /** The stairs under `point`: on its flight, or within reach of its span's line. */
@@ -119,6 +205,19 @@ export function stairsAt(layer: Pick<DungeonLayer, 'children'> & { mergedFloor?:
  * run onto other stairs of the plateau, or the span lies on no edge of its outline.
  */
 export function resizeStairs(plateau: PlateauChild, span: StairSpan, width: number): StairSpan | null {
+  return resized(plateau, span, width);
+}
+
+/** `span` (a cave mouth) made `width` whole cells wide, as `resizeStairs` makes stairs; its hollow is left to be worked out again. */
+export function resizeEntrance(plateau: PlateauChild, span: CliffEntrance, width: number): CliffEntrance | null {
+  const next = resized(plateau, span, width);
+  if (!next) return null;
+  const rest: CliffEntrance = { ...next };
+  delete rest.mouth;
+  return rest;
+}
+
+function resized<T extends { id: string; ring: number; from: number; to: number }>(plateau: PlateauChild, span: T, width: number): T | null {
   if ((plateau.contours[span.ring]?.length ?? 0) < 3) return null;
   const ring = shapeRing(plateau, span.ring);
   const mid = (span.from + span.to) / 2;
@@ -133,7 +232,7 @@ export function resizeStairs(plateau: PlateauChild, span: StairSpan, width: numb
       const w = Math.min(cells, Math.max(1, Math.round(width)));
       const start = Math.max(0, Math.min(cells - w, Math.round(span.from - s0)));
       const next = { ...span, from: s0 + start, to: s0 + start + w };
-      const overlaps = (plateau.stairs ?? []).some((s) => s.id !== span.id && s.ring === span.ring && s.from < next.to - EPS && s.to > next.from + EPS);
+      const overlaps = occupied(plateau, span.id).some((s) => s.ring === span.ring && s.from < next.to - EPS && s.to > next.from + EPS);
       return overlaps ? null : next;
     }
     s0 += L;

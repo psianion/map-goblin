@@ -12,7 +12,7 @@ import { layerDrawStyle, layerLevelLook } from '../engine/levelLook';
 import { laidCaves } from '../engine/material/materialRenderer';
 import { computeMergedFloor } from '../engine/mergedFloor';
 import { cliffChoice } from '../engine/plateauKit';
-import { bandShades, fittedAlongWalls, laidRuns, layerSlopes, walkCliff, walksForward } from '../engine/plateauRenderer';
+import { bandShades, fittedAlongWalls, laidRuns, layerSlopes, walkStretch, walksForward } from '../engine/plateauRenderer';
 import type { RampField } from '../engine/rampMask';
 import { cliffLineOf, cliffRockLines, rockLineOf } from '../engine/rockLines';
 import { renderNodeWalls, type DoorGap } from '../engine/wallNodeRenderer';
@@ -107,7 +107,7 @@ export function layLayer(input: DungeonLayer): LaidLayer {
       if (!cliffs || !isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId)) continue;
       for (const c of cliffs) {
         const pts = walksForward(c.run) ? c.run.points : [...c.run.points].reverse();
-        add('cliff', pts, walkCliff(c.run, c.merged, c.opens), [], 1, false, c.run.closed);
+        add('cliff', pts, walkStretch(c), [], 1, false, c.run.closed);
       }
     }
   }
@@ -153,7 +153,7 @@ export function drawnFromOutline(laid: LaidLayer): { layer: DungeonLayer; bands:
       if (!stretches || !isMeasuredBandSet(cliffChoice(run.owner?.edgeArt).setId)) continue;
       for (const c of stretches) {
         topLines.push(c.top);
-        const line = cliffLineOf(c.run, walkCliff(c.run, c.merged, c.opens));
+        const line = cliffLineOf(c.run, walkStretch(c));
         if (line) own.push({ line, drop: c.run.drop });
       }
     }

@@ -49,6 +49,8 @@ export interface CaveKitPiece {
   /** An entrance across a doorway in a cliff; `shadow` when it is dark inside. */
   entrance?: boolean;
   shadow?: boolean;
+  /** An entrance's hollow, as shares of the way from joint 0 to joint 1. */
+  mouth?: [number, number];
   /** Rock turning into a cut-stone wall, and which joint lies on the wall's centre line. */
   transition?: 'straight' | 'corner';
   wallJoint?: 0 | 1;
@@ -217,7 +219,7 @@ function measuredKit(setId: string): MeasuredKit {
         ...(e.band.connector && { radius: e.band.radius ?? 0 }),
         ...(e.band.step && { step: true }),
         ...(e.band.reach !== undefined && { reach: e.band.reach }),
-        ...(e.band.entrance && { entrance: true, ...(e.band.shadow && { shadow: true }) }),
+        ...(e.band.entrance && { entrance: true, ...(e.band.shadow && { shadow: true }), ...(e.band.mouth && { mouth: [e.band.mouth[0], e.band.mouth[1]] as [number, number] }) }),
         ...(e.band.transition && { transition: e.band.transition, wallJoint: e.band.wallJoint ?? 0, ...(e.band.walls && { walls: [...e.band.walls] }) }),
         exact: true,
       },
@@ -302,6 +304,11 @@ export function kitFacesFloor(set: readonly CaveKitPiece[]): boolean {
 /** The step pieces of the measured kit `set`'s pieces come from, mirrors included. Empty for any other set. */
 export function kitSteps(set: readonly CaveKitPiece[]): CaveKitPiece[] {
   return kitOf(set)?.steps ?? [];
+}
+
+/** The entrances (a cave mouth in a cliff, plain or dark inside) of the measured kit `set`'s pieces come from. Empty for any other set. */
+export function kitEntrances(set: readonly CaveKitPiece[]): CaveKitPiece[] {
+  return kitOf(set)?.entrances ?? [];
 }
 
 /** The transitions (rock turning into a cut-stone wall) of the measured kit `set`'s pieces come from. Empty for any other set. */

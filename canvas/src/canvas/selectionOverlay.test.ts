@@ -65,6 +65,22 @@ describe('selection overlay model', () => {
     expect(Math.max(...xs())).toBe(14);
   });
 
+  it('a picked cave mouth is outlined round its span, across the edge', () => {
+    const plateau = {
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 2, edge: 'cliff',
+      entrances: [{ id: 'm1', ring: 0, from: 1, to: 3 }],
+    } as unknown as AnyChild;
+    useStore.getState().addChild(layer().id, plateau);
+    expect(selectionOverlayModel(useStore.getState()).stairs).toEqual([]);
+    useStore.getState().setSelectedIds(['entrance:p1:m1']);
+    const [ring] = selectionOverlayModel(useStore.getState()).stairs;
+    const xs = ring.map(([x]) => x);
+    const ys = ring.map(([, y]) => y);
+    expect([Math.min(...xs), Math.max(...xs)]).toEqual([11, 13]);
+    expect(Math.min(...ys)).toBeLessThan(10);
+    expect(Math.max(...ys)).toBeGreaterThan(10);
+  });
+
   it('an unlocked selection draws no lock', () => {
     asset('p');
     useStore.getState().setSelectedIds(['p']);

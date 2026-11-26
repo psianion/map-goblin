@@ -243,6 +243,35 @@ describe('stairs on a plateau edge along cave rock', () => {
   });
 });
 
+describe('a cave mouth in a cliff with the room behind it', () => {
+  // A +1 over the room's north half, its north edge on the room's wall; a mouth there, x 5 to 7, its hollow 5.6 to 6.4.
+  const plateau = (entrances: unknown[] | undefined) => ({ id: 'up', name: 'up', childType: 'plateau', visible: true, contours: [rect(0, 0, 12, 5)], height: 1, edge: 'cliff', edgeArt: SET, ...(entrances && { entrances }) });
+  const MOUTH = { id: 'm', ring: 0, from: 5, to: 7, mouth: [5.6, 6.4] };
+
+  it('opens the room’s rock across the cells the mouth frees to walk: movement through either, light and sight through the hollow, the wall standing past them', () => {
+    seed();
+    const layer = roomWith([plateau([MOUTH])]);
+    const tips = taperTips(layer).sort((a, b) => a[0] - b[0]);
+    expect(tips).toHaveLength(2);
+    // The hollow covers 0.4 of each of the span's two cells: the rock opens across both.
+    expect(tips[0][0]).toBeCloseTo(5, 2);
+    expect(tips[1][0]).toBeCloseTo(7, 2);
+    const shown = drawnFromOutline(layLayer(layer)).layer;
+    const kinds = [extractWallSegments([shown], 'light'), extractWallSegments([shown], 'sight'), extractMoveSegments([shown])];
+    expect(kinds.map((segs) => [5.8, 6, 6.2].every((x) => !crosses(segs, [x, 1.5], [x, -2])))).toEqual([true, true, true]);
+    expect([5.2, 6.8].every((x) => !crosses(kinds[2], [x, 1.5], [x, -2]))).toBe(true);
+    // Past the freed cells the wall stands.
+    expect(kinds.map((segs) => crosses(segs, [3, 1.5], [3, -2]) && crosses(segs, [8, 1.5], [8, -2]))).toEqual([true, true, true]);
+  });
+
+  it('closes the rock exactly as it was once the mouth is gone', () => {
+    seed();
+    const before = placements(roomWith([plateau(undefined)]));
+    expect(placements(roomWith([plateau([MOUTH])]))).not.toEqual(before);
+    expect(placements(roomWith([plateau([])]))).toEqual(before);
+  });
+});
+
 describe('a door on cave rock', () => {
   it.each(['single', 'double', 'portcullis', 'archway'] as const)('tapers the rock either side of a %s, with no piece turning back', (style) => {
     seed();

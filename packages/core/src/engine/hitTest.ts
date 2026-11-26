@@ -1,4 +1,4 @@
-import type { AnyChild, LightChild, DungeonLayer, PlateauChild, StairSpan, ZoneChild } from '../store/types';
+import type { AnyChild, CliffEntrance, LightChild, DungeonLayer, PlateauChild, StairSpan, ZoneChild } from '../store/types';
 import type { RingGeometry, Room, WallSegment } from '../shared/types';
 import { flattenRing } from '../shared/bezier';
 import { distanceToLine, pathwayBounds, pathwayLine } from '../shared/pathway';
@@ -12,8 +12,8 @@ import { roomIndexOf } from '../shared/roomIndex';
 import { roomBadgePoints } from '../shared/roomUtils';
 import { inFrame, inRingsEvenOdd, lockedFrame } from '../shared/pieces';
 import { marqueeTabKinds } from './marqueeFilter';
-import { stairsAt } from '../shared/stairPlace';
-import { stairsSelectionId, type SelectionKind } from '../store/selectionResolve';
+import { entranceAt, stairsAt } from '../shared/stairPlace';
+import { entranceSelectionId, stairsSelectionId, type SelectionKind } from '../store/selectionResolve';
 
 /**
  * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
@@ -406,6 +406,8 @@ export type PickHit = (
   | { kind: 'room'; id: string; layerId: string; room: Room }
   /** A flight of stairs on a plateau's edge, by its selection id (`stairsSelectionId`). */
   | { kind: 'stairs'; id: string; layerId: string; plateau: PlateauChild; span: StairSpan }
+  /** A cave mouth in a plateau's cliff, by its selection id (`entranceSelectionId`). */
+  | { kind: 'entrance'; id: string; layerId: string; plateau: PlateauChild; span: CliffEntrance }
 ) & {
   /** The object is locked on its own: selectable, never transformed. */
   locked?: boolean;
@@ -534,6 +536,9 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
   // Stairs are the Door tool's and pick as a door does: under the props, over the walls they open.
   const stairs = stairsAt(layer, point);
   if (stairs) yield { kind: 'stairs', id: stairsSelectionId(stairs.plateau.id, stairs.span.id), layerId: layer.id, plateau: stairs.plateau, span: stairs.span };
+  // A cave mouth picks the same way: the Door tool makes it.
+  const mouth = entranceAt(layer, point);
+  if (mouth) yield { kind: 'entrance', id: entranceSelectionId(mouth.plateau.id, mouth.span.id), layerId: layer.id, plateau: mouth.plateau, span: mouth.span };
   const zones = layer.children.filter((c): c is ZoneChild => c.childType === 'zone');
   const zoneHits = [...childHits(zones, point, layer, opts)] as ZoneChild[];
   for (const z of zoneHits) if (pointOnZoneEdge(z, point, opts?.zoom)) yield childHit(layer.id, z);
@@ -681,9 +686,9 @@ export interface StackEntry {
   hidden: boolean;
 }
 
-/** The kind a pick is, as the Pick only filter names kinds. Stairs go with the doors: the Door tool lays both. */
+/** The kind a pick is, as the Pick only filter names kinds. Stairs and cave mouths go with the doors: the Door tool makes them all. */
 export function pickKindOf(hit: PickHit): SelectionKind {
-  return hit.kind === 'child' ? hit.child.childType : hit.kind === 'stairs' ? 'door' : hit.kind;
+  return hit.kind === 'child' ? hit.child.childType : hit.kind === 'stairs' || hit.kind === 'entrance' ? 'door' : hit.kind;
 }
 
 /**

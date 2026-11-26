@@ -197,6 +197,29 @@ describe('picked stairs', () => {
   });
 });
 
+describe('a picked cave mouth', () => {
+  it('shows the Cave mouth card with Kit, Width and Delete under Select and under the Door tool', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const plateau = {
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+      entrances: [{ id: 'm1', ring: 0, from: 1, to: 3 }],
+    } as unknown as AnyChild;
+    act(() => state.addChild(layer.id, plateau));
+    const { getByTestId } = withRegistry(<Slot />);
+    for (const tool of ['select', 'door'] as const) {
+      act(() => {
+        useStore.getState().setActiveTool(tool);
+        useStore.getState().setSelectedIds(['entrance:p1:m1']);
+      });
+      const card = getByTestId('shell-card');
+      expect(card.dataset.kind).toBe('entrance');
+      expect(shown(card)).toEqual(['card.entrance.kit', 'card.entrance.width']);
+      expect([...card.querySelectorAll('[data-composite="action-row"] button')].map((b) => b.getAttribute('aria-label'))).toEqual(['Delete']);
+    }
+  });
+});
+
 describe('a typed dock slider', () => {
   it('takes a typed Feather in percent on Enter, clamped to the range, and drops it on Escape', () => {
     act(() => useStore.getState().setActiveTool('material'));

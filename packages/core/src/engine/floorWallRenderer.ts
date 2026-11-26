@@ -547,7 +547,7 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   const fitted = floorFits.get(layer.id);
   const fit = fitted && fitted.floor === layer.mergedFloor ? fitted.fit : undefined;
   // They fade out across a cave's mouth as its floor does, by the same ramp.
-  const opening = layer.children.some((c) => (c.childType === 'door' && c.bare) || (c.childType === 'plateau' && (c.stairs?.length ?? 0) > 0));
+  const opening = layer.children.some((c) => (c.childType === 'door' && c.bare) || (c.childType === 'plateau' && ((c.stairs?.length ?? 0) > 0 || (c.entrances?.length ?? 0) > 0)));
   const walls = opening ? resolveWalls(layer) : [];
   const mouths = layerMouths(layer, polygons, opening ? [...resolveDoors(layer, walls).filter((d) => d.door.visible), ...stairOpenings(layer, walls)] : []);
   const groups: [string, Polygon[], Ramp | null][] = [...byColor].map(([color, rings]): [string, Polygon[], Ramp | null] => {

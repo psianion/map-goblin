@@ -518,6 +518,8 @@ export interface ToolSettings {
   doorStairs?: boolean;
   /** The kit new stairs are laid with (`StairSpan.kit`). Absent = the packs' default. */
   stairKit?: string;
+  /** The entrance piece new cave mouths are laid with, by its place among its kit's of that width. Absent = the first. */
+  entranceVariant?: number;
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
   material: MaterialToolSettings;

@@ -17,7 +17,7 @@
 //   (`elevationAt`). That height draws a shadow and nothing else: no wall, no room.
 
 import type { DungeonLayer } from '../store/types';
-import type { AnyChild, CrossingKind, PlateauChild, RingGeometry, ShapeChild, StairSpan } from './types';
+import type { AnyChild, CliffEntrance, CrossingKind, PlateauChild, RingGeometry, ShapeChild, StairSpan } from './types';
 import { patchCovers, patchOutline, type MaterialPatch } from './materialPatch';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
@@ -224,8 +224,16 @@ export interface BandEdge {
    * plateau it merely meets: that one's edge is drawn).
    */
   dug: boolean;
-  /** Inside one of its owner's stair spans: crossed freely, hides nothing, lays no cliff. Absent elsewhere. */
+  /**
+   * Inside one of its owner's stair spans: crossed freely, hides nothing, lays no cliff. Also on the
+   * whole cells a cliff entrance's mouth frees with a walled floor behind it (`EntranceInfo.walk`):
+   * crossed freely there, though only its hollow (`hollow`) hides nothing. Absent elsewhere.
+   */
   stairs?: true;
+  /** Inside one of its owner's cliff entrances: the entrance's piece lies there, not the cliff's rock. Absent elsewhere. */
+  entrance?: true;
+  /** Across the hollow of one of its owner's cliff entrances with a walled floor behind it: hides nothing. Absent elsewhere. */
+  hollow?: true;
 }
 
 export interface PlateauBand {
@@ -252,6 +260,8 @@ export interface LayerPlateaus {
   infos: Map<string, PlateauInfo>;
   /** Raised bands in draw order (depth, then height). Empty on a flat layer. */
   bands: PlateauBand[];
+  /** Every cliff entrance with a drop under its span, in band order. */
+  entrances: EntranceInfo[];
 }
 
 /** Union of rings: outers unioned, holes subtracted. */
@@ -543,6 +553,76 @@ export function stairFlights(layer: Pick<DungeonLayer, 'children'> & { mergedFlo
   return out;
 }
 
+// ─── Cliff entrances ───────────────────────────────────────
+
+/** How near the mouth, on its high side, a walled floor's area must come to stand behind it, cells. */
+export const ENTRANCE_BEHIND = 0.5;
+
+/** An entrance's hollow along its ring, kept to its span: its own, else the span's middle third. */
+export function entranceMouth(span: Pick<CliffEntrance, 'from' | 'to' | 'mouth'>): [number, number] {
+  const m = span.mouth;
+  if (m && m[1] > m[0] && m[0] < span.to && m[1] > span.from) return [Math.max(span.from, m[0]), Math.min(span.to, m[1])];
+  const third = (span.to - span.from) / 3;
+  return [span.from + third, span.to - third];
+}
+
+/** How much of a whole cell of its span a mouth's hollow must cover to free that cell to walk, cells. */
+export const ENTRANCE_WALK = 0.3;
+
+/**
+ * The stretch of an entrance's span a token walks through, as lengths along the ring: every whole
+ * cell of the span (from its start) its hollow covers by ENTRANCE_WALK or more, else the one it
+ * covers most. Walking goes by whole cells; sight and light keep to the hollow.
+ */
+export function entranceWalk(span: Pick<CliffEntrance, 'from' | 'to'>, mouth: [number, number]): [number, number] {
+  const cells = Math.max(1, Math.round(span.to - span.from));
+  const cover = Array.from({ length: cells }, (_, k) => Math.max(0, Math.min(mouth[1], span.from + k + 1) - Math.max(mouth[0], span.from + k)));
+  const free = cover.map((c, k) => (c >= ENTRANCE_WALK - 1e-9 ? k : -1)).filter((k) => k >= 0);
+  const most = cover.indexOf(Math.max(...cover));
+  const [lo, hi] = free.length > 0 ? [free[0], free[free.length - 1]] : [most, most];
+  return [span.from + lo, Math.min(span.to, span.from + hi + 1)];
+}
+
+/** One cliff entrance as it stands on its band. */
+export interface EntranceInfo {
+  plateau: PlateauChild;
+  span: CliffEntrance;
+  /** The line its span covers (`stairLine`), in its plateau's ring order. */
+  line: Polygon;
+  /** The line its hollow covers, the same way. */
+  mouth: Polygon;
+  /** The whole cells of its span the hollow frees to walk (`ENTRANCE_WALK`), the same way. */
+  walk: Polygon;
+  /** The band edge it lies along, in the band ring's order, and that edge's drop. */
+  edge: [Vec, Vec];
+  drop: number;
+  /**
+   * A walled floor's area comes within ENTRANCE_BEHIND of the mouth on its high side, the low side
+   * just outside it not being on that floor: the mouth is crossed freely, hides nothing and opens
+   * the floor's wall. Not stored: drawing or taking away the floor opens or closes it.
+   */
+  behind: boolean;
+}
+
+/** The layer's walled floors (visible, not ground), each as its rings, holes included. */
+function walledFloors(children: readonly AnyChild[]): Polygon[][] {
+  const out: Polygon[][] = [];
+  for (const c of children) {
+    if (c.childType !== 'shape' || c.visible === false || c.ground || (c.contours[0]?.length ?? 0) < 3) continue;
+    out.push(c.contours.map((_, k) => shapeRing(c, k)));
+  }
+  return out;
+}
+
+/** Whether a walled floor stands behind the straight mouth p–q, `high` the unit normal to its high side. */
+function floorBehind(floors: readonly Polygon[][], p: Vec, q: Vec, high: Vec): boolean {
+  const at = (t: number, d: number): Vec => [p[0] + (q[0] - p[0]) * t + high[0] * d, p[1] + (q[1] - p[1]) * t + high[1] * d];
+  const low = at(0.5, -0.25);
+  const samples: Vec[] = [];
+  for (const t of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const d of [PROBE, ENTRANCE_BEHIND / 2, ENTRANCE_BEHIND]) samples.push(at(t, d));
+  return floors.some((rings) => !inRings(low[0], low[1], rings) && samples.some(([x, y]) => inRings(x, y, rings)));
+}
+
 const memo = new WeakMap<readonly unknown[], LayerPlateaus>();
 
 /** The layer's nesting and bands, built from its plateau children, cached on its children array. */
@@ -567,12 +647,22 @@ export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlate
   /** The raised plateau a surface owner stands for: itself, or for one with no height its parent. */
   const raisedOf = (info: PlateauInfo | null) => info?.chain[info.chain.length - 1] ?? null;
   const bands: PlateauBand[] = [];
+  const entrances: EntranceInfo[] = [];
+  let floors: Polygon[][] | null = null;
   for (const { height, members, rings: own } of built) {
     const others = built.filter((b) => b.height !== height).flatMap((b) => b.rings);
     const crossed = others.length === 0 ? own : own.map((r) => splitAtCrossings(r, others));
     // Each stair span as the line it covers, and the ring split at its ends, so its edges are its own.
     const spans = members.flatMap((s) => (s.stairs ?? []).map((span) => ({ s, line: stairLine(s, span) }))).filter((x) => x.line.length >= 2);
-    const ends = spans.flatMap(({ line }) => [line[0], line[line.length - 1]]);
+    // Each cliff entrance likewise, and its hollow, split at its ends too.
+    const mouths = members
+      .flatMap((s) => (s.entrances ?? []).map((span) => {
+        const [m0, m1] = entranceMouth(span);
+        const [w0, w1] = entranceWalk(span, [m0, m1]);
+        return { s, span, line: stairLine(s, span), mouth: stairLine(s, { ring: span.ring, from: m0, to: m1 }), walk: stairLine(s, { ring: span.ring, from: w0, to: w1 }) };
+      }))
+      .filter((x) => x.line.length >= 2 && x.mouth.length >= 2 && x.walk.length >= 2);
+    const ends = [...spans, ...mouths.flatMap((x) => [x, { line: x.mouth }, { line: x.walk }])].flatMap(({ line }) => [line[0], line[line.length - 1]]);
     const rings = ends.length === 0 ? crossed : crossed.map((r) => splitAtPoints(r, ends));
     const depth = Math.max(...members.map((s) => infos.get(s.id)?.chain.length ?? 1));
     // Each member by its outline as drawn (curves flattened, transform applied), so a curved
@@ -601,14 +691,51 @@ export function layerPlateaus(layer: Pick<DungeonLayer, 'children'>): LayerPlate
         // against a plateau it merely meets the edge is the other's.
         if (drop < 0 && owner && ownHeight(owner) > 0 && !dug) drop = 0;
         const stairs = drop !== 0 && !!owner && spans.some((x) => x.s === owner && onLine(mid, x.line));
-        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop, dug: drop < 0 && dug, ...(stairs && { stairs: true }) } as BandEdge;
+        const entrance = drop !== 0 && !!owner && !stairs && mouths.some((x) => x.s === owner && onLine(mid, x.line));
+        return { owner, edge: owner ? edgeOf(owner) : 'cliff', drop, dug: drop < 0 && dug, ...(stairs && { stairs: true }), ...(entrance && { entrance: true }) } as BandEdge;
       }),
     );
+    // An entrance stands where its hollow has a drop under it. With a walled floor just behind the
+    // hollow, its edges are crossed freely and hide nothing, as stairs are.
+    for (const x of mouths) {
+      let at: { ri: number; i: number } | null = null;
+      rings.forEach((r, ri) =>
+        r.forEach((a, i) => {
+          const e = edges[ri][i];
+          if (at || !e.entrance || e.owner !== x.s) return;
+          const b = r[(i + 1) % r.length];
+          if (onLine([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], x.mouth)) at = { ri, i };
+        }),
+      );
+      if (!at) continue;
+      const { ri, i } = at as { ri: number; i: number };
+      const r = rings[ri];
+      const [a, b] = [r[i], r[(i + 1) % r.length]];
+      const drop = edges[ri][i].drop;
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      // Outside is the left of travel: a plateau's high side is the right, a pit's the left.
+      const high: Vec = drop > 0 ? [-(b[1] - a[1]) / len, (b[0] - a[0]) / len] : [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
+      const [p, q] = [x.mouth[0], x.mouth[x.mouth.length - 1]];
+      const behind = floorBehind((floors ??= walledFloors(layer.children)), [p[0], p[1]], [q[0], q[1]], high);
+      if (behind) {
+        rings.forEach((rr, rj) =>
+          rr.forEach((c, k) => {
+            const e = edges[rj][k];
+            const d = rr[(k + 1) % rr.length];
+            if (!e.entrance || e.owner !== x.s) return;
+            const at: Vec = [(c[0] + d[0]) / 2, (c[1] + d[1]) / 2];
+            if (onLine(at, x.walk)) e.stairs = true;
+            if (onLine(at, x.mouth)) e.hollow = true;
+          }),
+        );
+      }
+      entrances.push({ plateau: x.s, span: x.span, line: x.line, mouth: x.mouth, walk: x.walk, edge: [[a[0], a[1]], [b[0], b[1]]], drop, behind });
+    }
     bands.push({ height, depth, shapes: members, rings, surface: surfaces.get(height) ?? [], edges });
   }
   bands.sort((a, b) => a.depth - b.depth || a.height - b.height);
 
-  const out: LayerPlateaus = { infos, bands };
+  const out: LayerPlateaus = { infos, bands, entrances };
   memo.set(layer.children, out);
   return out;
 }
@@ -755,7 +882,8 @@ export function cliffOccluders(
     band.rings.forEach((ring, ri) => {
       const edges = band.edges[ri];
       // A flight of stairs hides nothing: the eye sees up it.
-      const hides = edges.map((e) => e.drop !== 0 && !e.stairs && edgeHides(e.owner, e.edge, e.drop, minDrop));
+      // A cave mouth hides nothing across its hollow alone, however many cells it frees to walk.
+      const hides = edges.map((e) => e.drop !== 0 && !(e.stairs && !e.entrance) && !e.hollow && edgeHides(e.owner, e.edge, e.drop, minDrop));
       if (!hides.some(Boolean)) return;
       const { points, segs } = alongRock(ring, true, layer.rockLines);
       segs.forEach((i, j) => {

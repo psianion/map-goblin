@@ -293,6 +293,23 @@ export function seedMeasured(mods: SpeedMods): void {
   seedInk(mods);
 }
 
+/**
+ * Cave mouths for the measured kit `set`'s cliffs, as a cliff kit carries them: two variants two
+ * cells wide and one three, each plain and dark inside (Shadow), the hollow in the middle of the
+ * low side, laid as its straights are.
+ */
+export function seedEntrances(mods: Pick<SpeedMods, 'seed'>, set = MEASURED_SET): void {
+  const entry = (material: string, gridSize: string, band: Record<string, unknown>) => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set, tags: ['colored'], band });
+  const entries: Record<string, unknown> = {};
+  for (const [name, L, mouth] of [['a1', 2, [0.35, 0.68]], ['a2', 2, [0.32, 0.62]], ['a3', 3, [0.36, 0.64]]] as const) {
+    const end = L / 2;
+    const spine: [number, number][] = [[end, 0.23], [0, 0.23], [-end, 0.23]];
+    entries[`mouth_${name}_${L}x2_A`] = entry(`mouth_${name}`, `${L}x2`, { joints: [[end, 0.36], [-end, 0.36]], turnDeg: 0, spine, entrance: true, mouth });
+    entries[`mouth_shadow_${name}_${L}x2_A`] = entry(`mouth_shadow_${name}`, `${L}x2`, { joints: [[end, 0.36], [-end, 0.36]], turnDeg: 0, spine, entrance: true, shadow: true, mouth });
+  }
+  mods.seed.seedPack('speed-mouths', entries as never);
+}
+
 /** A map file with its Cave Ink rock, cave edges and cliffs swapped for `set` (stone walls kept). */
 export function withCaveKit(file: unknown, set: string): unknown {
   type Child = { childType: string; edge?: string; edgeArt?: string; edgeMaterial?: string; styleOverrides?: { wallTextureSetId?: string } };

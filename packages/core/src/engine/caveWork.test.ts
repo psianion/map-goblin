@@ -19,6 +19,7 @@ import {
   openMap,
   openWithLateArt,
   rockArt,
+  seedEntrances,
   seedMeasured,
   seedTransitionKit,
   TURN_CAVE,
@@ -256,6 +257,40 @@ describe('the work a cave rebuild does', () => {
     expect(mods.plateaus.layerSlopes(layer()).faces.length).toBe(faces);
     open.drawAll();
     expect(work(mods)).toEqual(placed);
+    open.close();
+  }, 60_000);
+
+  it('lays only the cliff stretch a cave mouth splits, and nothing again for a rebuild with nothing changed or for taking it away again', async () => {
+    useFrames();
+    const mods = await freshMods();
+    const open = openMap(mods, TESTING);
+    seedEntrances(mods);
+    const { useStore } = mods.store;
+    const id = open.ids[0];
+    addPlateau(mods, id);
+    open.drawAll();
+    open.drawAll();
+    const before = work(mods);
+    const mouth = (entrances: unknown[] | undefined): void =>
+      useStore.setState((s) => {
+        const p = (s.layers.find((x) => x.id === id) as DungeonLayer).children.find((c) => c.id === 'work-plateau') as { entrances?: unknown[] };
+        p.entrances = entrances;
+      });
+    mouth([{ id: 'work-mouth', ring: 0, from: 2, to: 4 }]);
+    // Drawn twice: the first draw stores the split cliff's line the second is drawn along.
+    open.drawAll();
+    open.drawAll();
+    const placed = work(mods);
+    expect(placed.cliffs - before.cliffs).toBe(1);
+    expect(placed.layings - before.layings).toBe(1);
+    expect(placed.walls).toBe(before.walls);
+    open.drawAll();
+    expect(work(mods)).toEqual(placed);
+    // Taken away, the whole cliff it split is the one kept from before: nothing is laid again.
+    mouth(undefined);
+    open.drawAll();
+    open.drawAll();
+    expect(work(mods).layings).toBe(placed.layings);
     open.close();
   }, 60_000);
 
