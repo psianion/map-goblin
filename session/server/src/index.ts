@@ -29,7 +29,7 @@ import { afterWrites, effectsClear, effectsTick, hiddenCombatants } from './modu
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
-import { sessionTable } from './modules/table'
+import { backToLobby, sessionTable } from './modules/table'
 import { createTriggerDeps } from './triggers/prepResolver'
 import { ClientConnection, type Identity } from './ws/ClientConnection'
 import { SessionManager, type SessionManagerOptions } from './ws/SessionManager'
@@ -117,7 +117,14 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const table = sessionTable(stores)
   const modules = new ModuleRegistry(
     stores.moduleState,
-    afterWrites(autoExplore(vision), effectsTick, effectsClear, hiddenCombatants, partyPlacement(vision, table.flagsOf)),
+    afterWrites(
+      autoExplore(vision),
+      effectsTick,
+      effectsClear,
+      hiddenCombatants,
+      partyPlacement(vision, table.flagsOf),
+      backToLobby(table.flagsOf),
+    ),
     table.seatGate,
   )
   modules.register(pingModule)

@@ -13,8 +13,9 @@ import {
   type TableState,
 } from '@dnd/mechanics/table'
 import type { TableFlags, TableOf } from '@dnd/mechanics/tokens'
+import type { StoryState } from '@dnd/mechanics/story'
 import type { Stores } from '../db/stores'
-import type { SeatGate } from './registry'
+import type { AfterWrite, SeatGate } from './registry'
 
 export function sessionTable(stores: Stores): {
   module: GameModule<TableState>
@@ -55,4 +56,17 @@ export function sessionTable(stores: Stores): {
     return flags.paused ? TABLE_PAUSED_ERROR : null
   }
   return { module, tableOf: ({ sessionId }) => flagsOf(sessionId), flagsOf, seatGate }
+}
+
+/**
+ * "Back to lobby" (`table.start` off) ends what is on show: the handout and the title card go
+ * down through the DM's own commands, so every seat hears it the way it hears the DM's Hide.
+ */
+export function backToLobby(flagsOf: (sessionId: string) => TableFlags | null): AfterWrite {
+  return ({ module, action }, ctx, registry) => {
+    if (module !== 'table' || action !== 'start' || flagsOf(ctx.sessionId)?.started !== false) return
+    const story = registry.readState(ctx.campaignId, 'story') as StoryState | undefined
+    if (story?.shown) registry.dispatch('story', 'hide', {}, ctx)
+    if (story?.titleCard) registry.dispatch('story', 'title-hide', {}, ctx)
+  }
 }

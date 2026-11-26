@@ -40,6 +40,7 @@ import type { ScenePrep, StoredScenePrep, SerializedMapData } from '@dnd/core/sr
 // D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
 import { journalOf, normalizePrep, roomKeysOf, type TriggersState } from '@dnd/mechanics/triggers'
 import { reauthoredDoors, type DoorsState } from '@dnd/mechanics/doors'
+import { carryDismissals, type StoryState } from '@dnd/mechanics/story'
 import type { DoorChild } from '@dnd/core/src/shared/types'
 import { takeLineage } from './fog/roomLineage'
 import type { ModuleRegistry } from './modules/registry'
@@ -1097,6 +1098,13 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
   // the table are re-sent the state that shows it.
   if (reattachPc(deps.stores, session.campaign_id, identity.id, identity.name, deps.sessionManager.seatsOf(session.id))) {
     deps.sessionManager.refreshScenes(session.campaign_id)
+  }
+  // …and keeps the handout or title card that name hid for itself. Only this new seat's view
+  // changes, and it has not connected yet, so nobody is re-sent anything.
+  const story = deps.stores.moduleState.get(session.campaign_id, 'story') as StoryState | undefined
+  if (story) {
+    const carried = carryDismissals(story, identity.id, identity.name)
+    if (carried !== story) deps.stores.moduleState.put(session.campaign_id, 'story', carried)
   }
   json(res, 200, {
     identityId: identity.id,

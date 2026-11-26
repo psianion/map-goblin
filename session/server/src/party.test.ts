@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { once } from 'node:events'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
+import type { StoryState } from '@dnd/mechanics/story'
 import type { TokenDef, TokensState } from '@dnd/mechanics/tokens'
 import { createAdminPass } from './auth'
 import { PROTOCOL_VERSION } from './config'
@@ -215,6 +216,31 @@ describe('a returning player', () => {
       const state = tokensOf(server, campaignId)
       expect(state.library.bram!.ownerIdentityId).toBe(seat)
       expect(Object.values(state.byScene[sceneId]!)[0]).toMatchObject({ defId: 'bram', ownerId: seat })
+    })
+  })
+
+  it('keeps the title card they hid, and is never sent who hid it', async () => {
+    await withScene(async ({ server, base, campaignId, dmToken }) => {
+      const opened = await call(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+      server.stores.moduleState.put(campaignId, 'story', {
+        handouts: [],
+        shown: null,
+        titleCard: { text: 'Chapter One', mode: 'over', shownAt: 1, dismissed: [{ id: 'old-seat', name: 'Pim' }] },
+        journal: [],
+      } satisfies StoryState)
+      const joined = await call(base, 'POST', '/api/join', { body: { code: opened.body.inviteCode, name: ' PIM ' } })
+      const story = server.stores.moduleState.get(campaignId, 'story') as StoryState
+      expect(story.titleCard!.dismissed.map((d) => d.id)).toEqual(['old-seat', joined.body.identityId])
+
+      const pim = await seat(server.port, joined.body.token as string)
+      const other = await call(base, 'POST', '/api/join', { body: { code: opened.body.inviteCode, name: 'Ysolde' } })
+      const ysolde = await seat(server.port, other.body.token as string)
+      const snapshot = (s: Awaited<ReturnType<typeof seat>>) =>
+        (s.frames.find((m) => m.type === 'session-state')!.state as { modules: { story: StoryState } }).modules.story
+      expect(snapshot(pim).titleCard).toBeNull()
+      expect(snapshot(ysolde).titleCard).toMatchObject({ text: 'Chapter One', dismissed: [] })
+      pim.socket.close()
+      ysolde.socket.close()
     })
   })
 })

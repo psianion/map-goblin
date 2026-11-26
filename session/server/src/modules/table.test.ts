@@ -5,13 +5,13 @@ import { describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { rollsModule } from '@dnd/mechanics/rolls'
 import { LOBBY_COMMANDS, TABLE_NOT_STARTED, TABLE_NOT_STARTED_ERROR, TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
-import { storyModule } from '@dnd/mechanics/story'
+import { storyModule, type StoryState } from '@dnd/mechanics/story'
 import { TABLE_PAUSED, tokensModule, type TokensState } from '@dnd/mechanics/tokens'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
 import { pingModule } from './ping'
 import { ModuleRegistry, type DispatchContext } from './registry'
-import { sessionTable } from './table'
+import { backToLobby, sessionTable } from './table'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const PLAYER: Viewer = { role: 'player', identityId: 'p-1' }
@@ -82,13 +82,13 @@ describe('table on the session row', () => {
   })
 })
 
-/** A registry behind the seat gate, as the server builds it. */
+/** A registry behind the seat gate, with Back to lobby's after-write rule, as the server builds it. */
 function gated() {
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Camp')
   const session = stores.sessions.createSession(campaign.id, 'ABCD')
   const t = sessionTable(stores)
-  const registry = new ModuleRegistry(stores.moduleState, undefined, t.seatGate)
+  const registry = new ModuleRegistry(stores.moduleState, backToLobby(t.flagsOf), t.seatGate)
   registry.register(rollsModule)
   registry.register(pingModule)
   registry.register(tokensModule(undefined, undefined, undefined, t.tableOf))
@@ -167,5 +167,20 @@ describe('the lobby (table lobby pass)', () => {
     expect(run(PLAYER, 'table', 'start', { on: false })).toMatchObject({ code: 'unauthorized' })
     expect(run(PLAYER, 'table', 'set-lobby', { playersMakePcs: true })).toMatchObject({ code: 'unauthorized' })
     expect(run(DM, 'table', 'set-lobby', {})).toMatchObject({ code: 'invalid-command' })
+  })
+})
+
+describe('Back to lobby', () => {
+  it('takes down the handout and the title card on show, and leaves them up on Start', () => {
+    const { run, registry, campaignId } = gated()
+    const story = () => registry.readState(campaignId, 'story') as StoryState
+    run(DM, 'story', 'handout-upsert', { id: 'h1', caption: 'Map', text: 'X marks it' })
+    run(DM, 'story', 'show', { handoutId: 'h1' })
+    run(DM, 'story', 'title-show', { text: 'Chapter One' })
+    run(DM, 'table', 'start', { on: true })
+    expect(story()).toMatchObject({ shown: { handoutId: 'h1' }, titleCard: { text: 'Chapter One' } })
+    run(DM, 'table', 'start', { on: false })
+    expect(story()).toMatchObject({ shown: null, titleCard: null })
+    expect(story().handouts.map((h) => h.id)).toEqual(['h1'])
   })
 })

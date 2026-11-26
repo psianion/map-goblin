@@ -7,7 +7,7 @@
 // injected `shareReadAloud`; this module only remembers that it was shared.
 
 import { type GameModule, type ModuleContext, type Viewer } from '../contract'
-import { ID_MAX, Reject, bad, obj, oneOf, str } from '../tokens/validate'
+import { ID_MAX, Reject, bad, num, obj, oneOf, str } from '../tokens/validate'
 
 export interface Handout {
   id: string
@@ -96,14 +96,22 @@ export function storyModule(deps: StoryDeps = {}): GameModule<StoryState> {
     // A player holds the handouts they have been shown and nothing the DM is still keeping
     // back: the journal lines addressed to them, the handout on screen if it is for them,
     // and only the handouts those name. Pure and idempotent.
+    //
+    // Table lobby pass: what a player hid for themselves is not sent to them again, and who hid
+    // it is the DM's to know: a player is sent an empty list.
     redact(stored, viewer) {
       const state = normalizeStory(stored)
       if (viewer.role === 'dm') return state
+      const hid = (dismissed: readonly Dismissal[]) => dismissed.some((d) => d.id === viewer.identityId)
       const journal = state.journal.filter((j) => inAudience(j.audience, viewer))
-      const shown = state.shown && inAudience(state.shown.audience, viewer) ? state.shown : null
+      const shown =
+        state.shown && inAudience(state.shown.audience, viewer) && !hid(state.shown.dismissed)
+          ? { ...state.shown, dismissed: [] }
+          : null
+      const titleCard = state.titleCard && !hid(state.titleCard.dismissed) ? { ...state.titleCard, dismissed: [] } : null
       const named = new Set(journal.filter((j) => j.kind === 'handout').map((j) => j.ref))
       if (shown) named.add(shown.handoutId)
-      return { ...state, journal, shown, handouts: state.handouts.filter((h) => named.has(h.id)) }
+      return { ...state, journal, shown, titleCard, handouts: state.handouts.filter((h) => named.has(h.id)) }
     },
   }
 }
@@ -155,7 +163,7 @@ function run(action: string, p: Payload, ctx: Ctx, deps: StoryDeps): void {
       const rest = { ...state, journal: state.journal.filter((j) => !(j.kind === 'handout' && j.ref === handoutId)) }
       return ctx.setState({
         ...state,
-        shown: { handoutId, audience, mode, shownAt: Date.now(), dismissed: [] },
+        shown: { handoutId, audience, mode, shownAt: nextShowing(), dismissed: [] },
         journal: journaled(rest, { kind: 'handout', ref: handoutId, audience: kept }),
       })
     }
@@ -166,7 +174,7 @@ function run(action: string, p: Payload, ctx: Ctx, deps: StoryDeps): void {
       const mode = p.mode === undefined ? 'over' : oneOf(p.mode, ['over', 'full'] as const, 'mode')
       return ctx.setState({
         ...state,
-        titleCard: { text, mode, shownAt: Date.now(), dismissed: [] },
+        titleCard: { text, mode, shownAt: nextShowing(), dismissed: [] },
         journal: journaled(state, { kind: 'title', ref: text }),
       })
     }
@@ -180,11 +188,40 @@ function run(action: string, p: Payload, ctx: Ctx, deps: StoryDeps): void {
       if (refused) bad(refused)
       return ctx.setState({ ...state, journal: journaled(state, { kind: 'readaloud', ref: roomId, sceneId }) })
     }
-    case 'dismiss':
-      return bad('story.dismiss is not built yet')
+    case 'dismiss': {
+      // "Hide for me": this showing only. A stale one (the DM has shown something since) is a no-op.
+      const what = oneOf(p.what, ['handout', 'title'] as const, 'what')
+      const shownAt = num(p.shownAt, 'shownAt')
+      const on = what === 'handout' ? state.shown : state.titleCard
+      if (!on || on.shownAt !== shownAt || on.dismissed.some((d) => d.id === ctx.sender.identityId)) return
+      const name = ctx.players.find((player) => player.identityId === ctx.sender.identityId)?.name ?? ''
+      const dismissed = [...on.dismissed, { id: ctx.sender.identityId, name }]
+      return ctx.setState(
+        what === 'handout' ? { ...state, shown: { ...state.shown!, dismissed } } : { ...state, titleCard: { ...state.titleCard!, dismissed } },
+      )
+    }
     default:
       bad(`story has no action '${action}'`)
   }
+}
+
+/**
+ * A player coming back under a name keeps what that name hid: `identityId` joins every
+ * dismissal recorded under the same name, matched as `reattachPc` matches (trimmed, any case).
+ * Same object when there is nothing to add.
+ */
+export function carryDismissals(state: StoryState, identityId: string, name: string): StoryState {
+  const wanted = name.trim().toLowerCase()
+  let changed = false
+  const carry = <T extends { dismissed: Dismissal[] }>(on: T | null): T | null => {
+    if (!on || on.dismissed.some((d) => d.id === identityId)) return on
+    if (!on.dismissed.some((d) => d.name.trim().toLowerCase() === wanted)) return on
+    changed = true
+    return { ...on, dismissed: [...on.dismissed, { id: identityId, name }] }
+  }
+  const story = normalizeStory(state)
+  const next = { ...story, shown: carry(story.shown), titleCard: carry(story.titleCard) }
+  return changed ? next : state
 }
 
 /** A row stored before the lobby pass: what is on show gains a `shownAt` and an empty `dismissed`. Same object when nothing lacks. */
@@ -199,6 +236,10 @@ export function normalizeStory(state: StoryState): StoryState {
     titleCard: titleCard && !titleOk ? { ...titleCard, dismissed: [] } : titleCard,
   }
 }
+
+/** A new showing's `shownAt`: now, and always past the last one, so a dismissal never reaches the next. */
+let lastShowing = 0
+const nextShowing = (): number => (lastShowing = Math.max(Date.now(), lastShowing + 1))
 
 function audienceOf(v: unknown, ctx: Ctx): Audience {
   if (v === undefined || v === 'all') return 'all'
