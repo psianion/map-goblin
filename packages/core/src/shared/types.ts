@@ -444,7 +444,28 @@ export interface LightChild extends LayerChild {
   darkvisionSees?: boolean;
   /** Whether the light starts on at the table. Absent = true. `visible` stays the editor's switch. */
   tableOn?: boolean;
+  /**
+   * Burning low while on: a third of the reach, 60 % of the strength, a deep red
+   * (`shared/lightEmbers.ts`). The authored fields stay as they are. Kept while the light is
+   * off, so switching it back on restores embers. Absent = full fire.
+   */
+  embers?: boolean;
+  /** The light group's name: switching any light in it switches every one. Absent = no group. */
+  group?: string;
+  /** A cone that spins or sweeps (`shared/lightMotion.ts`); only a cone under 360° moves. Absent = still. */
+  motion?: LightMotion;
 }
+
+/**
+ * How a cone light moves. A spin turns a full circle from the cone's direction at `rpm` turns
+ * a minute; a sweep runs between `from` and `to` (degrees, clockwise from `from`) and back at
+ * `degPerSec`, easing at both edges. `since` (seconds on the motion clock) anchors the phase:
+ * the moment the motion was set, so a beam starts where it pointed then instead of jumping.
+ * Absent = anchored at 0 (maps saved before it).
+ */
+export type LightMotion =
+  | { kind: 'spin'; rpm: number; clockwise: boolean; since?: number }
+  | { kind: 'sweep'; from: number; to: number; degPerSec: number; since?: number };
 
 /** A door's resolved placement, baked for a player's copy (see `DoorChild.placed`). */
 export interface DoorPlacement {

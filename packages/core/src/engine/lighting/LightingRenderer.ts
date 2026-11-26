@@ -14,6 +14,16 @@ import { regionGrade, type RegionLight } from '../../shared/regionGrade'
 import { animationTime, isFrozen } from '../../shared/freeze'
 import type { LightAnimation } from '../../shared/types'
 import { blurPasses } from '../../shared/plateauShade'
+import { coneAt, isMoving, motionTime } from '../../shared/lightMotion'
+import type { LightMotion } from '../../shared/types'
+
+const NO_IDS: ReadonlySet<string> = new Set()
+
+/** A motion as one comparable string. */
+const motionKey = (m: LightMotion): string =>
+  m.kind === 'spin'
+    ? `spin/${m.rpm}/${m.clockwise ? 1 : 0}/${m.since ?? 0}`
+    : `sweep/${m.from}/${m.to}/${m.degPerSec}/${m.since ?? 0}`
 
 /**
  * What one light contributes to the picture, as one comparable string: everything the light
@@ -41,6 +51,7 @@ export function lightSetSignature(
       l.falloff,
       l.cone ? `${l.cone.angle}/${l.cone.direction}` : '',
       l.animation ? `${l.animation.kind}/${l.animation.speed}` : '',
+      l.motion ? motionKey(l.motion) : '',
       l.darkness ? 'd' : '',
       l.throughWalls ? 't' : '',
       staleness(l.id),
@@ -274,6 +285,9 @@ interface PoolEntry {
   gradient: FillGradient | null
   /** What the geometry was built from; a different key rebuilds it. */
   key: string
+  /** A moving cone's mask: the wedge, built once per width and reach and turned every frame. */
+  wedge: Graphics | null
+  wedgeKey: string
 }
 
 /** What one composite run draws with. */
@@ -282,6 +296,8 @@ interface FrameInputs {
   allLit: boolean
   /** Animation clock, seconds. */
   t: number
+  /** Motion clock, seconds (`motionTime`): the wall clock every screen shares, 0 in the export. */
+  mt: number
   regions: Regions
 }
 
@@ -330,6 +346,8 @@ export class LightingRenderer {
   private height: number
   private iconMap = new Map<string, Sprite>()
   private iconsVisible = true
+  /** Lights whose icon stays while the rest are hidden (`setIconsVisible`). */
+  private iconExcept: ReadonlySet<string> = NO_IDS
   private lastSignature = ''
   private lastGradeKey = ''
   private lastDarkKey = ''
@@ -575,13 +593,19 @@ export class LightingRenderer {
     this.paperRT = null
   }
 
-  /** Editing affordance toggle — the session runner hides light icons; the editor keeps them. */
-  setIconsVisible(visible: boolean): void {
+  /**
+   * Editing affordance toggle — the session runner hides light icons; the editor keeps them
+   * unless its View > Light icons is off. `except` names lights whose icon stays while the rest
+   * are hidden (the editor's selected light).
+   */
+  setIconsVisible(visible: boolean, except: readonly string[] = []): void {
     this.iconsVisible = visible
+    this.iconExcept = visible ? NO_IDS : new Set(except)
     // Turning them back on has to redraw whatever the guard below last saw.
     this.lastIconSignature = ''
     if (!visible) {
       for (const [id, icon] of this.iconMap) {
+        if (this.iconExcept.has(id)) continue
         this.engine.overlay().removeChild(icon)
         icon.destroy()
         this.iconMap.delete(id)
@@ -594,8 +618,9 @@ export class LightingRenderer {
    * (the icons are screen space, so the camera counts as much as the lights do).
    */
   private updateIcons(lightManager: LightManager, camX: number, camY: number, zoom: number): void {
-    if (!this.iconsVisible) return
-    const allLights = lightManager.getLights()
+    if (!this.iconsVisible && this.iconExcept.size === 0) return
+    // With icons hidden, only the excepted lights keep theirs.
+    const allLights = this.iconsVisible ? lightManager.getLights() : lightManager.getLights().filter((l) => this.iconExcept.has(l.id))
 
     const parts: (string | number)[] = [camX, camY, zoom]
     for (const l of allLights) {
@@ -698,7 +723,7 @@ export class LightingRenderer {
     const glows = lightManager.getGlows()
     const animated =
       !isFrozen() &&
-      (visibleLights.some((l) => l.animation !== undefined) || glows.some((g) => g.animation !== undefined))
+      (visibleLights.some((l) => l.animation !== undefined || isMoving(l)) || glows.some((g) => g.animation !== undefined))
     const signature = lightingSignature(
       camX,
       camY,
@@ -771,7 +796,7 @@ export class LightingRenderer {
     }
     try {
       if (manager) dropPools()
-      const inputs: FrameInputs = { ...this.inputsFor(lightManager, '#ffffff', sky, false), t: 0 }
+      const inputs: FrameInputs = { ...this.inputsFor(lightManager, '#ffffff', sky, false), t: 0, mt: 0 }
       const lights = lightManager.getVisibleLights().filter((l) => nightOnlyActive(l, sky.darkness))
       this.composite(lightManager, lights, lightManager.getGlows(), zoom, inputs, width, height, () => 1, {
         fbo,
@@ -819,7 +844,7 @@ export class LightingRenderer {
     const regions: Regions = set.key
       ? set
       : { level: { place: 'outdoor', tint: ambientColor }, rooms: [], key: `ambient:${ambientColor}` }
-    return { sky, allLit, t: animationTime(performance.now()), regions }
+    return { sky, allLit, t: animationTime(performance.now()), mt: motionTime(), regions }
   }
 
   /** The sky and place a region is graded with — everything Outdoor, darkness 0, in the DM-lit view. */
@@ -902,7 +927,7 @@ export class LightingRenderer {
       g.label = `light-${id}`
       g.blendMode = 'add'
       layer.addChild(g)
-      e = { g, gradient: null, key: '' }
+      e = { g, gradient: null, key: '', wedge: null, wedgeKey: '' }
       pool.set(id, e)
     }
     return e
@@ -915,8 +940,57 @@ export class LightingRenderer {
       layer.removeChild(e.g)
       e.g.destroy()
       e.gradient?.destroy()
+      this.dropWedge(e, layer)
       pool.delete(id)
     }
+  }
+
+  private dropWedge(e: PoolEntry, layer: Container): void {
+    if (!e.wedge) return
+    e.g.mask = null
+    layer.removeChild(e.wedge)
+    e.wedge.destroy()
+    e.wedge = null
+    e.wedgeKey = ''
+  }
+
+  /**
+   * A moving cone (`isMoving`): its geometry is the full circle, swept once, and this wedge
+   * masks it to where the cone points at `mt`. The wedge is built once per width and reach
+   * and only turned after that, so a moving light costs no sweep and no geometry per frame.
+   * A light that stops moving drops its wedge.
+   */
+  private poseWedge(e: PoolEntry, layer: Container, light: LightChild, mt: number, scale: number): void {
+    const cone = isMoving(light) ? coneAt(light, mt) : undefined
+    if (!cone) {
+      this.dropWedge(e, layer)
+      return
+    }
+    if (!e.wedge) {
+      e.wedge = new Graphics()
+      e.wedge.label = `wedge-${light.id}`
+      layer.addChild(e.wedge)
+      e.g.mask = e.wedge
+    }
+    const key = `${cone.angle}|${light.radius}`
+    if (e.wedgeKey !== key) {
+      e.wedgeKey = key
+      // Past the dim edge, so the flicker's ±6 % never shows the wedge's rim.
+      const r = Math.max(1e-3, light.radius) * 1.25
+      const half = (cone.angle / 2) * (Math.PI / 180)
+      const steps = Math.max(2, Math.ceil(cone.angle / 6))
+      const pts: number[] = [0, 0]
+      for (let i = 0; i <= steps; i++) {
+        const a = -half + (2 * half * i) / steps
+        pts.push(Math.cos(a) * r, Math.sin(a) * r)
+      }
+      e.wedge.clear()
+      e.wedge.poly(pts)
+      e.wedge.fill(0xffffff)
+    }
+    e.wedge.position.set(light.position.x, light.position.y)
+    e.wedge.rotation = (cone.direction * Math.PI) / 180
+    e.wedge.scale.set(scale)
   }
 
   /**
@@ -1034,6 +1108,7 @@ export class LightingRenderer {
       e.g.visible = true
       e.g.position.set(light.position.x, light.position.y)
       e.g.scale.set(anim.radius)
+      this.poseWedge(e, this.lightLayer, light, inputs.mt, anim.radius)
       e.g.tint = (r << 16) | (g << 8) | b
       e.g.alpha = clamp01(light.intensity * headroom(grade) * easePresence(weightOf(light.id)) * anim.intensity)
     }
@@ -1060,9 +1135,10 @@ export class LightingRenderer {
       e.g.visible = true
       e.g.position.set(light.position.x, light.position.y)
       e.g.scale.set(1)
+      this.poseWedge(e, this.darkLayer, light, inputs.mt, 1)
       e.g.tint = 0xffffff
       e.g.alpha = clamp01(light.intensity * easePresence(weightOf(light.id)))
-      darkParts.push(light.id, key, Math.round(e.g.alpha * 64))
+      darkParts.push(light.id, key, Math.round(e.g.alpha * 64), e.wedge ? e.wedge.rotation : '')
     }
     this.darkSprite.visible = darkParts.length > 1
     if (this.darkSprite.visible) {

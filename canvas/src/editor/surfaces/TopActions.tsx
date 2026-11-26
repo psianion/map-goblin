@@ -21,7 +21,7 @@ import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { keyCaption } from '@/shortcuts/formatCombo';
 import { zoomToFitRef } from '@/editor/zoomToFitRef';
 import type { EditorChromeActions } from '@/editor/EditorHost';
-import { FOCUS_MODES, togglePreview, usePreview, type FocusMode } from '@/editor/viewPrefs';
+import { FOCUS_MODES, setLightIcons, togglePreview, useLightIcons, usePreview, type FocusMode } from '@/editor/viewPrefs';
 import { useShell } from '@/editor/shell/shellStore';
 import { AssetDownloadPill } from '@/canvas/AssetDownloadPill';
 
@@ -46,6 +46,7 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
   const outlines = useStore((s) => s.ui.roomOverlayVisible);
   const roomLabels = useStore((s) => s.ui.roomLabels);
   const lit = usePreview() !== 'unlit';
+  const lightIcons = useLightIcons();
   const [theme, toggleTheme] = useTheme();
   const openSheet = useShell((s) => s.openSheet);
   const walkView = useShell((s) => s.walkView);
@@ -113,6 +114,9 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={walkView} onCheckedChange={(v) => useShell.getState().setWalkView(v)}>
               Walkable cells
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={lightIcons} onCheckedChange={(v) => setLightIcons(v)} data-testid="view-light-icons">
+              Light icons
             </DropdownMenuCheckboxItem>
           </DropdownMenuGroup>
           <DropdownMenuGroup>

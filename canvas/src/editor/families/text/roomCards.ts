@@ -1,5 +1,5 @@
 // The room, area and level cards. A room: Number, Name, Size, Area, then its Floor and
-// Walls looks, its Place and its Key. An area: Name, Rooms and the two looks. A level: Name,
+// Walls looks, its Place, its Lights and its Key. An area: Name, Rooms and the two looks. A level: Name,
 // Layers, Rooms, the two looks and its Place. No Mood on any of them: Place took its job, and
 // maps that carry it open without it.
 
@@ -21,7 +21,7 @@ import { SELECTION_VERBS } from '@/editor/families/select';
 import type { LookTarget } from '@/editor/models/roomLook';
 import { nextAreaName } from '@/editor/models/roomActions';
 import { layerOnLevel, levelDungeons, roomCountLabel } from '@/editor/models/roomModel';
-import { AreaPick, CountField, FloorSection, KeyField, NEW_AREA, NO_AREA, PlaceSection, ReadoutField, TypedField, WallsSection } from './RoomFields';
+import { AreaPick, CountField, FloorSection, KeyField, LightsField, NEW_AREA, NO_AREA, PlaceSection, ReadoutField, TypedField, WallsSection } from './RoomFields';
 
 const state = () => useStore.getState() as MapBuilderStore;
 
@@ -137,6 +137,18 @@ const roomArea = roomField<string>({
   },
 });
 
+/** The room's lights: how many burn, and All on or All off. The row hides itself in a room with none. */
+const roomLights = roomField<string>({
+  id: 'card.room.lights',
+  label: 'Lights',
+  schema: z.string(),
+  default: '',
+  control: 'custom',
+  render: LightsField,
+  read: (r) => r.id,
+  write: () => {},
+});
+
 const roomKey = roomField<string>({
   id: 'card.room.key',
   label: 'Key',
@@ -159,6 +171,7 @@ export const roomCard = defineCard<'room'>({
     roomArea,
     ...looks<'room'>('room', ((r: Room) => ({ kind: 'room', layerId: layerOfRoom(r.id)?.id ?? '', roomId: r.id })) as never),
     place<'room'>('room', ((r: Room) => ({ kind: 'room', layerId: layerOfRoom(r.id)?.id ?? '', roomId: r.id })) as never),
+    roomLights,
     roomKey,
   ],
 });

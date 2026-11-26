@@ -26,11 +26,13 @@ import { KIND_LABEL, mixedModel, type MixedModel } from './cardModels';
 import type { CardDef } from '@/editor/registry/types';
 import { VerbButton } from '@/editor/surfaces/Card';
 import { liveVerbs } from '@/editor/surfaces/model';
-import { groupBySection } from '@/editor/surfaces/sections';
+import { groupBySection, PANEL_BODY } from '@/editor/surfaces/sections';
 import { CardField } from '@/editor/surfaces/SettingItems';
 import { SELECTION_VERBS } from './verbs';
 import { selectOnly } from './selectOnly';
 import { mergePair, mergeVerb } from './merge';
+
+const NO_OBJECTS: unknown[] = [];
 
 const ALIGN: { edge: AlignEdge; label: string; icon: LucideIcon }[] = [
   { edge: 'left', label: 'Align left', icon: AlignStartVertical },
@@ -91,6 +93,15 @@ export function MixedCard({ kindCard }: { kindCard?: CardDef }) {
     const sel = resolveSelection(s, s.selection.selectedIds);
     return sel.children[0]?.child ?? sel.walls[0]?.wall ?? sel.rooms[0]?.room ?? null;
   });
+  // A kind card that edits several at once (`CardDef.multi`) reads every member.
+  const multi = kindCard?.multi;
+  const objects = useStore(
+    useShallow((s) => {
+      if (!multi) return NO_OBJECTS;
+      const sel = resolveSelection(s, s.selection.selectedIds);
+      return [...sel.children.map((c) => c.child), ...sel.walls.map((w) => w.wall), ...sel.rooms.map((r) => r.room)];
+    }),
+  );
   const layers = useLayerChoices();
   // Two walls picked: the Merge row and their lengths (frame 6).
   const pair = useStore((s) => {
@@ -100,11 +111,18 @@ export function MixedCard({ kindCard }: { kindCard?: CardDef }) {
   const [pairLengths, pairMergeable] = pair ? pair.split('\u0000') : [];
   const locked = m.locked > 0;
   const layerOptions = m.layerId ? layers : [{ value: '', label: 'Several layers' }, ...layers];
-  const fields = kindCard ? groupBySection(kindCard.fields) : [];
+  const fields = kindCard
+    ? groupBySection(
+        multi
+          ? kindCard.fields.filter((f) => !f.visibleWhen || objects.every((o) => (f.visibleWhen as (o: unknown) => boolean)(o)))
+          : kindCard.fields,
+      )
+    : [];
+  const title = multi && objects.length > 1 ? (multi.title as (o: readonly unknown[]) => string)(objects) : m.title || 'Selection';
 
   return (
     <FloatBox className="flex w-[272px] flex-col overflow-hidden p-0" data-testid="shell-card" data-kind="mixed">
-      <PanelHeader path={['Selection']} title={m.title || 'Selection'}>
+      <PanelHeader path={['Selection']} title={title}>
         {locked && (
           <span
             className="inline-flex h-[22px] items-center gap-1 rounded-pill border border-line px-2.5 text-[10px] text-text-2"
@@ -120,7 +138,7 @@ export function MixedCard({ kindCard }: { kindCard?: CardDef }) {
           <VerbButton key={v.id} verb={v} />
         ))}
       </ActionRow>
-      <div className="flex min-h-0 flex-col gap-2.5 overflow-y-auto px-3 pt-2.5 pb-3">
+      <div className={PANEL_BODY}>
         <fieldset disabled={locked} className="m-0 flex flex-col gap-px border-0 p-0 disabled:opacity-[0.38]" data-section="">
           {pair && (
             <>
@@ -194,7 +212,7 @@ export function MixedCard({ kindCard }: { kindCard?: CardDef }) {
             >
               {sec.title && <Caption className="mb-1.5">{sec.title}</Caption>}
               {sec.items.map((f) => (
-                <CardField key={f.id} field={f} object={first} ids={ids} />
+                <CardField key={f.id} field={f} object={first} ids={ids} objects={multi ? objects : undefined} />
               ))}
             </fieldset>
           ))}

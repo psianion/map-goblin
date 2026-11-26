@@ -2,15 +2,20 @@
 //
 // Not jsdom: vitest's jsdom env leaves Node's (undici) WebSocket as the global
 // while replacing globalThis.Event, so undici dispatches a jsdom Event into a
-// Node EventTarget and throws. Node 22's WebSocket is the same WHATWG API this
-// client uses in the browser, so the node env tests the real thing.
+// Node EventTarget and throws.
+//
+// The client runs on the `ws` client rather than Node's built-in WebSocket: on a
+// refused handshake Node 22's (undici 6) fires error, stays CONNECTING and never
+// fires close, while browsers and Node 24 fire error then close. `ws` does the
+// browser thing on every Node.
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { WebSocketServer } from 'ws';
+import { WebSocket as WsClient, WebSocketServer } from 'ws';
 import type { WebSocket as WsSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { resumeSeat, useSessionStore } from './store';
+import { WebSocketClient } from './WebSocketClient';
 
 const ME: PlayerInfo = { identityId: 'i1', name: 'Rue', role: 'dm', connected: true };
 
@@ -30,7 +35,17 @@ interface Conn {
 }
 
 function startServer() {
-  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  // A refusing server answers the upgrade 401, the way an expired or ended seat is turned away.
+  let refusing = false;
+  let attempts = 0;
+  const wss = new WebSocketServer({
+    host: '127.0.0.1',
+    port: 0,
+    verifyClient: (_info, done) => {
+      attempts += 1;
+      done(!refusing, 401);
+    },
+  });
   const conns: Conn[] = [];
 
   wss.on('connection', (socket, req) => {
@@ -48,6 +63,9 @@ function startServer() {
   return {
     conns,
     ready,
+    refuse: (on: boolean) => void (refusing = on),
+    /** Every upgrade asked for, accepted or refused. */
+    attempts: () => attempts,
     /** Resolves once connection #n (1-based) has arrived. */
     nth: (n: number) => vi.waitFor(() => {
       expect(conns.length).toBeGreaterThanOrEqual(n);
@@ -56,6 +74,22 @@ function startServer() {
     close: () => new Promise<void>((resolve) => wss.close(() => resolve())),
   };
 }
+
+class BrowserLikeWebSocket extends WsClient {
+  constructor(url: string) {
+    super(url);
+    // A browser ignores an unhandled error event; ws's EventEmitter would throw it.
+    this.on('error', () => {});
+  }
+}
+
+const nodeWebSocket = globalThis.WebSocket;
+beforeAll(() => {
+  globalThis.WebSocket = BrowserLikeWebSocket as unknown as typeof WebSocket;
+});
+afterAll(() => {
+  globalThis.WebSocket = nodeWebSocket;
+});
 
 let server: ReturnType<typeof startServer> | null = null;
 
@@ -67,9 +101,120 @@ afterEach(async () => {
     mapData: null,
     latencyMs: null,
     sessionEnded: false,
+    seatRefused: false,
   });
   await server?.close();
   server = null;
+});
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe('a seat the server refuses', () => {
+  let client: WebSocketClient | null = null;
+  afterEach(() => {
+    client?.close();
+    client = null;
+  });
+
+  it('stops for good when a socket that never opened is refused', async () => {
+    server = startServer();
+    server.refuse(true);
+    const url = await server.ready;
+    const isRefused = vi.fn().mockResolvedValue(true);
+    const onRefused = vi.fn();
+    client = new WebSocketClient({ token: 'tok-gone', url, isRefused, onRefused });
+    client.connect();
+
+    await vi.waitFor(() => expect(onRefused).toHaveBeenCalledTimes(1));
+    // Count from the refusal: the retry would have landed inside 500ms, and none does.
+    const asked = server.attempts();
+    await wait(900);
+    expect(server.attempts()).toBe(asked);
+    expect(client.status).toBe('closed');
+    expect(isRefused).toHaveBeenCalledTimes(1);
+    expect(onRefused).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps retrying when the seat is still good', async () => {
+    server = startServer();
+    server.refuse(true);
+    const url = await server.ready;
+    const isRefused = vi.fn().mockResolvedValue(false);
+    const onRefused = vi.fn();
+    client = new WebSocketClient({ token: 'tok-down', url, isRefused, onRefused });
+    client.connect();
+
+    // Asked once per failed open, so a second question is a second socket.
+    await vi.waitFor(() => expect(isRefused.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 4000, interval: 20 });
+    expect(onRefused).not.toHaveBeenCalled();
+    expect(client.status).not.toBe('closed');
+  });
+
+  it('asks one question at a time', async () => {
+    server = startServer();
+    server.refuse(true);
+    const url = await server.ready;
+    const isRefused = vi.fn(() => new Promise<boolean>(() => {})); // never answers
+    client = new WebSocketClient({ token: 'tok-slow', url, isRefused });
+    client.connect();
+
+    await vi.waitFor(() => expect(server!.attempts()).toBeGreaterThanOrEqual(3), { timeout: 4000, interval: 20 });
+    expect(isRefused).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not ask after a drop from an open socket, only once a reopen fails', async () => {
+    server = startServer();
+    const url = await server.ready;
+    const isRefused = vi.fn().mockResolvedValue(true);
+    const onRefused = vi.fn();
+    const statuses: string[] = [];
+    client = new WebSocketClient({ token: 'tok-drop', url, isRefused, onRefused, onStatus: (s) => statuses.push(s) });
+    client.connect();
+    const first = await server.nth(1);
+    await vi.waitFor(() => expect(client!.status).toBe('open'));
+
+    server.refuse(true);
+    first.socket.terminate();
+    await vi.waitFor(() => expect(client!.status).toBe('reconnecting'));
+    expect(isRefused).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(onRefused).toHaveBeenCalledTimes(1));
+    expect(isRefused).toHaveBeenCalledTimes(1);
+    expect(client.status).toBe('closed');
+    const asked = server.attempts();
+    await wait(900);
+    expect(server.attempts()).toBe(asked);
+  });
+
+  it('does not close a still-connecting socket on error, which would fire error again', () => {
+    // Closing a CONNECTING socket fails it and fires error again, the way Node 22 does.
+    const sockets: FakeSocket[] = [];
+    class FakeSocket {
+      static OPEN = 1;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor() {
+        sockets.push(this);
+      }
+      close() {
+        this.onerror?.();
+      }
+    }
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    try {
+      client = new WebSocketClient({ token: 'tok-err', url: 'ws://x' });
+      client.connect();
+      const socket = sockets[0]!;
+      expect(() => socket.onerror?.()).not.toThrow();
+      socket.onclose?.();
+      expect(client.status).toBe('reconnecting');
+    } finally {
+      globalThis.WebSocket = BrowserLikeWebSocket as unknown as typeof WebSocket;
+    }
+  });
 });
 
 describe('WebSocketClient', () => {
@@ -177,7 +322,10 @@ describe('seat persistence (reload survival)', () => {
   afterAll(() => {
     delete (globalThis as Record<string, unknown>).sessionStorage;
   });
-  afterEach(() => backing.clear());
+  afterEach(() => {
+    backing.clear();
+    vi.unstubAllGlobals();
+  });
 
   it('resumes the same token and invite code after the store lost everything', async () => {
     server = startServer();
@@ -211,5 +359,29 @@ describe('seat persistence (reload survival)', () => {
     expect(backing.has('mg-seat')).toBe(false);
     resumeSeat();
     expect(useSessionStore.getState().client).toBeNull();
+  });
+
+  it('gives up a seat the server refuses, clears it, and does not resume it', async () => {
+    server = startServer();
+    server.refuse(true);
+    const url = await server.ready;
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401, json: () => Promise.resolve({ error: 'seat refused' }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    useSessionStore.getState().connect('tok-expired', url);
+    await vi.waitFor(() => expect(useSessionStore.getState().seatRefused).toBe(true));
+
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toMatch(/\/api\/seat\/refresh$/);
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer tok-expired' });
+    expect(useSessionStore.getState()).toMatchObject({ client: null, connection: 'closed', token: 'tok-expired' });
+    expect(backing.has('mg-seat')).toBe(false);
+
+    const asked = server.attempts();
+    backing.set('mg-seat', JSON.stringify({ token: 'tok-expired', url, inviteCode: null }));
+    resumeSeat();
+    expect(useSessionStore.getState().client).toBeNull();
+    await wait(900);
+    expect(server.attempts()).toBe(asked);
   });
 });

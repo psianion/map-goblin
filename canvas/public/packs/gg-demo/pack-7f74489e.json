@@ -1,6 +1,6 @@
 {
   "name": "gg-demo",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Good Goblin core map assets",
   "theme": [
     "fantasy"
@@ -1264,7 +1264,10 @@
       "tags": [
         "light"
       ],
-      "family": "campfire"
+      "family": "campfire",
+      "light": {
+        "preset": "brazier"
+      }
     },
     "campfire_cooking_spit_2x1_object_A": {
       "type": "object",
@@ -1300,7 +1303,10 @@
       "tags": [
         "light"
       ],
-      "family": "campfire_fire"
+      "family": "campfire_fire",
+      "light": {
+        "preset": "brazier"
+      }
     },
     "campfire_hog_1x1_object_A": {
       "type": "object",
@@ -1390,7 +1396,10 @@
       "tags": [
         "light"
       ],
-      "family": "candle"
+      "family": "candle",
+      "light": {
+        "preset": "candle"
+      }
     },
     "candle_2_1x1_object_A": {
       "type": "object",
@@ -1408,7 +1417,10 @@
       "tags": [
         "light"
       ],
-      "family": "candle"
+      "family": "candle",
+      "light": {
+        "preset": "candle"
+      }
     },
     "canoe_2x4_object_A": {
       "type": "object",
@@ -3388,7 +3400,10 @@
       "tags": [
         "clutter"
       ],
-      "family": "clutter_light_candle"
+      "family": "clutter_light_candle",
+      "light": {
+        "preset": "candle"
+      }
     },
     "clutter_light_lantern_1x1_object_A": {
       "type": "object",
@@ -3406,7 +3421,10 @@
       "tags": [
         "clutter"
       ],
-      "family": "clutter_light_lantern"
+      "family": "clutter_light_lantern",
+      "light": {
+        "preset": "lantern"
+      }
     },
     "clutter_paper_inkwell_quill_writing_1x1_object_A": {
       "type": "object",
@@ -3658,7 +3676,10 @@
       "tags": [
         "clutter"
       ],
-      "family": "clutter_pumpkin_jack_lantern"
+      "family": "clutter_pumpkin_jack_lantern",
+      "light": {
+        "preset": "candle"
+      }
     },
     "clutter_sacks_1_1x1_object_A": {
       "type": "object",
@@ -6482,7 +6503,10 @@
       "tags": [
         "light"
       ],
-      "family": "fireplace"
+      "family": "fireplace",
+      "light": {
+        "preset": "brazier"
+      }
     },
     "firewood_pile_2x1_object_A": {
       "type": "object",
@@ -7056,7 +7080,10 @@
       "tags": [
         "light"
       ],
-      "family": "lantern"
+      "family": "lantern",
+      "light": {
+        "preset": "lantern"
+      }
     },
     "latrine_2x2_object_A": {
       "type": "object",
@@ -7254,7 +7281,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_1_a_1x1_object_A",
+          "embers": "light_brazier_1_b_1x1_object_A",
+          "on": "light_brazier_1_c_1x1_object_A"
+        }
+      }
     },
     "light_brazier_1_b_1x1_object_A": {
       "type": "object",
@@ -7272,7 +7307,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_1_a_1x1_object_A",
+          "embers": "light_brazier_1_b_1x1_object_A",
+          "on": "light_brazier_1_c_1x1_object_A"
+        }
+      }
     },
     "light_brazier_1_c_1x1_object_A": {
       "type": "object",
@@ -7290,7 +7333,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_1_a_1x1_object_A",
+          "embers": "light_brazier_1_b_1x1_object_A",
+          "on": "light_brazier_1_c_1x1_object_A"
+        }
+      }
     },
     "light_brazier_2_a_1x1_object_A": {
       "type": "object",
@@ -7308,7 +7359,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_2_a_1x1_object_A",
+          "embers": "light_brazier_2_b_1x1_object_A",
+          "on": "light_brazier_2_c_1x1_object_A"
+        }
+      }
     },
     "light_brazier_2_b_1x1_object_A": {
       "type": "object",
@@ -7326,7 +7385,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_2_a_1x1_object_A",
+          "embers": "light_brazier_2_b_1x1_object_A",
+          "on": "light_brazier_2_c_1x1_object_A"
+        }
+      }
     },
     "light_brazier_2_c_1x1_object_A": {
       "type": "object",
@@ -7344,7 +7411,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_2_a_1x1_object_A",
+          "embers": "light_brazier_2_b_1x1_object_A",
+          "on": "light_brazier_2_c_1x1_object_A"
+        }
+      }
     },
     "light_brazier_3_a_1x1_object_A": {
       "type": "object",
@@ -7362,7 +7437,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_3_a_1x1_object_A",
+          "embers": "light_brazier_3_b_1x1_object_A",
+          "on": "light_brazier_3_c_1x1_object_A"
+        }
+      }
     },
     "light_brazier_3_b_1x1_object_A": {
       "type": "object",
@@ -7380,7 +7463,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_3_a_1x1_object_A",
+          "embers": "light_brazier_3_b_1x1_object_A",
+          "on": "light_brazier_3_c_1x1_object_A"
+        }
+      }
     },
     "light_brazier_3_c_1x1_object_A": {
       "type": "object",
@@ -7398,7 +7489,15 @@
       "tags": [
         "light"
       ],
-      "family": "light_brazier"
+      "family": "light_brazier",
+      "light": {
+        "preset": "brazier",
+        "states": {
+          "off": "light_brazier_3_a_1x1_object_A",
+          "embers": "light_brazier_3_b_1x1_object_A",
+          "on": "light_brazier_3_c_1x1_object_A"
+        }
+      }
     },
     "light_candle_cluster_lit_1x1_object_A": {
       "type": "object",
@@ -7416,7 +7515,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_cluster_lit"
+      "family": "light_candle_cluster_lit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_cluster_unlit_1x1_object_A",
+          "on": "light_candle_cluster_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_cluster_unlit_1x1_object_A": {
       "type": "object",
@@ -7434,7 +7540,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_cluster_unlit"
+      "family": "light_candle_cluster_unlit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_cluster_unlit_1x1_object_A",
+          "on": "light_candle_cluster_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_large_lit_1x1_object_A": {
       "type": "object",
@@ -7452,7 +7565,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_large_lit"
+      "family": "light_candle_large_lit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_large_unlit_1x1_object_A",
+          "on": "light_candle_large_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_large_unlit_1x1_object_A": {
       "type": "object",
@@ -7470,7 +7590,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_large_unlit"
+      "family": "light_candle_large_unlit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_large_unlit_1x1_object_A",
+          "on": "light_candle_large_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_small_lit_1x1_object_A": {
       "type": "object",
@@ -7488,7 +7615,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_small_lit"
+      "family": "light_candle_small_lit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_small_unlit_1x1_object_A",
+          "on": "light_candle_small_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_small_unlit_1x1_object_A": {
       "type": "object",
@@ -7506,7 +7640,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_small_unlit"
+      "family": "light_candle_small_unlit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_small_unlit_1x1_object_A",
+          "on": "light_candle_small_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_stand_lit_1x1_object_A": {
       "type": "object",
@@ -7524,7 +7665,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_stand_lit"
+      "family": "light_candle_stand_lit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_stand_unlit_1x1_object_A",
+          "on": "light_candle_stand_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_stand_small_lit_1x1_object_A": {
       "type": "object",
@@ -7542,7 +7690,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_stand_small_lit"
+      "family": "light_candle_stand_small_lit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_stand_small_unlit_1x1_object_A",
+          "on": "light_candle_stand_small_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_stand_small_unlit_1x1_object_A": {
       "type": "object",
@@ -7560,7 +7715,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_stand_small_unlit"
+      "family": "light_candle_stand_small_unlit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_stand_small_unlit_1x1_object_A",
+          "on": "light_candle_stand_small_lit_1x1_object_A"
+        }
+      }
     },
     "light_candle_stand_unlit_1x1_object_A": {
       "type": "object",
@@ -7578,7 +7740,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_candle_stand_unlit"
+      "family": "light_candle_stand_unlit",
+      "light": {
+        "preset": "candle",
+        "states": {
+          "off": "light_candle_stand_unlit_1x1_object_A",
+          "on": "light_candle_stand_lit_1x1_object_A"
+        }
+      }
     },
     "light_chandelier_1_lit_gold_2x2_object_A": {
       "type": "object",
@@ -7596,7 +7765,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_lit_gold"
+      "family": "light_chandelier_lit_gold",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_1_unlit_gold_2x2_object_A",
+          "on": "light_chandelier_1_lit_gold_2x2_object_A"
+        }
+      }
     },
     "light_chandelier_1_unlit_gold_2x2_object_A": {
       "type": "object",
@@ -7614,7 +7790,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_unlit_gold"
+      "family": "light_chandelier_unlit_gold",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_1_unlit_gold_2x2_object_A",
+          "on": "light_chandelier_1_lit_gold_2x2_object_A"
+        }
+      }
     },
     "light_chandelier_2_lit_iron_2x2_object_A": {
       "type": "object",
@@ -7632,7 +7815,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_lit_iron"
+      "family": "light_chandelier_lit_iron",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_2_unlit_iron_2x2_object_A",
+          "on": "light_chandelier_2_lit_iron_2x2_object_A"
+        }
+      }
     },
     "light_chandelier_2_unlit_iron_2x2_object_A": {
       "type": "object",
@@ -7650,7 +7840,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_unlit_iron"
+      "family": "light_chandelier_unlit_iron",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_2_unlit_iron_2x2_object_A",
+          "on": "light_chandelier_2_lit_iron_2x2_object_A"
+        }
+      }
     },
     "light_chandelier_3_lit_gold_2x2_object_A": {
       "type": "object",
@@ -7668,7 +7865,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_lit_gold"
+      "family": "light_chandelier_lit_gold",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_3_unlit_gold_2x2_object_A",
+          "on": "light_chandelier_3_lit_gold_2x2_object_A"
+        }
+      }
     },
     "light_chandelier_3_unlit_gold_2x2_object_A": {
       "type": "object",
@@ -7686,7 +7890,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_unlit_gold"
+      "family": "light_chandelier_unlit_gold",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_3_unlit_gold_2x2_object_A",
+          "on": "light_chandelier_3_lit_gold_2x2_object_A"
+        }
+      }
     },
     "light_chandelier_4_lit_iron_1x1_object_A": {
       "type": "object",
@@ -7704,7 +7915,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_lit_iron"
+      "family": "light_chandelier_lit_iron",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_4_unlit_iron_1x1_object_A",
+          "on": "light_chandelier_4_lit_iron_1x1_object_A"
+        }
+      }
     },
     "light_chandelier_4_unlit_iron_1x1_object_A": {
       "type": "object",
@@ -7722,7 +7940,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_unlit_iron"
+      "family": "light_chandelier_unlit_iron",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_4_unlit_iron_1x1_object_A",
+          "on": "light_chandelier_4_lit_iron_1x1_object_A"
+        }
+      }
     },
     "light_chandelier_antler_lit_1x1_object_A": {
       "type": "object",
@@ -7740,7 +7965,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_antler_lit"
+      "family": "light_chandelier_antler_lit",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_antler_unlit_1x1_object_A",
+          "on": "light_chandelier_antler_lit_1x1_object_A"
+        }
+      }
     },
     "light_chandelier_antler_unlit_1x1_object_A": {
       "type": "object",
@@ -7758,7 +7990,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_chandelier_antler_unlit"
+      "family": "light_chandelier_antler_unlit",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_chandelier_antler_unlit_1x1_object_A",
+          "on": "light_chandelier_antler_lit_1x1_object_A"
+        }
+      }
     },
     "light_lantern_lit_1x1_object_A": {
       "type": "object",
@@ -7776,7 +8015,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_lantern_lit"
+      "family": "light_lantern_lit",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_lantern_unlit_1x1_object_A",
+          "on": "light_lantern_lit_1x1_object_A"
+        }
+      }
     },
     "light_lantern_unlit_1x1_object_A": {
       "type": "object",
@@ -7794,7 +8040,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_lantern_unlit"
+      "family": "light_lantern_unlit",
+      "light": {
+        "preset": "lantern",
+        "states": {
+          "off": "light_lantern_unlit_1x1_object_A",
+          "on": "light_lantern_lit_1x1_object_A"
+        }
+      }
     },
     "light_stand_lit_iron_1x1_object_A": {
       "type": "object",
@@ -7812,7 +8065,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_stand_lit_iron"
+      "family": "light_stand_lit_iron",
+      "light": {
+        "preset": "torch",
+        "states": {
+          "off": "light_stand_unlit_iron_1x1_object_A",
+          "on": "light_stand_lit_iron_1x1_object_A"
+        }
+      }
     },
     "light_stand_unlit_iron_1x1_object_A": {
       "type": "object",
@@ -7830,7 +8090,14 @@
       "tags": [
         "light"
       ],
-      "family": "light_stand_unlit_iron"
+      "family": "light_stand_unlit_iron",
+      "light": {
+        "preset": "torch",
+        "states": {
+          "off": "light_stand_unlit_iron_1x1_object_A",
+          "on": "light_stand_lit_iron_1x1_object_A"
+        }
+      }
     },
     "log_fallen_tree_2x1_object_A": {
       "type": "object",

@@ -46,6 +46,11 @@ import {
   wallTouchesRect,
   roomBadgeAt,
   roomPickingEnabled,
+  lightPickable,
+  pickHereAt,
+  pickStackHere,
+  keepPickOnly,
+  crowdCount,
   type PickHit,
 } from '../hitTest';
 import { setAnchorPreview } from '../roomAnchorDrag';
@@ -71,8 +76,49 @@ const ANCHOR_MIN_MOVE = 0.05;
 /** Pointer travel (screen px) an Alt press must make before it duplicates. */
 const DUP_DRAG_THRESHOLD_PX = 4;
 
+/**
+ * Click again to go deeper: a plain click within this many screen px of the last one, and at
+ * least `CLICK_AGAIN_MIN_MS` after it, takes the next object down the stack. Sooner is the second
+ * half of a double-click (Windows' default double-click time is 500 ms; a page cannot read the
+ * system's own setting), which stays the double-click's: it switches a light or a light prop and
+ * changes nothing picked. The step down waits out the same window after the click, and a press
+ * inside it cancels the step, so the first click of a double-click never walks the stack.
+ */
+export const CLICK_AGAIN_SLOP_PX = 4;
+export const CLICK_AGAIN_MIN_MS = 500;
+
+/** A plain press waiting to be a click: where, when, and whether it is a click again at the last one's spot. */
+interface ClickPress {
+  sx: number;
+  sy: number;
+  at: number;
+  raw: Point;
+  again: boolean;
+}
+
 /** Locked on its own (any kind): selectable, never moved, turned or resized. */
 const isLockedChild = (c: AnyChild): boolean => isLockedObject(c);
+
+/**
+ * The selected lights that move as part of their prop, each with its prop's id: a light whose
+ * prop is selected too (it follows the prop, so it never moves twice), and on a plain move a
+ * light picked on its own (its prop comes along: they are one fixture). A prop that is locked,
+ * or on a locked layer (`layers` holds the unlocked ones), stays, and its light moves alone.
+ */
+export function fixtureHosts(layers: readonly DungeonLayer[], ids: ReadonlySet<string>, carry: boolean): Map<string, string> {
+  const props = new Map<string, AssetChild>();
+  for (const layer of layers) for (const c of layer.children) if (c.childType === 'asset') props.set(c.id, c);
+  const out = new Map<string, string>();
+  for (const layer of layers) {
+    for (const c of layer.children) {
+      if (c.childType !== 'light' || !c.attachedTo || !ids.has(c.id) || isLockedChild(c)) continue;
+      const host = props.get(c.attachedTo);
+      if (!host || isLockedChild(host)) continue;
+      if (ids.has(host.id) || carry) out.set(c.id, host.id);
+    }
+  }
+  return out;
+}
 
 /** What a marquee does with what it covers. */
 type MarqueeMode = 'replace' | 'add' | 'subtract';
@@ -93,6 +139,11 @@ export function pickName(hit: PickHit): string {
   if (hit.kind === 'child') return hit.child.name || KIND_NAME[hit.child.childType];
   if (hit.kind === 'room') return hit.room.name || 'Room';
   return 'Wall';
+}
+
+/** What a box over hidden lights and nothing else says. */
+export function hiddenLightsNote(n: number): string {
+  return `${n} hidden ${n === 1 ? 'light' : 'lights'} here, turn on Light icons or right-click to pick`;
 }
 
 /** A pick's kind, as a word. */
@@ -315,6 +366,11 @@ export class SelectTool implements DrawingTool {
    * resize about the centre, a release without travel a cycle click at that point.
    */
   private altHandle: { handle: HandleType; sx: number; sy: number; raw: Point } | null = null;
+  /** The plain press in flight, and the last plain click that did not travel (click again to go deeper). */
+  private clickPress: ClickPress | null = null;
+  private lastClick: { sx: number; sy: number; at: number } | null = null;
+  /** A click again's step down, waiting out the double-click window. */
+  private pendingCycle: ReturnType<typeof setTimeout> | null = null;
   /** The copies an Alt+drag made, and the selection it took them from. */
   private dupDrag: { command: Command; originalIds: string[] } | null = null;
   /**
@@ -358,6 +414,9 @@ export class SelectTool implements DrawingTool {
 
   onPointerDown(point: Point, event?: PointerEvent): void {
     const store = useStore.getState();
+    this.clickPress = null;
+    // A press inside the window: this is a double-click, the step down does not happen.
+    this.cancelPendingCycle();
 
     // If a gizmo exists (object selected), hit-test it first (screen-space).
     // Ahead of the Alt branch below: Alt on a resize handle means "grow about the
@@ -434,7 +493,24 @@ export class SelectTool implements DrawingTool {
     // Objects locked on their own answer (they select with a badge, never move); hidden
     // ones and locked layers do not.
     const raw = (event && this.rawWorld(event)) ?? point;
-    const hit = this.pickAt(raw);
+    let hit = this.pickAt(raw);
+
+    // A plain press may be a click again on the spot just clicked: it then walks one deeper on
+    // release. The pick deeper down that is selected now answers the press, so the press keeps
+    // it (and can drag it) instead of taking the top again.
+    if (event && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && getEditorDesk()) {
+      const { sx, sy } = this.screenOf(event);
+      const at = performance.now();
+      const last = this.lastClick;
+      const sel = store.selection.selectedIds;
+      const again =
+        !!last && sel.length <= 1 && Math.hypot(sx - last.sx, sy - last.sy) <= CLICK_AGAIN_SLOP_PX && at - last.at >= CLICK_AGAIN_MIN_MS;
+      this.clickPress = { sx, sy, at, raw, again };
+      if (again && sel.length === 1) {
+        const picked = pickHereAt([raw.x, raw.y], { zoom: this.engine.stage().scale.x }).find((e) => e.hit.id === sel[0]);
+        if (picked) hit = picked.hit;
+      }
+    }
 
     if (event?.altKey) {
       if (hit) {
@@ -657,6 +733,35 @@ export class SelectTool implements DrawingTool {
   }
 
   onPointerUp(point: Point, event?: PointerEvent): void {
+    // A plain press released where it went down is a click; a click again on the last one's
+    // spot goes one deeper once the press is done with.
+    const press = this.clickPress;
+    this.clickPress = null;
+    let click: ClickPress | null = null;
+    if (press && event) {
+      const { sx, sy } = this.screenOf(event);
+      if (Math.hypot(sx - press.sx, sy - press.sy) <= CLICK_AGAIN_SLOP_PX) {
+        click = press;
+        this.lastClick = { sx: press.sx, sy: press.sy, at: press.at };
+      } else this.lastClick = null;
+    }
+    this.finishPointerUp(point, event, click?.again ?? false);
+    if (click?.again) {
+      const raw = click.raw;
+      this.pendingCycle = setTimeout(() => {
+        this.pendingCycle = null;
+        this.cycleDeeper(raw);
+      }, CLICK_AGAIN_MIN_MS);
+    }
+  }
+
+  private cancelPendingCycle(): void {
+    if (this.pendingCycle === null) return;
+    clearTimeout(this.pendingCycle);
+    this.pendingCycle = null;
+  }
+
+  private finishPointerUp(point: Point, event: PointerEvent | undefined, again: boolean): void {
     if (this.state === 'ANCHOR') {
       this.finishAnchorDrag([point.x, point.y]);
       return;
@@ -723,6 +828,11 @@ export class SelectTool implements DrawingTool {
       this.gizmo.endDrag();
       const wasTransform = this.state === 'TRANSFORMING';
       this.state = 'SELECTED';
+      // A click again: the press only armed a move. Put back any pixel it slid and commit nothing.
+      if (again && !wasTransform && !this.dupDrag) {
+        this.revertTransformSession();
+        return;
+      }
       // A move dropped somewhere that takes it (a filmstrip tile) is not a move.
       const ids = [...useStore.getState().selection.selectedIds];
       if (!wasTransform) this.onMoveHover?.(null, ids);
@@ -850,8 +960,10 @@ export class SelectTool implements DrawingTool {
       setAnchorPreview(null);
     }
     const store = useStore.getState();
+    this.cancelPendingCycle();
     store.setSelectedIds([]);
     store.setHoveredId(null);
+    if (store.selection.hoverCount) store.setHoverCount(0);
     store.setSelectedRegion(null);
     this.overlay.clear();
     this.destroyGizmo();
@@ -1028,6 +1140,13 @@ export class SelectTool implements DrawingTool {
     const selected: AnyChild[] = [];
     const hosts = new Map<string, AssetChild>();
     const idSet = new Set(store.selection.selectedIds);
+    // A light fixed to a prop is one fixture with it: dragging the light carries the prop, and a
+    // light whose prop moves too follows it rather than moving twice. The arrow keys still move
+    // the light alone, so it can sit off the prop's centre.
+    for (const [id, host] of fixtureHosts(dungeonLayers, idSet, handle === 'move')) {
+      idSet.delete(id);
+      idSet.add(host);
+    }
 
     const floors: { layerId: string; ring: Pt[] }[] = [];
     for (const layer of dungeonLayers) {
@@ -1311,6 +1430,27 @@ export class SelectTool implements DrawingTool {
     notify.subtle(`${pickName(next)} · ${stack.indexOf(next) + 1} of ${stack.length}`);
   }
 
+  /**
+   * Click again to go deeper: the next object down the "Pick from here" list at `raw` after the
+   * one selected (the top when what is selected is not there), hidden lights and the Pick only
+   * filter included. Nothing changes where only the selected object stands.
+   */
+  private cycleDeeper(raw: Point): void {
+    const store = useStore.getState();
+    const stack = pickHereAt([raw.x, raw.y], { zoom: this.engine.stage().scale.x });
+    if (stack.length === 0) return;
+    const sel = store.selection.selectedIds;
+    const at = sel.length === 1 ? stack.findIndex((e) => e.hit.id === sel[0]) : -1;
+    const i = (at + 1) % stack.length;
+    const next = stack[i].hit;
+    if (sel.length === 1 && next.id === sel[0]) return;
+    store.setSelectedIds([next.id]);
+    store.setActiveLayerId(next.layerId);
+    this.state = 'SELECTED';
+    this.createGizmo();
+    notify.subtle(`${pickName(next)} · ${i + 1} of ${stack.length}`);
+  }
+
   /** The Alt press travelled: copy what it pressed on, then drag the copies. */
   private startDupDrag(): void {
     const press = this.altPress;
@@ -1413,7 +1553,17 @@ export class SelectTool implements DrawingTool {
     const store = useStore.getState();
     const dungeonLayers = store.layers.filter((l): l is DungeonLayer => l.type === 'dungeon');
     // The same pick as a click: locked objects answer, so the prop overlay can show the lock on one.
-    const hit = this.pickAt(worldPoint);
+    // On v2 one walk of the stack gives both the pick (its first entry a click could take) and
+    // how many objects stand here, for the hint's "4 here, right-click to pick".
+    let hit: PickHit | null;
+    if (getEditorDesk()) {
+      const all = pickStackHere([worldPoint.x, worldPoint.y], { zoom: this.engine.stage().scale.x });
+      hit = all.find((e) => !e.hidden)?.hit ?? null;
+      const here = crowdCount(keepPickOnly(all), store.ui.marqueeFilter === 'tab');
+      if ((store.selection.hoverCount ?? 0) !== here) store.setHoverCount(here);
+    } else {
+      hit = this.pickAt(worldPoint);
+    }
     const newHoveredId = hit?.id ?? null;
 
     // Only update store if value changed (avoid spurious re-renders)
@@ -1694,6 +1844,7 @@ export class SelectTool implements DrawingTool {
     const onFrame = (b: { x: number; y: number; width: number; height: number }): boolean => !frameRect || boundsIntersect(b, frameRect);
 
     const collected: string[] = [];
+    let hiddenLights = 0;
     // Merged groups are atomic: a member the box touches brings the rest. Plain groups stay
     // granular (you drew the rect, you meant what it touched). Built per layer, once.
     const seen = new Set<string>();
@@ -1711,6 +1862,12 @@ export class SelectTool implements DrawingTool {
         if (seeUnder && child.childType === 'asset' && child.overhead) continue;
         // A light by its marker: its radius is light, not the object.
         const bounds = getChildFootprint(child);
+        // A light whose icon is hidden is no target, for a box as for a click (`setLightPicking`);
+        // it is counted, so a box over nothing else can say where they went.
+        if (child.childType === 'light' && !lightPickable(child)) {
+          if (boundsIntersect(bounds, dragRect)) hiddenLights++;
+          continue;
+        }
         if (!boundsIntersect(bounds, dragRect)) continue;
         if (!onFrame(bounds)) continue;
         // On v2 a floor joins only when the box covers it whole, as a room
@@ -1744,6 +1901,8 @@ export class SelectTool implements DrawingTool {
       }
     }
 
+    // A box over hidden lights and nothing else says so, rather than picking nothing in silence.
+    if (collected.length === 0 && hiddenLights > 0 && mode !== 'subtract') notify.subtle(hiddenLightsNote(hiddenLights));
     const expanded = collected;
     let next: string[];
     if (mode === 'add') next = [...new Set([...base, ...expanded])];

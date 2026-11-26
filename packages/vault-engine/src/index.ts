@@ -30,6 +30,7 @@ export { generateCatalogChunks, type CatalogEntryInput } from './build/catalog-g
 export { buildPack } from './build/pipeline.js';
 export { integrateSets, type IntegrateOptions, type IntegrateResult } from './build/integrate.js';
 export { deriveFamily, addFamilies, rewriteManifest } from './build/families.js';
+export { addLights, LIGHT_PROPS, type LightPropRow } from './build/lights.js';
 
 // Composition engine
 export { analyzeSprite, computeTileableEdges } from './compose/analyze.js';

@@ -100,6 +100,39 @@ export interface MenuSubmenuRow {
   disabled?: boolean
 }
 
+/** One object in a pick list: what it is, where it lives, and what pointing at it does. */
+export interface MenuPickItem {
+  id: string
+  label: string
+  /** Its kind as a word ("Prop", "Light"), for the row's accessible name. */
+  kind: string
+  /** The layer it sits on. */
+  layer: string
+  /** The kind's glyph, drawn when there is no picture. */
+  icon: ReactNode
+  /** A prop's picture: the texture id (and a manifest path when there is one). */
+  thumb?: { id: string; src: string }
+  /** A light whose icon is hidden (View > Light icons off): marked so. */
+  hidden?: boolean
+  /** In the selection now. */
+  selected?: boolean
+  /** Pointing at the row (hover or focus) and leaving it. */
+  onHover: (on: boolean) => void
+  /** A click; `add` with Shift, to add it to what is selected. */
+  onPick: (add: boolean) => void
+}
+
+/**
+ * A captioned list of objects to pick from (right-click's "Pick from here"), top first. It scrolls
+ * inside a capped height, so a deep stack never pushes the menu off the window.
+ */
+export interface MenuPickListRow {
+  type: 'pickList'
+  label: string
+  items: MenuPickItem[]
+  separatorBefore?: boolean
+}
+
 export type MenuRow =
   | ContextMenuItem
   | MenuHeaderRow
@@ -108,6 +141,7 @@ export type MenuRow =
   | MenuSwatchesRow
   | MenuThumbStripRow
   | MenuSubmenuRow
+  | MenuPickListRow
 
 /**
  * Tracks right-click position; open() opens the menu at the cursor,
@@ -429,6 +463,54 @@ function Row({ row, onClose, returnFocus, onResize }: {
                 {r.trailing.label}
               </button>
             )}
+          </div>
+        </div>
+      )
+    }
+    case 'pickList': {
+      const r = row as MenuPickListRow
+      return (
+        <div className="py-1" data-testid="pick-list">
+          <div className="px-3 pb-1 font-mono text-[10px] leading-[14px] tracking-[0.1em] uppercase text-text-3">{r.label}</div>
+          <div role="group" aria-label={r.label} className="max-h-[232px] overflow-y-auto overflow-x-hidden">
+            {r.items.map((it) => (
+              <button
+                key={it.id}
+                type="button"
+                role="menuitem"
+                data-menu-focusable
+                data-pick={it.id}
+                aria-current={it.selected || undefined}
+                aria-label={`${it.label}, ${it.kind}, ${it.layer}${it.hidden ? ', hidden light' : ''}`}
+                title={it.label}
+                onMouseEnter={() => it.onHover(true)}
+                onMouseLeave={() => it.onHover(false)}
+                onFocus={() => it.onHover(true)}
+                onBlur={() => it.onHover(false)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  it.onHover(false)
+                  onClose()
+                  returnFocus()
+                  it.onPick(e.shiftKey)
+                }}
+                className={cn(
+                  'flex w-full min-w-0 items-center gap-2 px-3 py-1 text-left transition-colors hover:bg-panel-2 active:bg-panel-3',
+                  'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus',
+                )}
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-line bg-panel-2 text-text-3">
+                  {it.thumb ? <MenuThumb id={it.thumb.id} src={it.thumb.src} /> : it.icon}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-sm leading-[18px] text-text">{it.label}</span>
+                  <span className="truncate text-[10px] leading-[14px] text-text-3">
+                    {it.hidden ? `${it.kind}, ${it.layer}, hidden light` : `${it.kind}, ${it.layer}`}
+                  </span>
+                </span>
+                {it.selected && <Check size={12} className="shrink-0 text-text-2" aria-hidden />}
+              </button>
+            ))}
           </div>
         </div>
       )

@@ -48,6 +48,8 @@ export interface SettingProps<T> {
   def: SettingMeta<T>;
   value: T;
   onChange: (value: T) => void;
+  /** A card field over several objects that do not share the value: `value` is the first's. */
+  mixed?: boolean;
 }
 
 /** One choice of a seg, select or swatches control. In the dock a seg draws its icons. */
@@ -75,7 +77,7 @@ export interface SettingMeta<T> {
   options?: ReadonlyArray<SettingOption<T>>;
   /** For slider, range and stepper. */
   range?: { min: number; max: number; step: number; unit?: string };
-  /** A dock slider whose readout turns into a field to type the value in when clicked. */
+  /** A slider whose readout turns into a field to type the value in when clicked (dock, card or panel). */
   typed?: true;
   /** A dock switch draws as this icon button, with `key` at its corner. */
   icon?: LucideIcon;
@@ -237,6 +239,15 @@ export type CardFieldDef<K extends ObjectKind = ObjectKind, T = unknown> = Setti
   read: (o: ObjectOf<K>) => T;
   write: (store: CoreStore, ids: readonly string[], value: T) => void;
   visibleWhen?: (o: ObjectOf<K>) => boolean;
+  /**
+   * On a card over several objects (`CardDef.multi`) whose values differ: drawn in place of the
+   * control, and what it hands `onChange` goes to `write` here instead (Direction's rotate-by,
+   * which turns every light by the same amount).
+   */
+  mixed?: {
+    render: ComponentType<SettingProps<T>>;
+    write: (store: CoreStore, ids: readonly string[], value: T) => void;
+  };
 };
 
 export interface CardDef<K extends ObjectKind = ObjectKind> {
@@ -244,4 +255,10 @@ export interface CardDef<K extends ObjectKind = ObjectKind> {
   title: (o: ObjectOf<K>) => string;
   verbs: ReadonlyArray<Verb>;
   fields: ReadonlyArray<CardFieldDef<K>>;
+  /**
+   * The card edits several objects of its kind at once: each field reads every one and shows
+   * the shared value or "Mixed", hides unless it holds for all of them, and the card's title
+   * comes from here. Without it, a pick of several reads the first object only.
+   */
+  multi?: { title: (objects: ReadonlyArray<ObjectOf<K>>) => string };
 }

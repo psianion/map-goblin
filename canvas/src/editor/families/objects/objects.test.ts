@@ -12,7 +12,7 @@ import { createSettings } from '@/editor/registry/settings';
 import { cards, families } from '@/editor/families';
 import { toolForEngine, pickTool } from '@/editor/surfaces/hooks';
 import { OBJECTS_CARDS, objects } from './index';
-import { placeUnder } from './tools';
+import { addLight, placeUnder } from './tools';
 
 const input = () => ({ rail: RAIL_TOOLS, families: [...families], shared: SHARED_SETTINGS, cards: [...cards] });
 const reg = createRegistry(input());
@@ -79,9 +79,12 @@ describe('the Objects family', () => {
     expect(reg.toolById('stamp')!.opensAssets).toBe('object');
   });
 
-  it('defines Place under once and lists it in both panels', () => {
-    for (const id of ['stamp', 'scatter']) expect(reg.settingsByHome(id, 'panel')).toContain(placeUnder);
-    expect(reg.settingsByHome('stamp', 'panel').map((s) => s.id)).toEqual(['stamp.keepPlacing', 'objects.placeUnder']);
+  it('defines Place under and Add its light once and lists them in both panels', () => {
+    for (const id of ['stamp', 'scatter']) {
+      expect(reg.settingsByHome(id, 'panel')).toContain(placeUnder);
+      expect(reg.settingsByHome(id, 'panel')).toContain(addLight);
+    }
+    expect(reg.settingsByHome('stamp', 'panel').map((s) => s.id)).toEqual(['stamp.keepPlacing', 'objects.placeUnder', 'objects.addLight']);
   });
 
   it('keeps the seed out of sight and See under overhead out of the dock', () => {

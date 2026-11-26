@@ -6,6 +6,7 @@ import type { CardFieldDef, SettingDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
 import { useSettingGetter, useSettingValue } from './hooks';
 import { DockControl, FieldControl } from './SettingControl';
+import { sharedValue } from './model';
 
 function useVisible(def: SettingDef): boolean {
   const get = useSettingGetter();
@@ -26,16 +27,29 @@ export function ToolSetting({ def, compact = false }: { def: SettingDef; compact
   );
 }
 
-export function CardField({ field, object, ids }: { field: CardFieldDef; object: unknown; ids: readonly string[] }) {
-  const read = field.read as (o: unknown) => unknown;
-  if (field.visibleWhen && !(field.visibleWhen as (o: unknown) => boolean)(object)) return null;
+/**
+ * One field of a card. With `objects` (a card that edits several, `CardDef.multi`) it shows the
+ * value they share or "Mixed", and a mixed field with its own mixed control (`field.mixed`)
+ * draws and writes through that.
+ */
+export function CardField({ field, object, ids, objects }: { field: CardFieldDef; object: unknown; ids: readonly string[]; objects?: readonly unknown[] }) {
+  const visible = field.visibleWhen as ((o: unknown) => boolean) | undefined;
+  if (visible && !(objects ?? [object]).every((o) => visible(o))) return null;
+  const { value, mixed } = objects && objects.length > 1 ? sharedValue(field, objects) : { value: (field.read as (o: unknown) => unknown)(object), mixed: false };
+  const own = mixed ? field.mixed : undefined;
   const onChange = (v: unknown) => {
+    // A mixed control hands its own kind of value (a turn, not an angle): its write checks it.
+    if (own) {
+      own.write(useStore, ids, v);
+      return;
+    }
     const parsed = field.schema.safeParse(v);
     if (parsed.success) field.write(useStore, ids, parsed.data);
   };
+  const Mixed = own?.render;
   return (
-    <div data-setting={field.id}>
-      <FieldControl meta={field} value={read(object)} onChange={onChange} />
+    <div data-setting={field.id} data-mixed={mixed ? '' : undefined}>
+      {Mixed ? <Mixed def={field} value={value} onChange={onChange} mixed /> : <FieldControl meta={field} value={value} onChange={onChange} mixed={mixed} />}
     </div>
   );
 }

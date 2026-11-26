@@ -1033,7 +1033,7 @@ test('Ctrl+X in the label’s text field cuts text, never the label', { tag: '@s
   expect(await sel(page)).toEqual(['lbl'])
 })
 
-test('the right-click menu on a wall offers Duplicate, flips, Rotate, Lock, Hide and Select behind', { tag: '@select' }, async ({ page }) => {
+test('the right-click menu on a wall offers Duplicate, flips, Rotate, Lock, Hide and Pick from here', { tag: '@select' }, async ({ page }) => {
   await openWarren(page)
   const grab = await onWall(page, 'wall-001', 0.15)
   // Something under the wall, so there is a stack to choose from (the wall's end runs into rock).
@@ -1045,7 +1045,8 @@ test('the right-click menu on a wall offers Duplicate, flips, Rotate, Lock, Hide
     textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
   })
   await rightClick(page, await screenOf(page, grab))
-  for (const label of ['Duplicate', 'Flip horizontal', 'Rotate 90°', 'Lock', 'Hide', 'Select behind']) {
+  for (const label of ['Duplicate', 'Flip horizontal', 'Rotate 90°', 'Lock', 'Hide']) {
     await expect(page.getByRole('menuitem', { name: new RegExp(`^${label}`) }).first()).toBeVisible()
   }
+  await expect(page.getByRole('group', { name: 'Pick from here' })).toBeVisible()
 })

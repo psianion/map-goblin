@@ -32,6 +32,9 @@ import { roomFace } from '../shared/roomUtils';
 import { daylightSpill } from '../shared/daylightSpill';
 import type { Environment } from '../shared/world';
 import { glowOf } from '../shared/propFields';
+import { lightsByHost, shownAssetId } from '../shared/propLights';
+import { lightPropOf } from '../assets/packCatalog';
+import type { LightChild } from '../shared/types';
 import { isFrozen } from '../shared/freeze';
 import { getEditorDesk, setAuthoredLookHold, sheetColor } from './editorDesk';
 import { computeMapFrame, type WorldBounds } from '../shared/mapBounds';
@@ -78,6 +81,8 @@ export function levelLighting(
   const glows: GlowProp[] = [];
   const glowParts: string[] = [];
   const places: Record<string, Environment> = {};
+  /** Lights by the prop they are on, built on the first light prop that glows. */
+  let hosts: Map<string, LightChild[]> | undefined;
   for (const layer of layers) {
     for (const room of layer.rooms ?? []) {
       const face = roomFace(room);
@@ -87,10 +92,21 @@ export function levelLighting(
       rooms.push({ id: room.id, face, light: { place, tint } });
       parts.push(`${room.id}:${place}:${face.length}:${face[0]![0]},${face[0]![1]}`);
     }
-    for (const c of layer.children) {
-      if (c.childType !== 'asset' || !c.visible) continue;
-      const glow = glowOf(c);
+    for (const child of layer.children) {
+      if (child.childType !== 'asset' || !child.visible) continue;
+      const glow = glowOf(child);
       if (!glow) continue;
+      // A light prop with lights attached glows only while one of them burns, and in the
+      // picture it shows (`shownAssetId`) when its picture follows the light.
+      const lightProp = lightPropOf(child.assetId);
+      let c = child;
+      if (lightProp) {
+        hosts ??= lightsByHost(state.layers);
+        const attached = hosts.get(child.id) ?? [];
+        if (attached.length > 0 && attached.every((l) => l.visible === false)) continue;
+        const shown = shownAssetId(child, lightProp.states, attached);
+        if (shown !== child.assetId) c = { ...child, assetId: shown };
+      }
       glows.push({ prop: c, strength: glow.strength, animation: glow.animation });
       glowParts.push(
         `${c.id}|${c.assetId}|${c.position.x}|${c.position.y}|${c.width * c.scale}|${c.height * c.scale}|${c.rotation}|${c.flipX}|${c.flipY}|${glow.strength}|${glow.animation?.kind ?? ''}${glow.animation?.speed ?? ''}`,
@@ -168,6 +184,8 @@ export function setupRenderLoop(
 
   const stage = engine.stage();
   const feedRegions = regionsFeeder(lightManager);
+  // Read-only work counter for the e2e speed lane: visibility sweeps run (beside `__ggLighting`).
+  (globalThis as { __ggLightSweeps?: { sweeps: number } }).__ggLightSweeps = lightManager.stats;
   const easer = new SkyEaser();
 
   // The map's frame, for a host that lays the map on its own desk (`editorDesk`).

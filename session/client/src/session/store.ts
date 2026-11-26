@@ -18,6 +18,7 @@ import {
   invalidateSceneDocs,
   swapSceneMap,
 } from './loadSceneMap';
+import { renewSeat } from './auth';
 import { decodePaintedArea } from './paintedArea';
 import { WebSocketClient } from './WebSocketClient';
 import type { ConnectionStatus } from './WebSocketClient';
@@ -64,6 +65,12 @@ export interface SessionStore {
    * union is the transport's, and `session-ended` is not a transport event.
    */
   sessionEnded: boolean;
+  /**
+   * The server will never take this seat again (expired, banned, or its table ended while the
+   * tab was away). Terminal like `sessionEnded`, and a flag beside `connection` for the same
+   * reason: a refused seat is not a transport state.
+   */
+  seatRefused: boolean;
   you: PlayerInfo | null;
   session: SessionState | null;
   /** Roster changes seen this tab's lifetime, oldest first, capped. */
@@ -128,7 +135,7 @@ export interface SessionStore {
 }
 
 // The seat survives a refresh: per-tab (sessionStorage dies with the tab, so two
-// tabs stay two identities), cleared on explicit disconnect and on session-ended.
+// tabs stay two identities), cleared on explicit disconnect, on session-ended and on a refused seat.
 const SEAT_KEY = 'mg-seat';
 interface SavedSeat {
   token: string;
@@ -199,6 +206,7 @@ export function fogRecuts(prev: unknown, next: unknown): string[] {
 export const useSessionStore = create<SessionStore>()((set, get) => ({
   connection: 'closed',
   sessionEnded: false,
+  seatRefused: false,
   you: null,
   session: null,
   presence: [],
@@ -224,8 +232,14 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
       onStatus: (connection) => set({ connection }),
       onMessage: (msg) => get().applyServerMessage(msg),
       onLatency: (latencyMs) => set({ latencyMs }),
+      // Only a refusal stops the client; a fresh token or no answer leaves it retrying.
+      isRefused: async () => (await renewSeat(token)) === 'refused',
+      onRefused: () => {
+        clearSeat();
+        set({ client: null, seatRefused: true, connection: 'closed' });
+      },
     });
-    set({ client, token, connection: 'connecting', sessionEnded: false });
+    set({ client, token, connection: 'connecting', sessionEnded: false, seatRefused: false });
     saveSeat({ token, url, inviteCode: get().inviteCode });
     client.connect();
   },
@@ -486,13 +500,14 @@ export function waitForSessionSnapshot(timeoutMs = 5000): Promise<SessionState |
 
 /**
  * Reconnect with the seat a refresh threw away. No-op when already connected,
- * after session-ended, or with nothing saved. ponytail: a seat whose session
- * ended while the tab was mid-reload shows "reconnecting" until re-navigation —
- * detecting that needs an upgrade-401 signal the ws API doesn't expose.
+ * after session-ended or a refused seat, or with nothing saved. A seat whose
+ * session ended (or whose token ran out) while the tab was away fails its first
+ * reopen; the client then asks the server whether the seat still stands, and a
+ * refused one stops with `seatRefused` instead of reconnecting for good.
  */
 export function resumeSeat(): void {
   const store = useSessionStore.getState();
-  if (store.client || store.sessionEnded) return;
+  if (store.client || store.sessionEnded || store.seatRefused) return;
   try {
     const raw = sessionStorage.getItem(SEAT_KEY);
     if (!raw) return;

@@ -454,9 +454,53 @@ export function saveLayersSheetFilter(text: string): void {
   }
 }
 
+// ── Light icons ───────────────────────────────────────────
+
+export const LIGHT_ICONS_KEY = 'mapbuilder-light-icons';
+
+const lightIconListeners = new Set<() => void>();
+let lightIcons: boolean | null = null;
+
+/**
+ * Whether the canvas draws the light and darkness bulbs (View > Light icons). On unless this
+ * browser turned them off; never saved in the map. The Light tool in hand and a selected light
+ * still show theirs (`canvas/lightIcons.ts`).
+ */
+export function getLightIcons(): boolean {
+  if (lightIcons === null) {
+    try {
+      lightIcons = localStorage.getItem(LIGHT_ICONS_KEY) !== 'off';
+    } catch {
+      lightIcons = true;
+    }
+  }
+  return lightIcons;
+}
+
+export function setLightIcons(on: boolean): void {
+  if (getLightIcons() === on) return;
+  lightIcons = on;
+  try {
+    localStorage.setItem(LIGHT_ICONS_KEY, on ? 'on' : 'off');
+  } catch {
+    /* private mode: the choice lasts the session */
+  }
+  for (const l of lightIconListeners) l();
+}
+
+export function subscribeLightIcons(listener: () => void): () => void {
+  lightIconListeners.add(listener);
+  return () => lightIconListeners.delete(listener);
+}
+
+export function useLightIcons(): boolean {
+  return useSyncExternalStore(subscribeLightIcons, getLightIcons, () => true);
+}
+
 /** Tests only: forget the cached values so the next read goes back to storage. */
 export function resetViewPrefsForTests(): void {
   preview = null;
+  lightIcons = null;
   lastTime = 'day';
   stopFocusMode?.();
   stopFocusMode = null;

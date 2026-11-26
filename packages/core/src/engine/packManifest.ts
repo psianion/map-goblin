@@ -38,6 +38,14 @@ export interface ManifestEntry {
   door?: DoorMeasure
   /** One straight piece of a stair kit the pack declares (see stairKits' `packStairKits`). */
   stairs?: StairsMeasure
+  /**
+   * A light prop: the preset its light takes and, when its picture follows the light, the
+   * entry keys of its pictures by state (bare keys, within this pack). Absent = no light.
+   */
+  light?: {
+    preset: 'torch' | 'lantern' | 'candle' | 'brazier' | 'magical' | 'darkness'
+    states?: { off?: string; embers?: string; on?: string }
+  }
 }
 
 /**

@@ -35,6 +35,8 @@ import { mountPropOverlay } from '@/canvas/propOverlay';
 import { mountSelectionOverlay } from '@/canvas/selectionOverlay';
 import { mountDropToLayer } from '@/editor/dropToLayer';
 import { mountLightOverlay } from '@/canvas/lightOverlay';
+import { mountLightIcons } from '@/canvas/lightIcons';
+import { mountLinkOverlay } from '@/canvas/linkOverlay';
 import { setRoomPicking } from '@dnd/core/src/engine/hitTest';
 import { setRoomHighlightEnabled } from '@dnd/core/src/engine/roomHighlight';
 import { useStore } from '@/store/store';
@@ -164,12 +166,18 @@ export function CanvasHost() {
       const lightOverlay = mountLightOverlay(pixiEngine);
       if (import.meta.env.DEV) (window as Window & { __lightOverlay?: typeof lightOverlay }).__lightOverlay = lightOverlay;
       const unregLightPress = registerCanvasPressHandler((sx, sy) => lightOverlay.pressAt(sx, sy));
+      // View > Light icons: the bulbs, and what a click can pick, follow the pref.
+      const unmountLightIcons = mountLightIcons(sceneGraph.lightingRenderer);
+      // A light group's other members, outlined while one is selected or hovered.
+      const linkOverlay = mountLinkOverlay(pixiEngine);
       // A canvas drag released over a filmstrip tile moves the selection to that layer.
       const unmountDropToLayer = mountDropToLayer(sceneGraph.toolManager, pixiEngine.canvas());
       const unmountEditorOverlays = () => {
         unmountDropToLayer();
         unregPress();
         unregLightPress();
+        unmountLightIcons();
+        linkOverlay.destroy();
         lightOverlay.destroy();
         setRoomPicking(false);
         setRoomHighlightEnabled(true);

@@ -11,6 +11,10 @@ const AssetTypeEnum = z.enum([
   'scatter', 'path', 'portal', 'light-mask', 'door', 'water',
 ]);
 
+// The light presets a light prop can name (core's `LightPresetId`).
+const LightPresetEnum = z.enum(['torch', 'lantern', 'candle', 'brazier', 'magical', 'darkness']);
+export type LightPresetId = z.infer<typeof LightPresetEnum>;
+
 const FrameSchema = z.object({
   x: z.number().int().nonnegative(),
   y: z.number().int().nonnegative(),
@@ -83,6 +87,17 @@ const ManifestEntrySchema = z.object({
   // Variant family within its set (vault-cli `families` writes it on object entries).
   // Last so a re-parse keeps the key order and the manifest hash stable.
   family: z.string().min(1).optional(),
+  // A light prop (vault-cli `lights` writes it from the table in build/lights.ts): the preset
+  // its light takes and, when its picture follows the light, the entry keys of each state's
+  // picture. After `family` for the same reason.
+  light: z
+    .object({
+      preset: LightPresetEnum,
+      states: z
+        .object({ off: z.string().min(1).optional(), embers: z.string().min(1).optional(), on: z.string().min(1).optional() })
+        .optional(),
+    })
+    .optional(),
 });
 
 const FileRefSchema = z.object({

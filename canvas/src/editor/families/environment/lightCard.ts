@@ -1,19 +1,35 @@
 // The light card: the Light tool's fields on a placed light, Attach or Detach as verbs, and
 // under a Table caption only On at the table. Bright and Dim in feet; a drag lands as one step.
+// For prop lights: the attached prop's State tiles first, a Motion section for a cone (Still,
+// Spin or Sweep with their speeds and edges), and a Group row. Over several lights (Select
+// group, a box) it edits all of them: each field shows the shared value or "Mixed", a set lands
+// on every one as one step, and a mixed Direction or sweep edge turns them all by the same
+// amount so the beams keep their spread.
 
 import { Link2, Unlink2 } from 'lucide-react';
 import { z } from 'zod';
 import { useStore } from '@/store/store';
 import { selectChildById, selectLayerForChild } from '@/store/selectors';
 import type { Command, LightChild, MapBuilderStore } from '@/store/types';
-import { attachLight, detachLight, setLightFields, type LightPatch } from '@dnd/core/src/store/lightCommands';
+import { attachLight, detachLight } from '@dnd/core/src/store/lightCommands';
 import { undoManager } from '@/store/undoManager';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import type { CardFieldDef, EditorState, Verb } from '@/editor/registry/types';
 import { SELECTION_VERBS } from '@/editor/families/select';
-import { editKey, runEdit } from '@/editor/families/design/cardWrites';
+import { editKey } from '@/editor/families/design/cardWrites';
 import { nearestProp } from './lightModel';
 import { FeetRow } from './LightControls';
+import { AttachedRow, ConeNote, EdgeStepper, GroupField, LightStateField, MotionKindField, RotateByRow, SpinDirectionField } from './LightCardFields';
+import { editLights as edit, editMotion, lightsOf, lightsTitle, rotateLights, stopLights } from './lightEdits';
+import { hostStates } from './lightHosts';
+import { SPIN_RPM, SWEEP_DEG_PER_SEC } from '@dnd/core/src/shared/lightMotion';
+import {
+  SPIN_DEFAULT_RPM,
+  SWEEP_DEFAULT_DEG_PER_SEC,
+  motionFor,
+  motionKindOf,
+  type MotionKind,
+} from './lightModel';
 import {
   CONE_RANGE,
   DIRECTION_RANGE,
@@ -35,18 +51,6 @@ import {
 
 const state = () => useStore.getState() as MapBuilderStore;
 const ftPerCell = () => state().mapSettings.cellScale.value;
-
-function lightsOf(ids: readonly string[]): LightChild[] {
-  return ids.map((id) => selectChildById(state(), id)).filter((c): c is LightChild => c?.childType === 'light');
-}
-
-/** A patch per picked light, as one step; with `coalesce`, a drag folds into one. */
-function edit(label: string, ids: readonly string[], patch: (l: LightChild) => LightPatch, coalesce?: string): void {
-  const cmds = lightsOf(ids)
-    .map((l) => setLightFields(l.id, patch(l), undefined, label))
-    .filter((c): c is Command => c !== null);
-  runEdit(label, cmds, coalesce);
-}
 
 const field = <T>(def: Omit<CardFieldDef<'light', T>, 'home'>) => defineCardField<'light', T>({ ...def, home: 'card' });
 
@@ -105,6 +109,8 @@ const cone = field<number>({
   control: 'slider',
   section: 'Shape',
   range: { ...CONE_RANGE, unit: '°' },
+  // Typed as well as dragged, so a round angle such as 60° is always reachable.
+  typed: true,
   read: coneAngle,
   write: (_s, ids, angle) => edit('Cone', ids, (l) => conePatch(l, angle), editKey('light.cone', ids)),
 });
@@ -117,9 +123,12 @@ const direction = field<number>({
   control: 'slider',
   section: 'Shape',
   range: { ...DIRECTION_RANGE, unit: '°' },
-  visibleWhen: (l) => coneAngle(l) < 360,
+  // A sweep's two edges stand in for it.
+  visibleWhen: (l) => coneAngle(l) < 360 && motionKindOf(l) !== 'sweep',
   read: coneDirection,
   write: (_s, ids, d) => edit('Direction', ids, (l) => ({ cone: { angle: coneAngle(l), direction: d } }), editKey('light.direction', ids)),
+  // Lights pointing different ways turn together by the same amount.
+  mixed: { render: RotateByRow, write: (_s, ids, turn) => rotateLights(ids, 'direction', turn) },
 });
 
 const effect = field<Effect>({
@@ -145,6 +154,148 @@ const speed = field<number>({
   visibleWhen: (l) => effectOf(l) !== 'none',
   read: speedOf,
   write: (_s, ids, v) => edit('Effect speed', ids, (l) => ({ animation: animationFor(effectOf(l), v) }), editKey('light.speed', ids)),
+});
+
+/** The State tiles of the prop the light is attached to, at the top of the card. */
+const lightState = field<null>({
+  id: 'card.light.state',
+  label: 'State',
+  schema: z.null(),
+  default: null,
+  control: 'custom',
+  render: LightStateField,
+  visibleWhen: (l) => !!hostStates(l),
+  read: () => null,
+  write: () => {},
+});
+
+/** A light fixed to a prop: "Attached to <prop>" and Select prop, under the State tiles. */
+const attached = field<null>({
+  id: 'card.light.attached',
+  label: 'Attached',
+  schema: z.null(),
+  default: null,
+  control: 'custom',
+  render: AttachedRow,
+  visibleWhen: (l) => !!l.attachedTo,
+  read: () => null,
+  write: () => {},
+});
+
+/** Under a full circle's Cone: a moving light needs a cone. */
+const coneNote = field<null>({
+  id: 'card.light.coneNote',
+  label: 'Cone note',
+  schema: z.null(),
+  default: null,
+  control: 'custom',
+  section: 'Shape',
+  render: ConeNote,
+  visibleWhen: (l) => coneAngle(l) >= 360,
+  read: () => null,
+  write: () => {},
+});
+
+const motion = field<MotionKind>({
+  id: 'card.light.motion',
+  label: 'Motion',
+  schema: z.enum(['still', 'spin', 'sweep']),
+  default: 'still',
+  control: 'custom',
+  section: 'Motion',
+  render: MotionKindField,
+  visibleWhen: (l) => coneAngle(l) < 360,
+  read: motionKindOf,
+  write: (_s, ids, kind) => {
+    // Still: every beam stops where it is drawn now.
+    if (kind === 'still') {
+      stopLights(ids);
+      return;
+    }
+    // Several lights take one pace and way round (the first already moving so sets them), each
+    // from where it points now: a group spins or sweeps in step, keeping its spread.
+    const lights = lightsOf(ids);
+    const base = lights.find((l) => l.motion?.kind === kind)?.motion ?? motionFor(kind, lights[0] ?? {});
+    editMotion(kind === 'spin' ? 'Spin light' : 'Sweep light', ids, (l) => {
+      const own = motionFor(kind, l);
+      if (!own || lights.length < 2) return own;
+      if (own.kind === 'spin' && base?.kind === 'spin') return { ...own, rpm: base.rpm, clockwise: base.clockwise };
+      if (own.kind === 'sweep' && base?.kind === 'sweep') return { ...own, degPerSec: base.degPerSec };
+      return own;
+    });
+  },
+});
+
+const moving = (kind: MotionKind) => (l: LightChild) => coneAngle(l) < 360 && motionKindOf(l) === kind;
+
+const spinWay = field<boolean>({
+  id: 'card.light.spinWay',
+  label: 'Way round',
+  schema: z.boolean(),
+  default: true,
+  control: 'custom',
+  section: 'Motion',
+  render: SpinDirectionField,
+  visibleWhen: moving('spin'),
+  read: (l) => (l.motion?.kind === 'spin' ? l.motion.clockwise : true),
+  write: (_s, ids, clockwise) => editMotion('Spin direction', ids, (l) => (l.motion?.kind === 'spin' ? { ...l.motion, clockwise } : null)),
+});
+
+const spinSpeed = field<number>({
+  id: 'card.light.spinSpeed',
+  label: 'Speed',
+  schema: z.number().min(SPIN_RPM.min).max(SPIN_RPM.max),
+  default: SPIN_DEFAULT_RPM,
+  control: 'slider',
+  section: 'Motion',
+  range: { ...SPIN_RPM, unit: 'rpm' },
+  visibleWhen: moving('spin'),
+  read: (l) => (l.motion?.kind === 'spin' ? l.motion.rpm : SPIN_DEFAULT_RPM),
+  write: (_s, ids, rpm) =>
+    editMotion('Spin speed', ids, (l) => (l.motion?.kind === 'spin' ? { ...l.motion, rpm } : null), editKey('light.spinSpeed', ids)),
+});
+
+const sweepSpeed = field<number>({
+  id: 'card.light.sweepSpeed',
+  label: 'Speed',
+  schema: z.number().min(SWEEP_DEG_PER_SEC.min).max(SWEEP_DEG_PER_SEC.max),
+  default: SWEEP_DEFAULT_DEG_PER_SEC,
+  control: 'slider',
+  section: 'Motion',
+  range: { ...SWEEP_DEG_PER_SEC, unit: '°/s' },
+  visibleWhen: moving('sweep'),
+  read: (l) => (l.motion?.kind === 'sweep' ? l.motion.degPerSec : SWEEP_DEFAULT_DEG_PER_SEC),
+  write: (_s, ids, degPerSec) =>
+    editMotion('Sweep speed', ids, (l) => (l.motion?.kind === 'sweep' ? { ...l.motion, degPerSec } : null), editKey('light.sweepSpeed', ids)),
+});
+
+const sweepEdge = (edge: 'from' | 'to', label: string) =>
+  field<number>({
+    id: `card.light.sweep.${edge}`,
+    label,
+    schema: z.number().min(0).max(359),
+    default: 0,
+    control: 'custom',
+    section: 'Motion',
+    range: { min: 0, max: 359, step: 5, unit: '°' },
+    render: EdgeStepper,
+    visibleWhen: moving('sweep'),
+    read: (l) => (l.motion?.kind === 'sweep' ? l.motion[edge] : 0),
+    write: (_s, ids, deg) => editMotion('Sweep edge', ids, (l) => (l.motion?.kind === 'sweep' ? { ...l.motion, [edge]: deg } : null)),
+    // Edges that differ turn together by the same amount, as Direction does.
+    mixed: { render: RotateByRow, write: (_s, ids, turn) => rotateLights(ids, edge, turn) },
+  });
+
+const group = field<string>({
+  id: 'card.light.group',
+  label: 'Group',
+  schema: z.string(),
+  default: '',
+  control: 'custom',
+  section: 'Group',
+  render: GroupField,
+  read: (l) => l.group ?? '',
+  write: (_s, ids, name) => edit(name.trim() ? 'Join group' : 'Leave group', ids, () => ({ group: name.trim() || undefined })),
 });
 
 const throughWalls = field<boolean>({
@@ -216,6 +367,28 @@ const detach: Verb = {
 export const lightCard = defineCard<'light'>({
   kind: 'light',
   title: (l) => l.name || (l.darkness ? 'Darkness' : 'Light'),
+  multi: { title: lightsTitle },
   verbs: [attach, detach, ...SELECTION_VERBS],
-  fields: [bright, dim, intensity, colour, cone, direction, effect, speed, throughWalls, tableOn],
+  fields: [
+    lightState,
+    attached,
+    bright,
+    dim,
+    intensity,
+    colour,
+    cone,
+    coneNote,
+    direction,
+    motion,
+    spinWay,
+    spinSpeed,
+    sweepSpeed,
+    sweepEdge('from', 'From'),
+    sweepEdge('to', 'To'),
+    effect,
+    speed,
+    group,
+    throughWalls,
+    tableOn,
+  ],
 });

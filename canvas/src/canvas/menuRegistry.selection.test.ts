@@ -6,12 +6,14 @@ vi.mock('sonner', () => ({
 
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import type { MenuRow } from '@/editor/RowMenu';
+import type { MenuPickListRow, MenuRow } from '@/editor/RowMenu';
 import type { AnyChild, DungeonLayer, SerializedMapData } from '@/store/types';
 import type { WallSegment } from '@/shared/types';
-import { buildChildMenu, buildMultiMenu, buildWallMenu, selectBehindRow } from './menuRegistry';
+import { buildCanvasMenu, buildChildMenu, buildMultiMenu, buildWallMenu, pickHereRow } from './menuRegistry';
 import { setClipperModule } from '@/geometry/Clipper2Engine';
-import { setRoomPicking } from '@dnd/core/src/engine/hitTest';
+import { setLightPicking, setRoomPicking } from '@dnd/core/src/engine/hitTest';
+import { setMarqueeKinds } from '@dnd/core/src/engine/marqueeFilter';
+import { getPickHighlight, setPickHighlight } from './pickHighlight';
 import { refreshRooms } from '@dnd/core/src/store/roomRefresh';
 import { migrateToLatest } from '@dnd/core/src/store/migration';
 import goblinWarren from '../../../session/testdata/goblin-warren.mapbuilder?raw';
@@ -81,34 +83,93 @@ describe('menus for the one selection path', () => {
     expect(labels(rows)).not.toContain('Duplicate');
   });
 
-  it('Select behind lists everything under the point, top first, with each kind', () => {
+  const lamp = (id: string, x: number): AnyChild => {
+    const l = { id, name: id, childType: 'light', visible: true, color: '#fff', radius: 4, featherRadius: 2, intensity: 1, falloff: 'linear', position: { x, y: 0 } } as unknown as AnyChild;
+    useStore.getState().addChild(layer().id, l);
+    return l;
+  };
+  const items = (r: MenuPickListRow | null) => r?.items ?? [];
+
+  it('Pick from here lists everything under the point, top first, each with its kind and layer', () => {
     floor('f');
     wall('w');
     asset('p', 0);
-    const sub = selectBehindRow({ x: 0, y: 0 })!;
-    expect(sub).not.toBeNull();
-    const rows = (sub as { rows: MenuRow[] }).rows;
-    expect(labels(rows)).toEqual(['p', 'Wall', 'f']);
+    const list = pickHereRow({ x: 0, y: 0 })!;
+    expect(list.type).toBe('pickList');
+    expect(list.label).toBe('Pick from here');
+    expect(items(list).map((i) => [i.label, i.kind])).toEqual([
+      ['p', 'Prop'],
+      ['Wall', 'Wall'],
+      ['f', 'Floor'],
+    ]);
+    expect(items(list)[0].layer).toBe(layer().name || 'Unnamed layer');
+    // A prop shows its own picture; the rest their kind's glyph.
+    expect(items(list)[0].thumb?.id).toBe('a');
+    expect(items(list)[2].thumb).toBeUndefined();
   });
 
-  it('a Select behind row selects that object', () => {
+  it('a click selects that object, Shift-click adds it', () => {
     floor('f');
     asset('p', 0);
-    const rows = (selectBehindRow({ x: 0, y: 0 }) as { rows: MenuRow[] }).rows;
-    (row(rows, 'f') as { onSelect: () => void }).onSelect();
+    useStore.getState().setSelectedIds(['p']);
+    const [p, f] = items(pickHereRow({ x: 0, y: 0 }));
+    expect(p.selected).toBe(true);
+    f.onPick(false);
     expect(useStore.getState().selection.selectedIds).toEqual(['f']);
+    p.onPick(true);
+    expect(useStore.getState().selection.selectedIds).toEqual(['f', 'p']);
   });
 
-  it('Select behind is absent with one object or none under the point', () => {
+  it('pointing at a row outlines that object, leaving it lets go', () => {
+    floor('f');
     asset('p', 0);
-    expect(selectBehindRow({ x: 0, y: 0 })).toBeNull();
-    expect(selectBehindRow({ x: 50, y: 50 })).toBeNull();
+    const [, f] = items(pickHereRow({ x: 0, y: 0 }));
+    f.onHover(true);
+    expect(getPickHighlight()).toBe('f');
+    f.onHover(false);
+    expect(getPickHighlight()).toBeNull();
   });
 
-  it('lists at most eight rows', () => {
+  it('is absent with one object or none under the point', () => {
+    asset('p', 0);
+    expect(pickHereRow({ x: 0, y: 0 })).toBeNull();
+    expect(pickHereRow({ x: 50, y: 50 })).toBeNull();
+  });
+
+  it('lists every object, however deep the stack', () => {
     floor('f');
     for (let i = 0; i < 12; i++) asset(`p${i}`, 0);
-    expect((selectBehindRow({ x: 0, y: 0 }) as { rows: MenuRow[] }).rows.length).toBeLessThanOrEqual(8);
+    expect(items(pickHereRow({ x: 0, y: 0 }))).toHaveLength(13);
+  });
+
+  describe('hidden lights and Pick only', () => {
+    afterEach(() => {
+      setLightPicking(null);
+      setMarqueeKinds(null);
+      setPickHighlight(null);
+    });
+
+    it('lists lights whose icons are hidden, marked, even one alone, and the empty-ground menu offers them', () => {
+      lamp('L1', 0);
+      setLightPicking(() => false);
+      const list = pickHereRow({ x: 0, y: 0 })!;
+      expect(items(list).map((i) => [i.label, i.hidden])).toEqual([['L1', true]]);
+      expect(buildCanvasMenu({ x: 0, y: 0 }).some((r) => 'type' in r && r.type === 'pickList')).toBe(true);
+    });
+
+    it('keeps to the Pick only kinds; Lights takes hidden lights too', () => {
+      floor('f');
+      asset('p', 0);
+      lamp('L1', 0);
+      lamp('L2', 0);
+      setLightPicking((l) => l.id !== 'L2');
+      setMarqueeKinds(() => ['light']);
+      useStore.getState().setMarqueeFilter('tab');
+      // Topmost first: the light added last.
+      expect(items(pickHereRow({ x: 0, y: 0 })).map((i) => i.label)).toEqual(['L2', 'L1']);
+      useStore.getState().setMarqueeFilter('all');
+      expect(items(pickHereRow({ x: 0, y: 0 })).map((i) => i.label)).toEqual(['L2', 'L1', 'p', 'f']);
+    });
   });
 
   it('the multi menu offers Lock, Hide, Align and Distribute for a light and a wall', () => {
@@ -139,7 +200,7 @@ describe('the wall menu on the goblin warren', () => {
   }, 30_000);
   afterEach(() => setRoomPicking(false));
 
-  it('the Chief Door wall’s menu has Select behind with the rooms and the floor under it', () => {
+  it('the Chief Door wall’s menu has Pick from here with the rooms and the floor under it', () => {
     undoManager.clear();
     useStore.getState().loadFromFile(migrateToLatest(JSON.parse(goblinWarren)) as SerializedMapData);
     refreshRooms();
@@ -149,9 +210,9 @@ describe('the wall menu on the goblin warren', () => {
     const [a, b] = w.points;
     // Near its end, past the doorway: the part of the wall a right-click lands on.
     const world = { x: a[0] + (b[0] - a[0]) * 0.1, y: a[1] + (b[1] - a[1]) * 0.1 };
-    const behind = row(buildWallMenu({ layer: l, wall: w, world }), 'Select behind');
-    expect(behind).toBeTruthy();
-    expect(behind.rows!.length).toBeGreaterThanOrEqual(2);
-    expect(labels(behind.rows!)[0]).toBe('Wall');
+    const here = row(buildWallMenu({ layer: l, wall: w, world }), 'Pick from here') as unknown as MenuPickListRow;
+    expect(here).toBeTruthy();
+    expect(here.items.length).toBeGreaterThanOrEqual(2);
+    expect(here.items[0].label).toBe('Wall');
   });
 });

@@ -5,7 +5,7 @@ import type { Point } from '../../types/geometry';
 import type { AssetChild, DungeonLayer, ScatterBrushSettings } from '../../store/types';
 import { poissonDiskSample } from '../../geometry/poissonDisk';
 import { mulberry32, hashPosition } from '../../geometry/seededRng';
-import { familyMembers } from '../../assets/packCatalog';
+import { familyVariants } from '../../assets/packCatalog';
 import { floorTest, naturalSizeOf, obbOfChild, ObbHash, type FloorTest, type Obb } from './propPlacement';
 
 /** Most props one dab may place. */
@@ -68,7 +68,8 @@ export function beginStroke(
     strokeNo,
     sizeOf: naturalSizeOf,
     familyOf: (id) => {
-      const members = familyMembers(id).map((e) => e.id);
+      // A light prop's models, in the state picked (`familyVariants`).
+      const members = familyVariants(id).map((e) => e.id);
       return members.length > 0 ? members : [id];
     },
     hash,
