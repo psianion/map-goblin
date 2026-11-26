@@ -151,6 +151,9 @@ export function doorAt(doors: readonly LiveDoor[], x: number, y: number): LiveDo
 }
 
 /** Every authored door of the loaded map. Players never receive secret ones. */
+/** A map door the table is playing: what the map authored, kept beside the live state written onto it. */
+export type PlayedDoor = DoorChild & { authoredState?: DoorChild['state'] };
+
 export function doorsOfLayers(layers: readonly Layer[]): DoorChild[] {
   return layers.flatMap((layer) =>
     layer.type === 'dungeon'
@@ -226,6 +229,12 @@ export function liveDoors(
 ): LiveDoor[] {
   const authored = doorsOfLayers(layers);
   if (authored.length === 0) return [];
-  const live = doorsOfScene(doorsState ?? { byScene: {} }, sceneId ?? '', authored);
+  // A door the table has no state for plays at what the map authored, not at what the lighting
+  // sync last wrote onto it (`doorLighting.ts`): an undo back to "never touched" shuts it again.
+  const asAuthored = authored.map((door) => {
+    const was = (door as PlayedDoor).authoredState;
+    return was && was !== door.state ? { ...door, state: was } : door;
+  });
+  const live = doorsOfScene(doorsState ?? { byScene: {} }, sceneId ?? '', asAuthored);
   return authored.map((door) => ({ door, live: live[door.id] }));
 }
