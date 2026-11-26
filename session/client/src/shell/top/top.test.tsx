@@ -10,6 +10,7 @@ import { InviteButton, InviteCard } from './InviteCard';
 import { Presence } from './Presence';
 import { SceneSwitcher } from './SceneSwitcher';
 import { SessionMenu } from './SessionMenu';
+import { closeSheet, openSheetNow } from '../sheets/registry';
 import { TitleCard } from './TitleCard';
 import { AsPlayersButton } from './TopRight';
 import { useAsPlayers } from '../../modules/fog/asPlayers';
@@ -166,19 +167,15 @@ describe('SessionMenu', () => {
     byScene: { a: { t1: { id: 't1', name: 'Bram', x: 0, y: 0, ownerId: null }, t2: { id: 't2', name: 'Wolf', x: 1, y: 1, ownerId: 'p1' } } },
   };
 
-  it('assigns a token to a player from the roster', async () => {
-    const sent = capture();
+  it('names the token each player holds and opens the Party sheet to hand characters out', async () => {
     useSessionStore.setState({ session: session([dm, pia], { tokens, table: { paused: false, movementLocked: false } }) });
     render(<SessionMenu />);
     fireEvent.click(screen.getByTestId('session-menu'));
-    const select = (await screen.findByTestId('assign-p1')) as HTMLSelectElement;
-    expect(select.value).toBe('t2');
-    fireEvent.change(select, { target: { value: 't1' } });
-    fireEvent.change(select, { target: { value: '' } });
-    expect(sent.map((m) => m.payload)).toEqual([
-      { id: 't1', identityId: 'p1' },
-      { id: 't2', identityId: null },
-    ]);
+    expect((await screen.findByTestId('seat-token-p1')).textContent).toBe('Wolf');
+    expect(screen.queryByRole('combobox')).toBeNull();
+    fireEvent.click(screen.getByTestId('open-party-seats'));
+    expect(openSheetNow()?.id).toBe('party');
+    closeSheet();
   });
 
   it('pauses the table and locks movement through the table module', async () => {
@@ -205,7 +202,8 @@ describe('SessionMenu', () => {
     fireEvent.click(screen.getByTestId('session-menu'));
     expect(await screen.findByTestId('leave-table')).toBeTruthy();
     expect(screen.queryByTestId('end-session')).toBeNull();
-    expect(screen.queryByTestId('assign-p1')).toBeNull();
+    expect(screen.queryByTestId('seat-token-p1')).toBeNull();
+    expect(screen.queryByTestId('open-party-seats')).toBeNull();
     expect(screen.queryByTestId('library-download')).toBeNull();
   });
 });

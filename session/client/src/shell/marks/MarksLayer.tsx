@@ -280,7 +280,11 @@ export function MarksLayer() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const colourOf = (m: LiveMark): string => (m.by === 'me' || m.by === me ? 'var(--ink)' : seatColour(m.by));
+  // A seat's own marks carry its seat colour too, so what it draws looks the way the table sees it.
+  const colourOf = (m: LiveMark): string => {
+    const by = m.by === 'me' ? me : m.by;
+    return by ? seatColour(by) : 'var(--ink)';
+  };
   const nameOf = (m: LiveMark): string | null =>
     m.by === 'me' || m.by === me ? null : (players?.find((p) => p.identityId === m.by)?.name ?? null);
 

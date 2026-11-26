@@ -19,11 +19,6 @@ export function leaveTable(): void {
   navigate('/');
 }
 
-/** Assign a token on the live scene to a seat, or take it back (`identityId: null`). */
-export function assignToken(tokenId: string, identityId: string | null): void {
-  useSessionStore.getState().sendCommand('tokens', 'assign', { id: tokenId, identityId });
-}
-
 /**
  * Download the campaign archive (`GET /api/campaigns/:id/export`, DM token). Resolves to an
  * error line for the menu, or null once the file is on its way.
