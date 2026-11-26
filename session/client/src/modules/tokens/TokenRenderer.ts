@@ -123,6 +123,9 @@ function loadTexture(assetId: string): Promise<Texture | null> {
   return pending;
 }
 
+/** Fetch and decode a token picture ahead of the map (the lobby), into the same cache. */
+export const preloadTokenArt = (assetId: string): Promise<void> => loadTexture(assetId).then(() => undefined);
+
 // ─── One token's display objects ────────────────────────────
 
 interface View {

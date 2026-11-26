@@ -189,6 +189,7 @@ export function TokenArtEditor({
     try {
       const id = changed && picture ? await uploadArt(await encodeArt(picture.img, crop)) : imageAssetId;
       onSave({ imageAssetId: id, ring });
+      setChanged(false);
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'That picture could not be saved.');
     } finally {

@@ -10,7 +10,9 @@ type SessionSlice = Pick<ReturnType<typeof useSessionStore.getState>, 'you' | 's
  */
 export function isFrozen(s: SessionSlice): boolean {
   if (s.you?.role !== 'player') return false;
-  return (s.session?.modules.table as TableSwitches | undefined)?.paused === true;
+  // The lobby is its own state, never frozen: Pause is the mid-game hold over the map.
+  const table = s.session?.modules.table as (TableSwitches & { started?: boolean }) | undefined;
+  return table?.paused === true && table.started !== false;
 }
 
 /** For event handlers: whether this seat is frozen right now. */
