@@ -82,6 +82,7 @@ function togglePause(): void {
 const STEP_NAMES: Record<string, string> = {
   'tokens.move': 'token move',
   'tokens.place': 'token placement',
+  'tokens.place-pc': 'token placement',
   'tokens.spawn': 'token placement',
   'tokens.delete': 'token removal',
   'tokens.hide': 'token hide',
@@ -129,6 +130,7 @@ export function historyStep(op: 'undo' | 'redo'): void {
   if (!step) return;
   store.sendHistory(op);
   if (op === 'undo') showToast({ message: `Undid ${stepName(step)}`, action: { label: 'Redo', onAction: () => historyStep('redo') } });
+  else showToast({ message: `Redid ${stepName(step)}`, action: { label: 'Undo', onAction: () => historyStep('undo') } });
 }
 
 /** Ctrl or Cmd+Z undoes; Ctrl or Cmd+Shift+Z and Ctrl+Y redo. */
@@ -140,11 +142,16 @@ function historyKey(e: KeyboardEvent): 'undo' | 'redo' | null {
   return null;
 }
 
-/** For the shortcuts sheet: the DM's two history keys. */
-export const HISTORY_KEYS: readonly { id: string; label: string; keys: string[] }[] = [
-  { id: 'key:undo', label: 'Undo', keys: ['Ctrl+Z'] },
-  { id: 'key:redo', label: 'Redo', keys: ['Ctrl+Shift+Z', 'Ctrl+Y'] },
-];
+/** Whether this browser runs on a Mac (or an iPad with a keyboard), where Cmd stands in for Ctrl. */
+export const onMac = (): boolean => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+/** For the shortcuts sheet: the DM's two history keys, with the Mac's own modifier on a Mac. */
+export function historyKeys(mac = onMac()): readonly { id: string; label: string; keys: string[] }[] {
+  return [
+    { id: 'key:undo', label: 'Undo', keys: mac ? ['⌘Z'] : ['Ctrl+Z'] },
+    { id: 'key:redo', label: 'Redo', keys: mac ? ['⇧⌘Z'] : ['Ctrl+Shift+Z', 'Ctrl+Y'] },
+  ];
+}
 
 const DM = ['dm'] as const;
 const ALL = ['dm', 'player'] as const;

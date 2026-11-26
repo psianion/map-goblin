@@ -9,6 +9,7 @@ import { SessionMenu } from '../top/SessionMenu';
 import { cellRect, handCharacter } from './lobbyState';
 import { LobbyStrip } from './LobbyStrip';
 import { PartyStartLayer } from './PartyStartLayer';
+import { SeatRoster } from './SeatRoster';
 
 const KIT: PlayerInfo = { identityId: 'p-kit', name: 'Kit', role: 'player', connected: true };
 const players = [DM, BRAM, KIT];
@@ -46,19 +47,55 @@ describe('the DM lobby strip', () => {
     expect(screen.queryByTestId('lobby-strip')).toBeNull();
   });
 
-  it('opens the roster: a character per seat, not on the map, the switches and the party start tool', async () => {
+  it('opens the roster: a character per seat as a picture, the switches and the party start tool', async () => {
     const spy = seat({ table: notStarted, tokens: tokensState([], [bram, yara]) }, DM, players);
     render(<LobbyStrip />);
     fireEvent.click(screen.getByTestId('lobby-ready-count'));
     await screen.findByTestId('lobby-roster');
     const seats = screen.getAllByTestId('roster-seat');
-    expect(seats[1].textContent).toContain('Not on the map');
-    fireEvent.change(screen.getByTestId(`roster-pc-${BRAM.identityId}`), { target: { value: 'd-bram' } });
+    expect(seats[0].textContent).toContain('No character');
+    expect(seats[1].textContent).toContain('Yara');
+    expect(screen.getByTestId(`roster-where-${KIT.identityId}`).textContent).toBe('Appears on the map at Start');
+    fireEvent.click(screen.getByTestId(`roster-pc-${BRAM.identityId}`));
+    const picker = screen.getByTestId(`roster-picker-${BRAM.identityId}`);
+    const tiles = Array.from(picker.querySelectorAll('[data-testid="roster-pick"]'));
+    expect(tiles.map((t) => [t.textContent, t.getAttribute('data-state'), (t as HTMLButtonElement).disabled])).toEqual([
+      ['BRBramFree', 'free', false],
+      ['YAYaraTaken by Kit', 'taken', true],
+    ]);
+    fireEvent.click(tiles[0]!);
     expect(sent(spy)).toContainEqual(['tokens', 'library-upsert', { id: 'd-bram', ownerIdentityId: BRAM.identityId, ownerName: BRAM.name }]);
+    expect(screen.queryByTestId(`roster-picker-${BRAM.identityId}`)).toBeNull();
     fireEvent.click(screen.getByRole('switch', { name: 'Players can make their own character' }));
     expect(sent(spy)).toContainEqual(['table', 'set-lobby', { playersMakePcs: false }]);
     fireEvent.click(screen.getByTestId('lobby-party-start'));
     expect(useActiveTool.getState().activeTool).toBe('party-start');
+  });
+
+  it('takes a character back with No character, and Esc closes the picker', async () => {
+    const spy = seat({ table: notStarted, tokens: tokensState([], [bram, yara]) }, DM, players);
+    render(<LobbyStrip />);
+    fireEvent.click(screen.getByTestId('lobby-ready-count'));
+    await screen.findByTestId('lobby-roster');
+    fireEvent.click(screen.getByTestId(`roster-pc-${KIT.identityId}`));
+    const picker = screen.getByTestId(`roster-picker-${KIT.identityId}`);
+    expect(picker.querySelector('[data-state="mine"]')?.textContent).toContain("This seat's");
+    fireEvent.keyDown(picker, { key: 'Escape' });
+    expect(screen.queryByTestId(`roster-picker-${KIT.identityId}`)).toBeNull();
+    fireEvent.click(screen.getByTestId(`roster-pc-${KIT.identityId}`));
+    fireEvent.click(screen.getByTestId('roster-pick-none'));
+    expect(sent(spy)).toContainEqual(['tokens', 'library-upsert', { id: 'd-yara', ownerIdentityId: null, ownerName: null }]);
+  });
+});
+
+describe('the seats on a started table', () => {
+  it('say which character is on the map and put one that is not there with Put on the map', () => {
+    const onMap = token({ id: 't-yara', defId: 'd-yara', kind: 'pc', ownerId: KIT.identityId });
+    const spy = seat({ table: { ...TABLE_INITIAL }, tokens: tokensState([onMap], [{ ...bram, ownerIdentityId: BRAM.identityId }, yara]) }, DM, players);
+    render(<SeatRoster />);
+    expect(screen.getByTestId(`roster-where-${KIT.identityId}`).textContent).toBe('On the map');
+    fireEvent.click(screen.getByTestId(`roster-place-${BRAM.identityId}`));
+    expect(sent(spy)).toEqual([['tokens', 'place-pc', { defId: 'd-bram' }]]);
   });
 });
 

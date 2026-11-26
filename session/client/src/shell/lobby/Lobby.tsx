@@ -19,6 +19,7 @@ import { leaveTable } from '../top/sessionActions';
 import { CharacterPicker } from './CharacterPicker';
 import { pcOf, sendCommand, useRoster, useTable } from './lobbyState';
 import { useLobbyLoading, type LobbyLoad } from './loading';
+import { SeatStatus } from './SeatRoster';
 
 const LOAD_WORDS: Record<LobbyLoad['state'], string> = {
   loading: 'Getting the map ready',
@@ -106,17 +107,8 @@ function Seats({ load }: { load: LobbyLoad }) {
                 </span>
                 <span className="truncate text-[11px] text-text-3">{pc ? pc.name : 'Choosing a character'}</span>
               </span>
-              <span className="shrink-0 text-[11px] text-text-3">
-                {!p.connected ? (
-                  'Away'
-                ) : isReady ? (
-                  <span className="inline-flex items-center gap-1 text-text-2">
-                    <Check aria-hidden strokeWidth={2} className="size-3.5" />
-                    Ready
-                  </span>
-                ) : (
-                  'Loading'
-                )}
+              <span className="shrink-0">
+                <SeatStatus seat={p} ready={isReady} />
               </span>
             </li>
           );
@@ -156,6 +148,7 @@ function Footer({ load }: { load: LobbyLoad }) {
 /** A player's page on a table that has not started. */
 export function Lobby() {
   const dm = useSessionStore((s) => s.session?.players.find((p) => p.role === 'dm')?.name);
+  const campaign = useSessionStore((s) => s.session?.campaignName);
   const scene = useSessionStore((s) => s.session?.scenes.find((sc) => sc.id === s.session?.activeSceneId) ?? null);
   const { lobbyShowsScene } = useTable();
   const load = useLobbyLoading();
@@ -163,11 +156,13 @@ export function Lobby() {
     <div data-page="table" className="relative min-h-full bg-bg text-text" data-testid="lobby">
       <div className="mx-auto flex min-h-[100dvh] w-full max-w-[1040px] flex-col gap-5 px-4 py-6 sm:px-8 sm:py-10">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-2xl font-medium tracking-tight text-text" data-testid="lobby-table">
-              {dm ? `${dm}'s table` : 'The table'}
+          <div className="flex min-w-0 flex-col gap-1">
+            <h1 className="truncate text-2xl font-medium tracking-tight text-text" data-testid="lobby-table">
+              {campaign || (dm ? `${dm}'s table` : 'The table')}
             </h1>
-            <p className="text-sm text-text-2">Waiting for the DM to start</p>
+            <p className="text-sm text-text-2" data-testid="lobby-waiting">
+              Waiting for {dm ?? 'the DM'} to start
+            </p>
           </div>
           {lobbyShowsScene && scene && (
             <div className="flex items-center gap-3" data-testid="lobby-scene">

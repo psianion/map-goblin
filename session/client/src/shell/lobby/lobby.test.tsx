@@ -6,6 +6,7 @@ import { BRAM, DM, SCENE, YARA, def, seat, sent, token, tokensState } from '../.
 import { isFrozen } from '../pause';
 import { isInLobby } from './lobbyState';
 import { Lobby } from './Lobby';
+import { CharacterSheet } from '../../modules/rolls/CharacterSheet';
 import { PickCharacterCard } from './PickCharacterCard';
 
 const prefetch = vi.hoisted(() => vi.fn(async () => {}));
@@ -131,5 +132,36 @@ describe('Pick your character', () => {
     seat({ table: { ...TABLE_INITIAL }, tokens: tokensState([token({ ownerId: BRAM.identityId })], [bram]) }, BRAM);
     render(<PickCharacterCard />);
     expect(screen.queryByTestId('pick-character')).toBeNull();
+  });
+
+  it('goes away on Not now, and comes back from the Character sheet', () => {
+    seat({ table: { ...TABLE_INITIAL }, tokens: tokensState([], [bram]) }, BRAM);
+    render(
+      <>
+        <PickCharacterCard />
+        <CharacterSheet />
+      </>,
+    );
+    fireEvent.click(screen.getByTestId('pick-character-later'));
+    expect(screen.queryByTestId('pick-character')).toBeNull();
+    fireEvent.click(screen.getByTestId('character-pick'));
+    expect(screen.getByTestId('pick-character')).toBeTruthy();
+  });
+});
+
+describe('the lobby header', () => {
+  it('names the campaign and who the table is waiting for', () => {
+    seat({ table: lobbyTable }, BRAM, [DM, BRAM]);
+    const s = useSessionStore.getState().session!;
+    useSessionStore.setState({ session: { ...s, campaignName: 'The Sunless Vault' } });
+    render(<Lobby />);
+    expect(screen.getByTestId('lobby-table').textContent).toBe('The Sunless Vault');
+    expect(screen.getByTestId('lobby-waiting').textContent).toBe(`Waiting for ${DM.name} to start`);
+  });
+
+  it('falls back to the DM’s table on a server that does not send the name', () => {
+    seat({ table: lobbyTable }, BRAM, [DM, BRAM]);
+    render(<Lobby />);
+    expect(screen.getByTestId('lobby-table').textContent).toBe(`${DM.name}'s table`);
   });
 });

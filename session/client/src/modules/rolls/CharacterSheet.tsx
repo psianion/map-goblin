@@ -3,12 +3,13 @@
 // Perception, conditions, whether Beyond20 is talking to this tab, and Find my token.
 
 import { useMemo } from 'react';
-import { Caption, SecondaryButton, StatusChip, cn } from '@dnd/ui';
+import { Caption, PrimaryButton, SecondaryButton, StatusChip, cn } from '@dnd/ui';
 import { LocateFixed } from '@dnd/ui/icons';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import { useDetectedSheet } from '../../session/detectedSheet';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { findMyToken } from '../../shell/findMyToken';
+import { reopenPickCharacter, useNeedsCharacter } from '../../shell/lobby/pickCharacter';
 import { SheetFrame } from '../../shell/sheets/SheetFrame';
 import { closeSheet } from '../../shell/sheets/registry';
 import { conditionLabel, hpDanger, hpFraction, sceneTokens } from '../tokens/play';
@@ -33,10 +34,19 @@ export function CharacterSheet() {
   const mine = useMemo(() => sceneTokens(state, sceneId).filter((t) => t.ownerId === you), [state, sceneId, you]);
   const token = mine.find((t) => t.kind === 'pc') ?? mine[0];
   const b20 = beyond20State(token?.sheet?.name, detected);
+  // The way back to the "Pick your character" card after "Not now" (finishing pass 12.3).
+  const needsCharacter = useNeedsCharacter();
 
   return (
     <SheetFrame title={token?.name ?? 'Character'} onClose={closeSheet} testId="character-sheet">
-      {!token ? (
+      {!token && needsCharacter ? (
+        <div className="flex flex-col items-start gap-2.5 px-3 py-3">
+          <p className="text-xs text-text-2">You have no character yet. Pick one to join the party on the map.</p>
+          <PrimaryButton data-testid="character-pick" onClick={reopenPickCharacter}>
+            Pick your character
+          </PrimaryButton>
+        </div>
+      ) : !token ? (
         <p className="px-3 py-3 text-xs text-text-3">You have no token on this scene yet. The DM can hand you one, or claim yours on the map.</p>
       ) : (
         <div className="flex flex-col gap-3 px-3 py-3">

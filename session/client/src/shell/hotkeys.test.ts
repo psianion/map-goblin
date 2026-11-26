@@ -225,7 +225,7 @@ describe('table hotkeys', () => {
     popover.remove();
   });
 
-  it('Ctrl or Cmd+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo, and an undo toasts with Redo', () => {
+  it('Ctrl or Cmd+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo, an undo toasts with Redo and a redo with Undo', () => {
     const sent = captureCommands();
     renderHook(() => useHotkeys());
     const step = { module: 'tokens', action: 'move' };
@@ -244,9 +244,14 @@ describe('table hotkeys', () => {
       { type: 'history', op: 'redo' },
       { type: 'history', op: 'redo' },
     ]);
-    const toast = useToasts.getState().toast!;
-    expect(toast.message).toBe('Undid token move');
-    toast.action!.onAction();
+    const redid = useToasts.getState().toast!;
+    expect(redid.message).toBe('Redid token move');
+    redid.action!.onAction();
+    expect(sent.at(-1)).toEqual({ type: 'history', op: 'undo' });
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    const undid = useToasts.getState().toast!;
+    expect(undid.message).toBe('Undid token move');
+    undid.action!.onAction();
     expect(sent.at(-1)).toEqual({ type: 'history', op: 'redo' });
   });
 
@@ -267,7 +272,8 @@ describe('table hotkeys', () => {
     expect(stepName({ module: 'doors', action: 'toggle' })).toBe('door');
     expect(stepName({ module: 'pins', action: 'add' })).toBe('pin change');
     expect(stepName({ module: 'elsewhere', action: 'x' })).toBe('last change');
-    expect(shortcutTable('dm').find((s) => s.title === 'Undo')?.rows.map((r) => r.keys)).toEqual([['Ctrl+Z'], ['Ctrl+Shift+Z', 'Ctrl+Y']]);
+    expect(shortcutTable('dm', false).find((s) => s.title === 'Undo')?.rows.map((r) => r.keys)).toEqual([['Ctrl+Z'], ['Ctrl+Shift+Z', 'Ctrl+Y']]);
+    expect(shortcutTable('dm', true).find((s) => s.title === 'Undo')?.rows.map((r) => r.keys)).toEqual([['⌘Z'], ['⇧⌘Z']]);
     expect(shortcutTable('player').find((s) => s.title === 'Undo')).toBeUndefined();
   });
 

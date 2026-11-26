@@ -306,6 +306,26 @@ describe('WebSocketClient', () => {
     expect(useSessionStore.getState().connection).toBe('closed');
     expect(useSessionStore.getState().sessionEnded).toBe(true);
   });
+
+  it('stops retrying, and says the table was updated, when the server speaks a newer protocol', async () => {
+    server = startServer();
+    const url = await server.ready;
+
+    useSessionStore.setState({ tableUpdated: false });
+    useSessionStore.getState().connect('tok-old', url);
+    const conn = await server.nth(1);
+    await vi.waitFor(() => expect(useSessionStore.getState().connection).toBe('open'));
+
+    // SessionManager#join: the error, then the close.
+    conn.socket.send(JSON.stringify({ type: 'error', code: 'protocol-mismatch', message: 'server speaks protocol 8, client sent 7' }));
+    await vi.waitFor(() => expect(useSessionStore.getState().tableUpdated).toBe(true));
+    conn.socket.close();
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(server.conns).toHaveLength(1);
+    expect(useSessionStore.getState()).toMatchObject({ connection: 'closed', client: null });
+    useSessionStore.setState({ tableUpdated: false });
+  });
 });
 
 describe('seat persistence (reload survival)', () => {

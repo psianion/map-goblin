@@ -16,19 +16,34 @@ const PREFETCH_CAP_MS = 10000;
  *
  * The pack boot starts first, beside the snapshot wait, so the prefetch's install of the
  * scene's sets resolves them against real manifests. The cap is a guard, not a budget.
+ *
+ * A table that has not started skips the prefetch (finishing pass 12.3): the player joins
+ * straight into the lobby, whose own loading warms the same scene (`useLobbyLoading`).
  */
 export async function prepareTableForJoin(
   token: string,
-  { snapshotTimeoutMs = SNAPSHOT_TIMEOUT_MS, capMs = PREFETCH_CAP_MS } = {},
+  {
+    snapshotTimeoutMs = SNAPSHOT_TIMEOUT_MS,
+    capMs = PREFETCH_CAP_MS,
+    onPrefetch = () => {},
+  }: {
+    snapshotTimeoutMs?: number;
+    capMs?: number;
+    /** Called as the map download starts, so the join page can say it is preparing the map. */
+    onPrefetch?: () => void;
+  } = {},
 ): Promise<void> {
   const attempt = async () => {
     const assets = startAssetBoot();
     try {
       const session = await waitForSessionSnapshot(snapshotTimeoutMs);
+      // A table still in its lobby: go straight there, the lobby loads the map while it waits.
+      if ((session?.modules?.table as { started?: boolean } | undefined)?.started === false) return;
       const sceneId = session?.activeSceneId;
       if (!sceneId) return;
       const mapId = session.scenes.find((s) => s.id === sceneId)?.mapId;
       if (!mapId) return;
+      onPrefetch();
       await assets;
       await prefetchSceneMap(sceneId, mapId, token);
     } catch (err) {

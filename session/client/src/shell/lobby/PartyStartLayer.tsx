@@ -1,11 +1,12 @@
-// The party start area on the DM's map (plan 3.5): a dashed rounded rectangle labelled
-// "Party start", shown while the table is not started and while the tool is armed. The tool
+// The party start area on the DM's map (plan 3.5, finishing pass 12.1): a rounded rectangle,
+// a light dashed line over a dark one on a soft fill, labelled "Party start" on a pill, shown while the table is not started and while the tool is armed. The tool
 // ('party-start' in `useActiveTool`, so Esc disarms it) drags a rectangle snapped to cells and
 // sends `tokens.set-party-start`. Its listeners sit on the window's capture phase, ahead of the
 // canvas's own, so the press never reaches the token drag or the camera.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PartyStartArea, TokensState } from '@dnd/mechanics/tokens';
+import { Users } from '@dnd/ui/icons';
 import { useStore } from '@dnd/core/src/store/store';
 import { mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { worldToScreen } from '../../renderer/camera';
@@ -91,16 +92,24 @@ function Outline({ rect, draft }: { rect: PartyStartArea; draft: boolean }) {
     step();
     return () => cancelAnimationFrame(raf);
   }, [rect]);
+  // Drawn over the map, not the page, so its colours are fixed rather than themed: a dark line
+  // under a light dashed one reads on pale floor, dark rock and black fog alike. The node is
+  // sized in screen pixels, so line and label stay one size at every zoom.
   return (
     <div
       ref={ref}
       aria-hidden
       data-testid="party-start-outline"
       data-draft={draft || undefined}
-      className="pointer-events-none absolute top-0 left-0 z-10 rounded-float border-2 border-dashed border-ink/70 bg-ink/[0.06]"
+      className="pointer-events-none absolute top-0 left-0 z-10"
       style={{ visibility: 'hidden' }}
     >
-      <span className="absolute -top-3 left-2 rounded-pill border border-line bg-panel px-2 py-0.5 text-[11px] whitespace-nowrap text-text shadow-sm">
+      <svg className="absolute inset-0 size-full overflow-visible">
+        <rect width="100%" height="100%" rx="6" fill="rgb(255 255 255 / 0.12)" stroke="rgb(17 17 17 / 0.7)" strokeWidth="4" />
+        <rect width="100%" height="100%" rx="6" fill="none" stroke="rgb(250 250 250)" strokeWidth="2" strokeDasharray="7 5" strokeLinecap="round" />
+      </svg>
+      <span className="absolute top-0 left-2 inline-flex -translate-y-1/2 items-center gap-1 rounded-pill border border-line bg-panel py-0.5 pr-2 pl-1.5 text-[11px] leading-4 font-medium whitespace-nowrap text-text shadow-sm">
+        <Users aria-hidden strokeWidth={1.75} className="size-3 text-text-2" />
         Party start
       </span>
     </div>

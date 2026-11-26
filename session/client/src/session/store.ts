@@ -72,6 +72,11 @@ export interface SessionStore {
    * reason: a refused seat is not a transport state.
    */
   seatRefused: boolean;
+  /**
+   * The server answered `join` with `protocol-mismatch`: it was updated past this page. Terminal
+   * until a reload, which fetches the new client; the seat stays saved so the reload takes it back.
+   */
+  tableUpdated: boolean;
   you: PlayerInfo | null;
   session: SessionState | null;
   /** Roster changes seen this tab's lifetime, oldest first, capped. */
@@ -213,6 +218,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   connection: 'closed',
   sessionEnded: false,
   seatRefused: false,
+  tableUpdated: false,
   you: null,
   session: null,
   presence: [],
@@ -400,6 +406,12 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           break;
 
         case 'error':
+          // A server on a newer protocol will refuse every reconnect the same way: stop here
+          // rather than retry for ever, and let the page offer the reload (12.2).
+          if (msg.code === 'protocol-mismatch') {
+            get().client?.close();
+            set({ client: null, tableUpdated: true, connection: 'closed' });
+          }
           // Recorded, never rendered from here — the module whose command was refused owns
           // the wording. A locked door is the DM's drama, not a stack trace.
           set({ lastError: { code: msg.code, message: msg.message, at: Date.now() } });
@@ -522,7 +534,7 @@ export function waitForSessionSnapshot(timeoutMs = 5000): Promise<SessionState |
  */
 export function resumeSeat(): void {
   const store = useSessionStore.getState();
-  if (store.client || store.sessionEnded || store.seatRefused) return;
+  if (store.client || store.sessionEnded || store.seatRefused || store.tableUpdated) return;
   try {
     const raw = sessionStorage.getItem(SEAT_KEY);
     if (!raw) return;

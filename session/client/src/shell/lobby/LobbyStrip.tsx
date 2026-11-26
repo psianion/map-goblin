@@ -1,107 +1,22 @@
 // The DM's side of the lobby (plan 3.7): while the table is not started, a strip under the
 // title card says so, counts who has the map, and starts the table. The count opens the
-// roster: each seat's character and ready mark, a picker to hand a seat a character, its
-// token's picture, the two lobby switches and the party start tool.
+// roster: each seat with its character as a picture (`SeatRoster`), the two lobby switches and
+// the party start tool.
 
 import { useState } from 'react';
-import { Button, FloatBox, Popover, PopoverContent, PopoverTrigger, PrimaryButton, SecondaryButton, Separator, SwitchRow, cn } from '@dnd/ui';
-import { Check, ChevronDown, SquareDashed } from '@dnd/ui/icons';
-import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
-import type { TokenDef, TokensState } from '@dnd/mechanics/tokens';
-import { useModuleState, useSessionStore } from '../../session/store';
-import { sceneTokens } from '../../modules/tokens/play';
-import { TokenArtEditor } from '../../modules/tokens/TokenArtEditor';
-import { seatColour } from '../seatColour';
+import { Button, Caption, FloatBox, Popover, PopoverContent, PopoverTrigger, PrimaryButton, SecondaryButton, Separator, SwitchRow } from '@dnd/ui';
+import { ChevronDown, SquareDashed } from '@dnd/ui/icons';
+import { useSessionStore } from '../../session/store';
 import { withoutSupersededSeats } from '../top/roster';
-import { armPartyStart, handCharacter, pcDefs, pcOf, sendCommand, useLiveSceneKey, useRoster, useTable } from './lobbyState';
-
-const selectClass = 'h-7 min-w-0 flex-1 rounded-control border border-line bg-panel px-1.5 text-xs text-text';
-
-function SeatRow({ seat, pcs, readyKey }: { seat: PlayerInfo; pcs: TokenDef[]; readyKey: string | null }) {
-  const tokens = useModuleState<TokensState>('tokens');
-  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const { ready } = useTable();
-  const [editing, setEditing] = useState(false);
-  const pc = pcOf(tokens, seat.identityId);
-  const isReady = !!readyKey && ready[seat.identityId] === readyKey;
-  const onMap = !!pc && sceneTokens(tokens, sceneId).some((t) => t.defId === pc.id);
-  return (
-    <li className="flex flex-col gap-1.5 border-b border-line py-2.5 last:border-b-0" data-testid="roster-seat" data-ready={isReady || undefined}>
-      <div className="flex items-center gap-2 text-xs">
-        <span aria-hidden className={cn('size-2 shrink-0 rounded-pill', !seat.connected && 'opacity-40')} style={{ backgroundColor: seatColour(seat.identityId) }} />
-        <span className="min-w-0 flex-1 truncate text-text">{seat.name}</span>
-        <span className="shrink-0 text-text-3">
-          {!seat.connected ? (
-            'Away'
-          ) : isReady ? (
-            <span className="inline-flex items-center gap-1 text-text-2">
-              <Check aria-hidden strokeWidth={2} className="size-3.5" />
-              Ready
-            </span>
-          ) : (
-            'Loading'
-          )}
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <select
-          aria-label={`Character for ${seat.name}`}
-          data-testid={`roster-pc-${seat.identityId}`}
-          className={selectClass}
-          value={pc?.id ?? ''}
-          onChange={(e) => handCharacter(seat, e.target.value || null, tokens, sceneId)}
-        >
-          <option value="">No character</option>
-          {pcs.map((d) => {
-            const other = d.ownerIdentityId && d.ownerIdentityId !== seat.identityId;
-            return (
-              <option key={d.id} value={d.id} disabled={!!other}>
-                {other ? `${d.name} (${d.ownerName ?? 'taken'})` : d.name}
-              </option>
-            );
-          })}
-        </select>
-        <SecondaryButton disabled={!pc} data-testid={`roster-edit-${seat.identityId}`} onClick={() => setEditing((v) => !v)}>
-          Edit token
-        </SecondaryButton>
-      </div>
-      {pc && !onMap && <span className="text-[11px] text-text-3">Not on the map</span>}
-      {pc && editing && (
-        <TokenArtEditor
-          key={pc.id}
-          name={pc.name}
-          imageAssetId={pc.imageAssetId}
-          ring={pc.ring}
-          defaultRing={seatColour(seat.identityId)}
-          onCancel={() => setEditing(false)}
-          onSave={(art) => {
-            sendCommand('tokens', 'library-upsert', { id: pc.id, ...art });
-            setEditing(false);
-          }}
-        />
-      )}
-    </li>
-  );
-}
+import { armPartyStart, sendCommand, useLiveSceneKey, useRoster, useTable } from './lobbyState';
+import { SeatRoster } from './SeatRoster';
 
 function Roster({ onArm }: { onArm: () => void }) {
-  const roster = useRoster();
-  const tokens = useModuleState<TokensState>('tokens');
   const table = useTable();
-  const key = useLiveSceneKey();
-  const seats = withoutSupersededSeats(roster).filter((p) => p.role === 'player');
-  const pcs = pcDefs(tokens).sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div className="flex flex-col gap-3" data-testid="lobby-roster">
-      {seats.length === 0 ? (
-        <p className="text-xs text-text-3">Nobody has joined yet. Players who join wait here.</p>
-      ) : (
-        <ul className="flex flex-col">
-          {seats.map((p) => (
-            <SeatRow key={p.identityId} seat={p} pcs={pcs} readyKey={key} />
-          ))}
-        </ul>
-      )}
+      <Caption>At the table</Caption>
+      <SeatRoster />
       <Separator />
       <SwitchRow
         label="Players can make their own character"
@@ -144,7 +59,7 @@ export function LobbyStrip() {
             </Button>
           }
         />
-        <PopoverContent align="start" className="flex max-h-[min(640px,calc(100dvh-8rem))] w-[360px] flex-col overflow-y-auto p-3">
+        <PopoverContent align="start" className="flex max-h-[min(680px,calc(100dvh-8rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-y-auto overscroll-contain p-3">
           <Roster
             onArm={() => {
               setOpen(false);

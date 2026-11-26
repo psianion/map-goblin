@@ -14,6 +14,7 @@
 
 import { useEffect } from 'react';
 import { TABLE_NOT_STARTED } from '@dnd/mechanics/table';
+import { NO_PC_SPOT } from '@dnd/mechanics/tokens';
 import { doorRefusal } from '../modules/doors/doors';
 import { liveSceneDoors } from '../modules/doors/DoorRenderer';
 import { tokenRefusal } from '../modules/tokens/drag';
@@ -22,11 +23,14 @@ import { useSessionStore } from './store';
 
 /**
  * A refused mark or command the table owes words for beyond tokens and doors: the table not
- * started yet, and a mark the seat may not make (the server's `ws/marks.ts` says "only the DM
- * may ..."). A paused table is already said by `tokenRefusal`.
+ * started yet, a character the DM could find no ground for, and a mark the seat may not make
+ * (the server's `ws/marks.ts` says "only the DM may ..."). A paused table is already said by
+ * `tokenRefusal`.
  */
 function tableRefusal(message: string): string | null {
   if (message.startsWith(`${TABLE_NOT_STARTED}:`)) return 'The DM has not started the table yet.';
+  // The DM's "Put on the map" with nowhere to stand: the server's sentence says why.
+  if (message.startsWith(`${NO_PC_SPOT} `)) return message.slice(message.indexOf(':') + 1).trim();
   if (message.startsWith('only the DM may ')) return 'Only the DM can do that.';
   return null;
 }

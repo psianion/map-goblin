@@ -6,6 +6,7 @@ import { BANNER_AFTER_S, ConnectionNotice } from './Connection';
 import { DiagnosticsChip } from './DiagnosticsChip';
 import { useTableShell } from './tableShell';
 import { TableToaster } from './TableToaster';
+import { TableUpdatedCard } from './TableUpdatedCard';
 import { applyUiScale, readUiScale } from './uiScale';
 import { ZoomPill } from './ZoomPill';
 
@@ -37,6 +38,21 @@ describe('connection notice', () => {
     useSessionStore.setState({ sessionEnded: true, connection: 'closed' });
     render(<ConnectionNotice />);
     expect(screen.getByTestId('session-ended')).toBeTruthy();
+  });
+
+  it('says the table was updated, with a Reload, and no reconnect count', () => {
+    useSessionStore.setState({ tableUpdated: true, connection: 'closed' });
+    render(
+      <>
+        <ConnectionNotice />
+        <TableUpdatedCard />
+      </>,
+    );
+    const card = screen.getByTestId('table-updated');
+    expect(card.textContent).toContain('The table was updated.Reload to carry on.');
+    expect(screen.getByRole('button', { name: 'Reload' })).toBe(document.activeElement);
+    expect(screen.queryByTestId('connection-chip')).toBeNull();
+    useSessionStore.setState({ tableUpdated: false });
   });
 
   describe('a refused seat', () => {
