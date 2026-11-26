@@ -115,7 +115,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const modules = new ModuleRegistry(
     stores.moduleState,
     afterWrites(autoExplore(vision), effectsTick, effectsClear, hiddenCombatants),
-    (sessionId) => table.flagsOf(sessionId)?.paused === true,
+    table.seatGate,
   )
   modules.register(pingModule)
   // Bound late: the session manager is built from the finished registry below.

@@ -90,7 +90,8 @@ function asClientMessage(value: unknown): ClientMessage | null {
     case 'command':
       return typeof msg.module === 'string' &&
         typeof msg.action === 'string' &&
-        typeof msg.seq === 'number'
+        typeof msg.seq === 'number' &&
+        (msg.group === undefined || typeof msg.group === 'string')
         ? (msg as unknown as ClientMessage)
         : null
     case 'ping':
@@ -98,6 +99,8 @@ function asClientMessage(value: unknown): ClientMessage | null {
     // The mark itself is rebuilt field by field in ws/marks.ts; this only checks the envelope.
     case 'mark':
       return typeof msg.mark === 'object' && msg.mark !== null ? (msg as unknown as ClientMessage) : null
+    case 'history':
+      return msg.op === 'undo' || msg.op === 'redo' ? (msg as unknown as ClientMessage) : null
     default:
       return null
   }

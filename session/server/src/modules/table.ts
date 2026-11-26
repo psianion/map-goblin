@@ -4,18 +4,28 @@
 // from the row, so a fresh session starts unpaused whatever the last one did.
 
 import type { GameModule } from '@dnd/mechanics/contract'
-import { tableModule, type TableState } from '@dnd/mechanics/table'
+import { TABLE_PAUSED_ERROR, tableModule, type TableState } from '@dnd/mechanics/table'
 import type { TableFlags, TableOf } from '@dnd/mechanics/tokens'
 import type { Stores } from '../db/stores'
+import type { SeatGate } from './registry'
 
 export function sessionTable(stores: Stores): {
   module: GameModule<TableState>
   tableOf: TableOf
   flagsOf: (sessionId: string) => TableFlags | null
+  seatGate: SeatGate
 } {
   const flagsOf = (sessionId: string): TableFlags | null => {
     const row = stores.sessions.get(sessionId)
-    return row ? { paused: row.paused === 1, movementLocked: row.movement_locked === 1 } : null
+    return row
+      ? {
+          paused: row.paused === 1,
+          movementLocked: row.movement_locked === 1,
+          started: true,
+          playersMakePcs: true,
+          lobbyShowsScene: false,
+        }
+      : null
   }
   const module: GameModule<TableState> = {
     ...tableModule,
@@ -30,5 +40,7 @@ export function sessionTable(stores: Stores): {
       })
     },
   }
-  return { module, tableOf: ({ sessionId }) => flagsOf(sessionId), flagsOf }
+  // A paused table refuses every player command, whatever its module.
+  const seatGate: SeatGate = (sessionId) => (flagsOf(sessionId)?.paused ? TABLE_PAUSED_ERROR : null)
+  return { module, tableOf: ({ sessionId }) => flagsOf(sessionId), flagsOf, seatGate }
 }

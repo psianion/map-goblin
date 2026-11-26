@@ -129,6 +129,7 @@ export class SessionManager {
    * ended is not a table full of people who all disconnected.
    */
   endSession(sessionId: string): void {
+    this.modules.forgetHistory(sessionId)
     const session = this.sessions.get(sessionId)
     if (!session) return
     this.broadcaster.broadcast(sessionId, { type: 'session-ended' })
@@ -216,6 +217,19 @@ export class SessionManager {
         session.templates = standing(session.templates, event)
         return this.broadcaster.broadcast(session.id, { type: 'mark', event })
       }
+      case 'history':
+        // Undo is the DM's, refused to a player the way a DM-only command is.
+        if (conn.identity.role !== 'dm') {
+          return this.broadcaster.sendTo(conn, {
+            type: 'error',
+            code: 'unauthorized',
+            message: `role '${conn.identity.role}' may not ${msg.op}`,
+          })
+        }
+        return this.router.history(conn, msg.op, {
+          activeSceneId: this.scenes(session).activeSceneId,
+          players: [...session.players.values()],
+        })
     }
   }
 
@@ -266,6 +280,7 @@ export class SessionManager {
       state: this.snapshot(session, conn.identity),
       you: player,
     })
+    if (role === 'dm') this.router.sayHistory(conn)
     // The templates standing on the table, after the snapshot, so the seat has a scene to put them on.
     for (const event of session.templates) this.broadcaster.sendTo(conn, { type: 'mark', event })
     this.broadcaster.broadcast(session.id, { type: 'player-joined', player }, conn)

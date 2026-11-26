@@ -31,8 +31,8 @@ afterEach(() => {
 });
 
 describe('v6 store slices', () => {
-  it('speaks protocol 6', () => {
-    expect(PROTOCOL_VERSION).toBe(6);
+  it('speaks protocol 7', () => {
+    expect(PROTOCOL_VERSION).toBe(7);
   });
 
   it('draws another seat’s mark and skips the echo of its own', () => {

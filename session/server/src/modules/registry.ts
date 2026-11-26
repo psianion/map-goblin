@@ -13,7 +13,6 @@ import type {
   ModuleContext,
   Viewer,
 } from '@dnd/mechanics/contract'
-import { TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
 import type { ModuleStateStore } from '../db/stores'
 import type { SceneTagged } from '../ws/Broadcaster'
 
@@ -84,14 +83,20 @@ export type AfterWrite = (
   registry: ModuleRegistry,
 ) => void
 
+/**
+ * Table lobby pass — asked for every player command after the role check: a refusal for the
+ * table's state (not started, paused), or null when the command may run. Injected because the
+ * truth is the session's row, which this file does not read.
+ */
+export type SeatGate = (sessionId: string, module: string, action: string) => CommandError | null
+
 export class ModuleRegistry {
   private readonly modules = new Map<string, GameModule<unknown>>()
 
   constructor(
     private readonly store: ModuleStateStore,
     private readonly afterWrite?: AfterWrite,
-    /** Table v2: whether the DM holds the session's table (`sessions.paused`). */
-    private readonly pausedOf: (sessionId: string) => boolean = () => false,
+    private readonly seatGate: SeatGate = () => null,
   ) {}
 
   register<S>(module: GameModule<S>): void {
@@ -119,11 +124,17 @@ export class ModuleRegistry {
         message: `role '${ctx.sender.role}' may not run ${module}.${action}`,
       }
     }
-    // Table v2: a paused table refuses every player command here, whatever its module. The
-    // DM's commands, and the server's own (sent as the DM), always run.
-    if (ctx.sender.role !== 'dm' && this.pausedOf(ctx.sessionId)) return TABLE_PAUSED_ERROR
+    // A table that is not started, or paused, refuses a player's command here, whatever its
+    // module. The DM's commands, and the server's own (sent as the DM), always run.
+    if (ctx.sender.role !== 'dm') {
+      const refused = this.seatGate(ctx.sessionId, module, action)
+      if (refused) return refused
+    }
     return this.run(found, action, payload, ctx)
   }
+
+  /** The session's undo history goes with it. */
+  forgetHistory(_sessionId: string): void {}
 
   /**
    * The one door into an action that is not in a module's `commands` map — skipping both

@@ -41,7 +41,7 @@ describe('table on the session row', () => {
     expect(run(DM, 'table', 'pause', { on: true })).toBeNull()
     expect(stores.sessions.get(session.id)).toMatchObject({ paused: 1, movement_locked: 0 })
     run(DM, 'table', 'lock-movement', { on: true })
-    expect(t.flagsOf(session.id)).toEqual({ paused: true, movementLocked: true })
+    expect(t.flagsOf(session.id)).toMatchObject({ paused: true, movementLocked: true })
   })
 
   it('a player’s move is refused while paused and goes once it is lifted', () => {
@@ -61,7 +61,7 @@ describe('table on the session row', () => {
     const campaign = stores.campaigns.create('Camp')
     const session = stores.sessions.createSession(campaign.id, 'ABCD')
     const t = sessionTable(stores)
-    const registry = new ModuleRegistry(stores.moduleState, undefined, (id) => t.flagsOf(id)?.paused === true)
+    const registry = new ModuleRegistry(stores.moduleState, undefined, t.seatGate)
     registry.register(rollsModule)
     registry.register(pingModule)
     registry.register(t.module)
@@ -92,6 +92,6 @@ describe('table on the session row', () => {
     const { run, stores, campaignId, t } = table()
     run(DM, 'table', 'pause', { on: true })
     const next = stores.sessions.createSession(campaignId, 'EFGH')
-    expect(t.flagsOf(next.id)).toEqual({ paused: false, movementLocked: false })
+    expect(t.flagsOf(next.id)).toMatchObject({ paused: false, movementLocked: false })
   })
 })

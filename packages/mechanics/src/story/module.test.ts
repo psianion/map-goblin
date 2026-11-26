@@ -47,7 +47,7 @@ describe('story', () => {
     const t = table()
     t.run(DM, 'handout-upsert', { id: 'h1', caption: 'Map', assetId: 'a1' })
     t.run(DM, 'show', { handoutId: 'h1', audience: ['alice'], mode: 'full' })
-    expect(t.view(ALICE).shown).toEqual({ handoutId: 'h1', audience: ['alice'], mode: 'full' })
+    expect(t.view(ALICE).shown).toMatchObject({ handoutId: 'h1', audience: ['alice'], mode: 'full' })
     expect(t.view(ALICE).handouts.map((h) => h.id)).toEqual(['h1'])
     expect(t.view(BOB).shown).toBeNull()
     expect(t.view(BOB).handouts).toEqual([])

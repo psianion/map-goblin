@@ -29,10 +29,10 @@ describe('MapDelta', () => {
 });
 
 describe('protocol v6 (table v2)', () => {
-  it('is version 6, and the server and the bot say so too', () => {
-    expect(PROTOCOL_VERSION).toBe(6);
+  it('is version 7, and the server and the bot say so too', () => {
+    expect(PROTOCOL_VERSION).toBe(7);
     for (const file of ['session/server/src/config.ts', 'bot/src/goblin/observer.ts']) {
-      expect(readFileSync(join(ROOT, file), 'utf8')).toMatch(/PROTOCOL_VERSION[^=]*= 6\b/);
+      expect(readFileSync(join(ROOT, file), 'utf8')).toMatch(/PROTOCOL_VERSION[^=]*= 7\b/);
     }
   });
 

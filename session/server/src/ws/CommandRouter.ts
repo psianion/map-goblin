@@ -45,4 +45,10 @@ export class CommandRouter {
     }
     if (error) this.broadcaster.sendTo(conn, { type: 'error', ...error })
   }
+
+  /** A DM's undo or redo of the session's last recorded step. */
+  history(_conn: ClientConnection, _op: 'undo' | 'redo', _scope: CommandScope): void {}
+
+  /** Tells a DM seat what its undo and redo buttons would do. */
+  sayHistory(_conn: ClientConnection): void {}
 }

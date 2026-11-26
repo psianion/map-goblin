@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { DOOR_CLOSED, DOOR_LOCKED, DOOR_OUT_OF_REACH, DOORS_DM_ONLY } from '@dnd/mechanics/doors';
 import { crossingRefusalMessage } from '@dnd/mechanics/crossings';
+import { TABLE_INITIAL } from '@dnd/mechanics/table';
 import { MOVE_BLOCKED, MOVEMENT_LOCKED, OUTSIDE_MAP, ROOM_UNEXPLORED, SOLID_GROUND, TABLE_PAUSED } from '@dnd/mechanics/tokens';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
@@ -635,10 +636,10 @@ describe('table fix pass B3: a sentence for every refusal a move can get', () =>
   });
 
   it('refuses a player drag while the table is paused or movement is locked, never the DM', () => {
-    expect(tableRefusal('player', { paused: true, movementLocked: false })).toBe('The DM has paused the table.');
-    expect(tableRefusal('player', { paused: false, movementLocked: true })).toBe('The DM has locked movement.');
-    expect(tableRefusal('player', { paused: false, movementLocked: false })).toBeNull();
-    expect(tableRefusal('dm', { paused: true, movementLocked: true })).toBeNull();
+    expect(tableRefusal('player', { ...TABLE_INITIAL, paused: true, movementLocked: false })).toBe('The DM has paused the table.');
+    expect(tableRefusal('player', { ...TABLE_INITIAL, paused: false, movementLocked: true })).toBe('The DM has locked movement.');
+    expect(tableRefusal('player', { ...TABLE_INITIAL, paused: false, movementLocked: false })).toBeNull();
+    expect(tableRefusal('dm', { ...TABLE_INITIAL, paused: true, movementLocked: true })).toBeNull();
   });
 
   // F4: the old words blamed "another player" with nobody else at the table.

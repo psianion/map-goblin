@@ -80,6 +80,8 @@ export interface TokenDef {
   ownerIdentityId?: string
   /** The player's name, so a rejoin under the same name re-attaches the PC (plan 4.3). */
   ownerName?: string
+  /** The token's ring: `#rrggbb`, or `none` for no ring. Absent draws the disposition ring. */
+  ring?: string
 }
 
 /** Placed instance (scene-scoped). */
@@ -122,10 +124,27 @@ export interface Token extends TokenDef {
   levelId?: string
 }
 
+/** Where the party appears when the table starts: a rectangle of cells, corners inclusive. */
+export interface PartyStartArea {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  levelId?: string
+}
+
 export interface TokensState {
   library: Record<string, TokenDef>
   byScene: Record<string, Record<string, Token>>
+  /** The DM's party start area per scene. Absent on rows written before it; never sent to players. */
+  partyStart?: Record<string, PartyStartArea>
 }
+
+/** Why a player's character command was refused, at the head of the message. */
+export const PC_TAKEN = 'pc-taken'
+export const PC_ALREADY_OWNED = 'pc-already-owned'
+export const PLAYER_PCS_OFF = 'player-pcs-off'
+export const NO_OWN_PC = 'no-own-pc'
 
 /**
  * What the fog rules say about one scene (S3 D3/D6/D8). The sets are the server's — it
@@ -200,9 +219,16 @@ export type LevelFilterOf = (sceneId: string, viewer: Viewer) => ((levelId: stri
 /**
  * Table v2 — the DM's pause and movement lock (the `table` module). A player's `move` is
  * refused while either is on; the DM's never is. Null when nothing is wired, which is "off".
+ *
+ * Table lobby pass: `started` (players are on the map; false is the lobby), `playersMakePcs`
+ * (a player may make their own character) and `lobbyShowsScene` (the lobby shows the scene's
+ * name and picture), all on the session's row beside the other two.
  */
 export interface TableFlags {
   paused: boolean
   movementLocked: boolean
+  started: boolean
+  playersMakePcs: boolean
+  lobbyShowsScene: boolean
 }
 export type TableOf = (scope: { campaignId: string; sessionId: string }) => TableFlags | null

@@ -143,6 +143,12 @@ export function tokensModule(
       'set-condition': ['dm'],
       'set-effect': ['dm'],
       gather: ['dm'],
+      // Table lobby pass: a seat's own character, picked or made, and the party start area.
+      'pc-claim': ['player'],
+      'pc-create': ['player'],
+      'pc-update': ['player'],
+      'pc-release': ['player'],
+      'set-party-start': ['dm'],
     },
     initialState: { library: {}, byScene: {} },
 
@@ -305,6 +311,12 @@ function run(
       return clearEffects(p, ctx)
     case 'tick-effects':
       return tickEffects(p, ctx)
+    case 'pc-claim':
+    case 'pc-create':
+    case 'pc-update':
+    case 'pc-release':
+    case 'set-party-start':
+      return bad(`tokens.${action} is not built yet`)
     default:
       bad(`tokens has no action '${action}'`)
   }
