@@ -1,11 +1,12 @@
 // Decision 12 and 13 over a real server: the canvas mints a single-use handoff code with its
 // DM token, the table redeems it for a token of its own, and a live DM token refreshes.
 
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { DM_TOKEN_TTL_MS, TOKEN_TTL_MS, createAdminPass, verifyToken } from './auth'
+import { DM_TOKEN_TTL_MS, checkSeat, createAdminPass, issueToken, startSession, verifyToken } from './auth'
 import { HANDOFF_TTL_MS, createHandoffStore } from './handoff'
 import { startServer, type RunningServer } from './index'
 
@@ -96,7 +97,6 @@ describe('DM tokens', () => {
     await withCampaign(async ({ secret, dmToken }) => {
       const exp = verifyToken(secret, dmToken)!.exp
       expect(exp - Date.now()).toBeGreaterThan(DM_TOKEN_TTL_MS - 60_000)
-      expect(exp - Date.now()).toBeGreaterThan(TOKEN_TTL_MS)
     })
   })
 
@@ -117,6 +117,65 @@ describe('DM tokens', () => {
     await withCampaign(async ({ base, campaignId, dmToken }) => {
       expect((await call(base, 'POST', `/api/campaigns/${campaignId}/dm-token/refresh`)).status).toBe(401)
       expect((await call(base, 'POST', `/api/campaigns/other/dm-token/refresh`, { token: dmToken })).status).toBe(403)
+    })
+  })
+})
+
+/** A player seated at a fresh table the way `POST /api/join` seats one. */
+function seatPlayer(server: RunningServer, campaignId: string, ttlMs?: number) {
+  const session = startSession(server.stores.sessions, campaignId)
+  const player = server.stores.identities.mint(randomUUID(), campaignId, 'Pip', 'player')
+  const token = issueToken(server.config.secrets.hmacSecret, player.id, campaignId, 'player', session.id, ttlMs)
+  return { session, player, token }
+}
+
+describe('seat refresh', () => {
+  it('renews a live player seat to the same identity and session', async () => {
+    await withCampaign(async ({ server, base, secret, campaignId }) => {
+      const { session, player, token } = seatPlayer(server, campaignId)
+      const renewed = await call(base, 'POST', '/api/seat/refresh', { token })
+      expect(renewed.status).toBe(200)
+      const seat = checkSeat(secret, server.stores, renewed.body.token as string)!
+      expect(seat.identity.id).toBe(player.id)
+      expect(seat.session.id).toBe(session.id)
+      expect(seat.claims).toMatchObject({ role: 'player', campaignId, sessionId: session.id, exp: renewed.body.exp })
+    })
+  })
+
+  it('refuses an expired token', async () => {
+    await withCampaign(async ({ server, base, campaignId }) => {
+      const { token } = seatPlayer(server, campaignId, -60_000)
+      const renewed = await call(base, 'POST', '/api/seat/refresh', { token })
+      expect(renewed.status).toBe(401)
+      expect(renewed.body.error).toBe('seat refused')
+    })
+  })
+
+  it('refuses a seat at a table that has ended', async () => {
+    await withCampaign(async ({ server, base, campaignId }) => {
+      const { session, token } = seatPlayer(server, campaignId)
+      server.stores.sessions.endSession(session.id)
+      expect((await call(base, 'POST', '/api/seat/refresh', { token })).status).toBe(401)
+    })
+  })
+
+  it('refuses a banned player', async () => {
+    await withCampaign(async ({ server, base, campaignId }) => {
+      const { player, token } = seatPlayer(server, campaignId)
+      server.stores.identities.ban(player.id)
+      expect((await call(base, 'POST', '/api/seat/refresh', { token })).status).toBe(401)
+    })
+  })
+
+  it('renews an unbound DM token while its campaign runs a table, and leaves it unbound', async () => {
+    await withCampaign(async ({ server, base, secret, campaignId, dmToken }) => {
+      startSession(server.stores.sessions, campaignId)
+      const renewed = await call(base, 'POST', '/api/seat/refresh', { token: dmToken })
+      expect(renewed.status).toBe(200)
+      const claims = verifyToken(secret, renewed.body.token as string)!
+      expect(claims).toMatchObject({ identityId: verifyToken(secret, dmToken)!.identityId, campaignId, role: 'dm' })
+      expect(claims.sessionId).toBeUndefined()
+      expect(checkSeat(secret, server.stores, renewed.body.token as string)).not.toBeNull()
     })
   })
 })

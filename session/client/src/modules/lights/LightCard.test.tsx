@@ -46,7 +46,7 @@ describe('LightCard', () => {
     fireEvent.click(screen.getByText('Quadratic'));
     fireEvent.click(screen.getByTestId('light-reset'));
     expect(sent).toEqual([
-      expect.objectContaining({ action: 'set-light', payload: { lightId: 'l1', patch: { visible: false } } }),
+      expect.objectContaining({ action: 'set-lights', payload: { ids: ['l1'], on: false } }),
       expect.objectContaining({ action: 'set-light', payload: { lightId: 'l1', patch: { falloff: 'quadratic' } } }),
       expect.objectContaining({ action: 'reset-light', payload: { lightId: 'l1' } }),
     ]);

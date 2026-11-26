@@ -1,6 +1,6 @@
 // The prop card: Transform, Look (Tint, Opacity), Layering (the four order steps, Overhead,
 // Below water, Lock), Variant with Replace, Image for an imported picture (Line up grid, Use
-// as), Behaviour (Casts shadow with the Height its shadow is cast from, Blocks light and sight). Glows and
+// as), Light (a light prop's state as its pictures), Behaviour (Casts shadow with the Height its shadow is cast from, Blocks light and sight). Glows and
 // Blocks movement are gone from it: an attached light glows better, and nothing reads
 // movement yet. Old maps that carry either still load; the map format drops them in step 13.
 
@@ -16,6 +16,10 @@ import { editKey, runEdit } from '@/editor/families/design/cardWrites';
 import { propBoxModel } from '@/editor/models/selectionModel';
 import { boxOf, pickedProps, type BoxValue } from './propModel';
 import { ImageField, OrderField, TransformField, VariantField } from './PropFields';
+import { PropLightField } from './PropLightField';
+import { showsLight } from './propLightModel';
+import { shownAssetOf } from '@dnd/core/src/engine/subscribeToAssets';
+import { useStore } from '@/store/store';
 
 type FieldPatch = Partial<Pick<AssetChild, PropFieldKey | 'tint' | 'standHeight'>>;
 
@@ -114,7 +118,8 @@ const variant = defineCardField<'asset', string>({
   render: VariantField,
   // An imported image has no family to step through.
   visibleWhen: (o) => o.objectType === 'asset',
-  read: (o) => o.assetId,
+  // The picture the prop shows: a light prop's follows its light (`shownAssetOf`).
+  read: (o) => shownAssetOf(o, useStore.getState().layers),
   write: (_store, ids, id) => run(createSwapPropCommand([...ids], id, 'footprint')),
 });
 
@@ -130,6 +135,24 @@ const image = defineCardField<'asset', string>({
   // An imported picture can be lined up, or made a battlemap or a trace.
   visibleWhen: (o) => o.objectType === 'image',
   read: (o) => o.id,
+  write: () => {},
+});
+
+/**
+ * Light: the attached light's state as the prop's pictures, Select light, Add a light. Shown for
+ * a prop that brings a light or has one attached.
+ */
+const light = defineCardField<'asset', null>({
+  id: 'card.prop.light',
+  label: 'Light',
+  schema: z.null(),
+  default: null,
+  home: 'card',
+  control: 'custom',
+  section: 'Light',
+  render: PropLightField,
+  visibleWhen: (o) => showsLight(useStore.getState().layers, o),
+  read: () => null,
   write: () => {},
 });
 
@@ -162,6 +185,7 @@ export const propCard = defineCard<'asset'>({
     sw('card.prop.lock', 'Lock', 'locked', 'Layering'),
     variant,
     image,
+    light,
     sw('card.prop.castsShadow', 'Casts shadow', 'castsShadow', 'Behaviour'),
     standHeight,
     sw('card.prop.blocksLight', 'Blocks light and sight', 'blocksLight', 'Behaviour'),

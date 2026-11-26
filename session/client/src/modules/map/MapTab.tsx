@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useStore } from '@dnd/core/src/store/store';
+import { shownLevelId } from '@dnd/core/src/store/selectors';
 import { sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers';
 import type { TriggerCondition } from '@dnd/core/src/shared/prep';
 import { Button, Caption, Chip, Seg, SliderRow, Switch, SwitchRow } from '@dnd/ui';
@@ -14,7 +15,7 @@ import { useDoorSelection } from '../doors/selection';
 import { useLiveDoors } from '../doors/useLiveDoors';
 import { serverRooms } from '../fog/fog';
 import { useLightCommit } from '../lights/lightCommit';
-import { mapLights, type LightHit } from '../lights/lights';
+import { lightSwitchRows, mapLights, sendSwitch, type LightHit, type SwitchRowModel } from '../lights/lights';
 import { useLightSelection } from '../lights/selection';
 import { useScenePrep } from '../triggers/scenePrep';
 import { useMapFamily, type MapFamily } from './family';
@@ -66,6 +67,7 @@ export function MapBody() {
               All off
             </Button>
           </div>
+          <LightSwitchLists />
         </>
       )}
       {family === 'triggers' && <p className="text-xs text-text-3">Fired triggers narrate into the log.</p>}
@@ -75,6 +77,60 @@ export function MapBody() {
         <SwitchRow label="Show map labels" className="w-full" checked={!labelsHidden} onCheckedChange={(on) => useStore.getState().setLabelsHidden(!on)} />
       )}
     </div>
+  );
+}
+
+/** One switch row: the name (truncated, whole on hover), a muted count, and its switch. Mixed reads off. */
+function SwitchListRow({ row }: { row: SwitchRowModel }) {
+  const allOn = row.on === row.total;
+  return (
+    <li className="flex min-h-7 min-w-0 items-center gap-2" data-switch-row={row.key}>
+      <span className="min-w-0 flex-1 truncate text-xs text-text" title={row.name}>
+        {row.name}
+      </span>
+      <span className="shrink-0 text-xs text-text-3 tabular-nums">{row.count}</span>
+      <Switch aria-label={`Switch ${row.name}`} checked={allOn} onCheckedChange={(on: boolean) => sendSwitch(row.ids, on)} />
+    </li>
+  );
+}
+
+/**
+ * A list under its caption. It does not scroll on its own: the Map tab's body is the one
+ * scroller, so every group and room is reached by scrolling the family, with no scrollbar
+ * laid over a row.
+ */
+function SwitchList({ title, rows, testId }: { title: string; rows: SwitchRowModel[]; testId: string }) {
+  return (
+    <div className="flex flex-col gap-1" data-testid={testId}>
+      <p className="text-xs font-medium text-text-2">{title}</p>
+      <ul className="flex min-w-0 flex-col">
+        {rows.map((r) => (
+          <SwitchListRow key={r.key} row={r} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Under All on and All off: the light groups, then the rooms that hold lights, each with its switch. */
+function LightSwitchLists() {
+  const layers = useStore((s) => s.layers);
+  const levels = useStore((s) => s.levels);
+  // The level on show at this table: the DM switches its rooms.
+  const levelId = useStore((s) => shownLevelId(s));
+  const { groups, rooms } = useMemo(() => lightSwitchRows(layers, levels ?? [], levelId || undefined), [layers, levels, levelId]);
+  return (
+    <>
+      {groups.length > 0 ? (
+        <SwitchList title="Groups" rows={groups} testId="light-groups" />
+      ) : (
+        <div className="flex flex-col gap-1" data-testid="light-groups">
+          <p className="text-xs font-medium text-text-2">Groups</p>
+          <p className="text-xs text-text-3">No groups. Group lights on their card in the editor.</p>
+        </div>
+      )}
+      {rooms.length > 0 && <SwitchList title="Rooms" rows={rooms} testId="light-rooms" />}
+    </>
   );
 }
 

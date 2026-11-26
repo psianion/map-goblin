@@ -468,6 +468,8 @@ export interface ScatterBrushSettings {
   seed: number;
   /** New props go under the layer's existing props. */
   placeUnder: boolean;
+  /** A light prop (its pack entry has `light`) comes with its light, attached. Absent = on. */
+  addLight: boolean;
 }
 
 export interface ToolSettings {
@@ -567,6 +569,11 @@ export interface ChildClipboard {
 export interface SelectionSlice {
   selectedIds: string[];
   hoveredId: string | null;
+  /**
+   * How many objects stand under the pointer while Select hovers (`crowdCount`): the hint offers
+   * "4 here, right-click to pick" past one. Absent or 0 when nothing is counted.
+   */
+  hoverCount?: number;
   clipboard: ChildClipboard | null;
   selectedRegion: [number, number][][] | null;
 }
@@ -1006,6 +1013,7 @@ export interface MapBuilderStore {
   // selection actions
   setSelectedIds: (ids: string[]) => void;
   setHoveredId: (id: string | null) => void;
+  setHoverCount: (n: number) => void;
   setSelectedRegion: (region: [number, number][][] | null) => void;
   setClipboard: (clipboard: ChildClipboard | null) => void;
 

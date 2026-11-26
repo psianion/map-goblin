@@ -685,3 +685,55 @@ describe('I: preview lit or unlit', () => {
     expect(getPreview()).toBe('dusk');
   });
 });
+
+describe('cut then paste keeps a fixture whole', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.getState().setActiveTool('select');
+  });
+
+  it('brings back the prop with its light, attached and in its group', () => {
+    const id = layer().id;
+    useStore.getState().addChild(id, {
+      id: 'torch',
+      name: 'Torch',
+      childType: 'asset',
+      visible: true,
+      objectType: 'asset',
+      assetId: 'lamp',
+      position: { x: 5, y: 5 },
+      rotation: 0,
+      scale: 1,
+      width: 1,
+      height: 1,
+      tint: '#ffffff',
+      flipX: false,
+      flipY: false,
+    } as AssetChild);
+    useStore.getState().addChild(id, {
+      id: 'flame',
+      name: 'Flame',
+      childType: 'light',
+      visible: true,
+      color: '#ffcc66',
+      radius: 4,
+      featherRadius: 2,
+      intensity: 1,
+      falloff: 'quadratic',
+      position: { x: 5.5, y: 5 },
+      attachedTo: 'torch',
+      group: 'Hall',
+    } as LightChild);
+    useStore.getState().setSelectedIds(['torch']);
+    handleShortcut('ctrl+x');
+    expect(layer().children).toHaveLength(0);
+    handleShortcut('ctrl+v');
+    const pastedProp = layer().children.find((c) => c.childType === 'asset') as AssetChild;
+    const pastedLight = layer().children.find((c) => c.childType === 'light') as LightChild;
+    expect(pastedProp).toBeDefined();
+    expect(pastedLight).toMatchObject({ attachedTo: pastedProp.id, group: 'Hall' });
+    expect(pastedLight.position.x - pastedProp.position.x).toBeCloseTo(0.5);
+  });
+});

@@ -7,8 +7,10 @@ import { prepareTableForJoin } from '../session/prepareTableForJoin';
 vi.mock('../session/auth', () => ({
   resolveInviteCode: vi.fn().mockResolvedValue({ campaignId: 'c1', sessionId: 's1' }),
   joinAsPlayer: vi.fn(),
+  renewSeat: vi.fn(),
+  UNREACHABLE: 'Could not reach the server. Check the address, and that it is running.',
 }));
-const { joinAsPlayer } = await import('../session/auth');
+const { joinAsPlayer, renewSeat } = await import('../session/auth');
 
 // swapSceneMap's own fetch/texture path is covered in loadSceneMap.test.ts — what matters
 // here is only *that* the join flow calls it, and never lets it block navigation.
@@ -20,6 +22,7 @@ const connect = vi.fn();
 beforeEach(() => {
   cleanup();
   vi.mocked(joinAsPlayer).mockReset();
+  vi.mocked(renewSeat).mockReset();
   vi.mocked(prefetchSceneMap).mockReset().mockResolvedValue(undefined);
   connect.mockReset();
   // A snapshot with no active scene, already landed — the join flow's default so a real
@@ -110,12 +113,42 @@ describe('prepareTableForJoin', () => {
 describe('JoinSession, Continue as', () => {
   beforeEach(() => localStorage.clear());
 
-  it('takes the same seat back when the session is the one it was taken in', async () => {
+  it('takes the same seat back, on a fresh token, when the session is the one it was taken in', async () => {
     localStorage.setItem('gg.table.seat.c1', JSON.stringify({ name: 'Pim', identityId: 'p-1', token: 'old-token', sessionId: 's1' }));
+    vi.mocked(renewSeat).mockResolvedValue({ token: 'fresh-token', exp: 1234 });
     render(<JoinSession code="abc234" />);
     fireEvent.click(await screen.findByText('Continue as Pim'));
-    await waitFor(() => expect(connect).toHaveBeenCalledWith('old-token'));
+    await waitFor(() => expect(connect).toHaveBeenCalledWith('fresh-token'));
+    expect(renewSeat).toHaveBeenCalledWith('old-token');
     expect(joinAsPlayer).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('gg.table.seat.c1')!)).toEqual({
+      name: 'Pim',
+      identityId: 'p-1',
+      token: 'fresh-token',
+      sessionId: 's1',
+      code: 'ABC234',
+    });
+  });
+
+  it('joins under the remembered name when the server refuses the remembered seat', async () => {
+    localStorage.setItem('gg.table.seat.c1', JSON.stringify({ name: 'Pim', identityId: 'p-1', token: 'expired', sessionId: 's1' }));
+    vi.mocked(renewSeat).mockResolvedValue('refused');
+    vi.mocked(joinAsPlayer).mockResolvedValue({ identityId: 'p-2', campaignId: 'c1', sessionId: 's1', token: 'new-token' });
+    render(<JoinSession code="abc234" />);
+    fireEvent.click(await screen.findByTestId('join-continue'));
+    await waitFor(() => expect(connect).toHaveBeenCalledWith('new-token'));
+    expect(joinAsPlayer).toHaveBeenCalledWith('ABC234', 'Pim');
+  });
+
+  it('stays put when the server cannot be reached', async () => {
+    localStorage.setItem('gg.table.seat.c1', JSON.stringify({ name: 'Pim', identityId: 'p-1', token: 'old-token', sessionId: 's1' }));
+    vi.mocked(renewSeat).mockResolvedValue('unreachable');
+    render(<JoinSession code="abc234" />);
+    fireEvent.click(await screen.findByTestId('join-continue'));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Could not reach the server/);
+    expect(connect).not.toHaveBeenCalled();
+    expect(joinAsPlayer).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/join/ABC234');
   });
 
   it('joins a new session under the remembered name, and remembers the new seat', async () => {

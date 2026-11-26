@@ -1,5 +1,8 @@
 import { pickAt } from '@dnd/core/src/engine/hitTest';
 import { UpdateChildCommand } from '@dnd/core/src/store/commands';
+import { toggleLightCommand, toggleLightsOnPropCommand } from '@dnd/core/src/store/lightCommands';
+import { lightsOnProp } from '@dnd/core/src/shared/lightSwitches';
+import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { notify } from '@dnd/ui/toast';
 import type { Point } from '../types/geometry';
@@ -21,22 +24,19 @@ export function toggleFixtureAt(world: Point, zoom: number): boolean {
   const hit = pickAt([world.x, world.y], { zoom });
   if (!hit || hit.kind !== 'child') return false;
   const { child, layerId } = hit;
-  if (child.childType !== 'light' && child.childType !== 'door') return false;
+  // A prop with lights attached is a light fixture too: its lights switch, and its picture
+  // follows them. A prop with none falls through as before.
+  const propLights = child.childType === 'asset' ? lightsOnProp(useStore.getState().layers, child.id) : [];
+  if (child.childType !== 'light' && child.childType !== 'door' && propLights.length === 0) return false;
   // Locked on its own: claimed, so nothing underneath goes into node editing, but not flipped.
   if (child.locked) return true;
 
-  if (child.childType === 'light') {
+  if (child.childType === 'light' || child.childType === 'asset') {
     // The authored `visible` flag is the switch: `LightManager` skips a hidden light, and the
-    // shared `LightingRenderer` swaps its mark to the struck-out bulb.
-    undoManager.execute(
-      new UpdateChildCommand(
-        'Toggle light',
-        layerId,
-        child.id,
-        { visible: child.visible },
-        { visible: !child.visible },
-      ),
-    );
+    // shared `LightingRenderer` swaps its mark to the struck-out bulb. Its group switches with
+    // it, all in one undo step.
+    const cmd = child.childType === 'light' ? toggleLightCommand(child.id) : toggleLightsOnPropCommand(child.id);
+    if (cmd) undoManager.execute(cmd);
     return true;
   }
 

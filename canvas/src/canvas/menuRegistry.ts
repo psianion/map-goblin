@@ -6,7 +6,22 @@
 // never on what the menu is for, so a new child kind means a new builder here
 // and nothing else.
 
-import type { MenuRow, MenuSubmenuRow } from '@/editor/RowMenu'
+import { createElement } from 'react'
+import {
+  Box,
+  BrickWall,
+  CircleDashed,
+  DoorOpen,
+  LayoutGrid,
+  Lightbulb,
+  LightbulbOff,
+  Mountain,
+  Route,
+  Square,
+  Type,
+  type LucideIcon,
+} from 'lucide-react'
+import type { MenuPickListRow, MenuRow, MenuSubmenuRow } from '@/editor/RowMenu'
 import { useStore } from '@/store/store'
 import { undoManager } from '@/store/undoManager'
 import {
@@ -74,9 +89,11 @@ import {
   runSelectionVerb,
 } from '@/shortcuts/defaultShortcuts'
 import { keyCaption } from '@/shortcuts/formatCombo'
-import { resolveSelection } from '@dnd/core/src/store/selectionResolve'
+import { resolveSelection, type SelectionKind } from '@dnd/core/src/store/selectionResolve'
 import { wallCopyCommands } from '@dnd/core/src/store/duplicateSelection'
-import { getChildBounds, getWallBounds, pickStackAtPoint } from '@dnd/core/src/engine/hitTest'
+import { getChildBounds, getWallBounds, pickHereAt, pickKindOf } from '@dnd/core/src/engine/hitTest'
+import { shownAssetOf } from '@dnd/core/src/engine/subscribeToAssets'
+import { setPickHighlight } from './pickHighlight'
 import { pickKind, pickName } from '@dnd/core/src/engine/tools/SelectTool'
 import { currentZoom } from '@/editor/zoomControl'
 import type { Command, Layer } from '@/store/types'
@@ -246,11 +263,11 @@ function lockedChildRows(ctx: ChildMenuContext): MenuRow[] {
     if (child.childType === 'asset') run(createSetPropFieldsCommand([child.id], { locked: false }))
     else run(new UpdateChildCommand('Unlock', ctx.layer.id, child.id, { locked: true }, { locked: false }))
   }
-  const behind = selectBehindRow(ctx.world)
+  const here = pickHereRow(ctx.world)
   return [
     { type: 'header', label: child.name || kind, sublabel: `${kind} · locked` },
     { label: 'Unlock', kbd: keyCaption('edit.lock'), onSelect: unlock },
-    ...(behind ? [behind] : []),
+    ...(here ? [here] : []),
   ]
 }
 
@@ -262,26 +279,52 @@ function lockHideRows(): MenuRow[] {
   ]
 }
 
-/** How many rows "Select behind" lists at most. */
-const SELECT_BEHIND_MAX = 8
+const KIND_ICON: Record<SelectionKind, LucideIcon> = {
+  asset: Box,
+  light: Lightbulb,
+  text: Type,
+  shape: Square,
+  plateau: Mountain,
+  door: DoorOpen,
+  zone: CircleDashed,
+  pathway: Route,
+  wall: BrickWall,
+  room: LayoutGrid,
+}
 
 /**
- * Select behind ▸: everything under the right-click, top first, each with its kind, so a
- * floor under a rug under a torch can be reached without switching tabs. Null when at most
- * one object is there (nothing is behind anything).
+ * Pick from here: everything a DM can pick under the right-click, top first (`pickHereAt`), each
+ * with its kind's glyph (a prop by its own shown picture), its name and its layer. A light whose
+ * icon is hidden is listed and marked. Pointing at a row outlines that object on the canvas; a
+ * click selects it, Shift-click adds it. The Select panel's Pick only filter applies. Null when
+ * nothing would be offered beyond the one object clicked.
  */
-export function selectBehindRow(world: { x: number; y: number }): MenuRow | null {
-  const stack = pickStackAtPoint([world.x, world.y], { zoom: currentZoom() ?? 20 })
-  if (stack.length < 2) return null
+export function pickHereRow(world: { x: number; y: number }): MenuPickListRow | null {
+  const stack = pickHereAt([world.x, world.y], { zoom: currentZoom() ?? 20 })
+  if (stack.length < 2 && !stack.some((e) => e.hidden)) return null
+  const state = useStore.getState()
+  const selected = new Set(state.selection.selectedIds)
+  const layerName = (id: string): string => state.layers.find((l) => l.id === id)?.name || 'Unnamed layer'
   return {
-    type: 'submenu',
-    label: 'Select behind',
+    type: 'pickList',
+    label: 'Pick from here',
     separatorBefore: true,
-    rows: stack.slice(0, SELECT_BEHIND_MAX).map((hit) => ({
+    items: stack.map(({ hit, hidden }) => ({
+      id: hit.id,
       label: pickName(hit),
-      kbd: pickKind(hit),
-      onSelect: () => {
+      kind: pickKind(hit),
+      layer: layerName(hit.layerId),
+      icon: createElement(hidden ? LightbulbOff : KIND_ICON[pickKindOf(hit)], { size: 14, strokeWidth: 1.75, 'aria-hidden': true }),
+      thumb: hit.kind === 'child' && hit.child.childType === 'asset' ? { id: shownAssetOf(hit.child, state.layers), src: '' } : undefined,
+      hidden,
+      selected: selected.has(hit.id),
+      onHover: (on: boolean) => setPickHighlight(on ? hit.id : null),
+      onPick: (add: boolean) => {
         const s = useStore.getState()
+        if (add) {
+          s.setSelectedIds([...new Set([...s.selection.selectedIds, hit.id])])
+          return
+        }
         s.setSelectedIds([hit.id])
         s.setActiveLayerId(hit.layerId)
       },
@@ -753,8 +796,9 @@ export function buildRoomMenu({ layer, room, selectedIds, world }: RoomMenuConte
       useStore.getState().setSelectedIds([])
     },
   })
+  const withHere = withPickHere(rows, world)
   const reason = layer.locked ? 'Layer is locked' : !layer.visible ? 'Layer is hidden' : null
-  return reason ? lockRows(rows, reason) : rows
+  return reason ? lockRows(withHere, reason) : withHere
 }
 
 export interface AreaMenuContext {
@@ -799,7 +843,7 @@ export function buildChildMenu(ctx: ChildMenuContext): MenuRow[] {
   const locked = !!ctx.child.locked
   const rows = locked
     ? lockedChildRows(ctx)
-    : withSelectBehind(withGroupRows(builder ? builder(ctx) : [headerRow(ctx.child), ...sharedVerbs(ctx)], ctx), ctx.world)
+    : withPickHere(withGroupRows(builder ? builder(ctx) : [headerRow(ctx.child), ...sharedVerbs(ctx)], ctx), ctx.world)
   const reason = ctx.layer.locked
     ? 'Layer is locked'
     : !ctx.layer.visible
@@ -808,19 +852,22 @@ export function buildChildMenu(ctx: ChildMenuContext): MenuRow[] {
   return reason ? lockRows(rows, reason) : rows
 }
 
-/** Puts "Select behind ▸" above the menu's last row (Delete), when anything is behind. */
-function withSelectBehind(rows: MenuRow[], world: { x: number; y: number } | undefined): MenuRow[] {
+/**
+ * Puts "Pick from here" above the menu's last row (Delete, which stays last), or at the end of a
+ * menu with no Delete, when there is anything to pick from.
+ */
+function withPickHere(rows: MenuRow[], world: { x: number; y: number } | undefined, beforeLast = true): MenuRow[] {
   if (!world) return rows
-  const behind = selectBehindRow(world)
-  if (!behind) return rows
+  const here = pickHereRow(world)
+  if (!here) return rows
   const last = rows.length - 1
-  return last > 0 ? [...rows.slice(0, last), behind, rows[last]] : [...rows, behind]
+  return beforeLast && last > 0 ? [...rows.slice(0, last), here, rows[last]] : [...rows, here]
 }
 
 export interface WallMenuContext {
   layer: DungeonLayer
   wall: WallSegment
-  /** Where the right-click landed, in world squares (for "Select behind"). */
+  /** Where the right-click landed, in world squares (for "Pick from here"). */
   world?: { x: number; y: number }
 }
 
@@ -832,12 +879,12 @@ export function buildWallMenu({ layer, wall, world }: WallMenuContext): MenuRow[
   const setId = standaloneWallLook(wall, layer.style).setId
   const sublabel = setId ? wallSetLabel(setId) : 'Wall'
   if (wall.locked) {
-    const behind = world ? selectBehindRow(world) : null
+    const here = world ? pickHereRow(world) : null
     const unlock = (): void => run(new UpdateWallCommand(layer.id, wall.id, { locked: true }, { locked: false }))
     const rows: MenuRow[] = [
       { type: 'header', label: 'Wall', sublabel: `${sublabel} · locked` },
       { label: 'Unlock', kbd: keyCaption('edit.lock'), onSelect: unlock },
-      ...(behind ? [behind] : []),
+      ...(here ? [here] : []),
     ]
     const reason = layer.locked ? 'Layer is locked' : !layer.visible ? 'Layer is hidden' : null
     return reason ? lockRows(rows, reason) : rows
@@ -858,9 +905,9 @@ export function buildWallMenu({ layer, wall, world }: WallMenuContext): MenuRow[
     kbd: keyCaption('edit.delete'),
     onSelect: () => handleShortcut('delete'),
   })
-  const withBehind = withSelectBehind(rows, world)
+  const withHere = withPickHere(rows, world)
   const reason = layer.locked ? 'Layer is locked' : !layer.visible ? 'Layer is hidden' : null
-  return reason ? lockRows(withBehind, reason) : withBehind
+  return reason ? lockRows(withHere, reason) : withHere
 }
 
 /**
@@ -895,6 +942,9 @@ function lockRows(rows: MenuRow[], reason: string): MenuRow[] {
         }
       case 'submenu':
         return { ...r, disabled: true, rows: lockRows(r.rows, reason) }
+      case 'pickList':
+        // Picking selects, it never edits: a locked layer's objects can still be picked.
+        return r
     }
   })
 }
@@ -956,7 +1006,7 @@ export function buildMultiMenu(count: number, world?: { x: number; y: number }):
       : { label: 'Lock all', kbd: keyCaption('edit.lock'), onSelect: () => runSelectionVerb('lock') },
     { label: 'Hide', kbd: keyCaption('edit.hide'), onSelect: () => runSelectionVerb('hide') },
   ]
-  return withSelectBehind(
+  return withPickHere(
     withGroupRows([
       { type: 'header', label: `${count} selected` },
       ...(onlyDoors ? [] : [{ label: 'Duplicate', kbd: keyCaption('edit.duplicate'), onSelect: () => runSelectionVerb('duplicate') }]),
@@ -1020,6 +1070,8 @@ export function buildCanvasMenu(world: { x: number; y: number }): MenuRow[] {
       kbd: keyCaption('view.fitToContent'),
       onSelect: () => zoomToFitRef.current?.(),
     },
+    // Over hidden lights alone, nothing answers a click: they are listed here.
+    ...withPickHere([], world, false),
   ]
 }
 

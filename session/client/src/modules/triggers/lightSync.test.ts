@@ -482,3 +482,32 @@ describe('the Lighting pass at the table', () => {
     expect(tokenLightDrift([{ ...carrier, levelId: 'L1' }], [ground, placed], levels).write).toHaveLength(1)
   })
 })
+
+describe('embers at the table', () => {
+  // Its own id: the authored snapshots are module-wide and an earlier test already took l1's.
+  beforeEach(() => {
+    useStore.setState({ layers: [dungeon([light({ id: 'ember', visible: true, radius: 9, featherRadius: 6 })])] })
+    useSessionStore.setState({ session: session({}), you: dm })
+  })
+
+  it('plays a live embers edit onto the child as a flag, leaving its reach as authored', () => {
+    const stop = syncLightsToScene()
+    useSessionStore.setState({ session: sessionWithEdits({ ember: { visible: true, embers: true } }) })
+    expect(firstLight()).toMatchObject({ visible: true, embers: true, radius: 9, featherRadius: 6 })
+    // Off keeps the flag; back to full fire clears it.
+    useSessionStore.setState({ session: sessionWithEdits({ ember: { visible: false, embers: true } }) })
+    expect(firstLight()).toMatchObject({ visible: false, embers: true })
+    useSessionStore.setState({ session: sessionWithEdits({ ember: { visible: true, embers: false } }) })
+    expect(firstLight().embers).toBe(false)
+    stop()
+  })
+
+  it('hands the authored state back on reset, embers gone', () => {
+    const stop = syncLightsToScene()
+    useSessionStore.setState({ session: sessionWithEdits({ ember: { embers: true } }) })
+    expect(firstLight().embers).toBe(true)
+    useSessionStore.setState({ session: sessionWithEdits({}) })
+    expect(firstLight().embers).toBeUndefined()
+    stop()
+  })
+})

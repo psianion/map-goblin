@@ -2,6 +2,7 @@
 // The one shortcut table: every key the map answers, with its label and help group. The
 // dispatch map, the shortcuts sheet and the chrome's key captions all read it.
 
+import { lightsOn } from '@dnd/core/src/store/attachedLights';
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
@@ -91,7 +92,9 @@ const NOTHING_TO_COPY = 'Nothing to copy: rooms stay where they are';
 /**
  * What Copy and Cut put on the clipboard for `ids` (the selection by default): the
  * children, and drawn walls with the doors on them. A door copied without its wall is left
- * out (it lives on its wall), as is a room. Null, with the reason said, when nothing is left.
+ * out (it lives on its wall), as is a room. A copied prop's attached lights ride in the payload
+ * with it, attached and grouped, so a Cut then Paste brings back the whole fixture even though
+ * the original is gone from the map. Null, with the reason said, when nothing is left.
  */
 function copyableSelection(
   store: ReturnType<typeof useStore.getState>,
@@ -105,6 +108,11 @@ function copyableSelection(
     .map(({ child }) => structuredClone(child) as AnyChild);
   const walls = clipboardWalls(store, sel.walls.map((w) => w.wall.id));
   const count = children.length + walls.length;
+  const carried = new Set(children.map((c) => c.id));
+  const props = children.filter((c) => c.childType === 'asset').map((c) => c.id);
+  for (const { light } of lightsOn(store.layers, props)) {
+    if (!carried.has(light.id)) children.push(structuredClone(light));
+  }
   if (count === 0) {
     notify.warning(loneDoors.length > 0 ? DOOR_COPY_MESSAGE : NOTHING_TO_COPY);
     return null;

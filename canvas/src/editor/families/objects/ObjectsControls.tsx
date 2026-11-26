@@ -3,12 +3,12 @@
 // strip both tools share.
 
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lightbulb, Plus, Star } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { MAX_SCATTER_TINTS } from '@dnd/core/src/store/slices/tools';
-import { familyKeyOf, familyPosition, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
+import { familyKeyOf, getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import {
   AddTile,
   DockColumn,
@@ -22,12 +22,15 @@ import {
   PopoverContent,
   PopoverTrigger,
   Slider,
+  Switch,
 } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { pickAssetForTool, propCandidates } from '@/editor/models/assetStrip';
 import { openAssets } from '@/editor/families/design/openAssets';
-import { RANDOM, variantStep } from './variant';
+import { RANDOM, variantPosition, variantStep } from './variant';
+import { addLightNote } from './propLightModel';
+import { LightPropBadge } from './LightPropBadge';
 
 /** The readout a compact slider shows: × for a scale, else two places. */
 function readout(unit: string | undefined, v: number): string {
@@ -83,7 +86,7 @@ export function VariantStepper({ def, value, onChange }: SettingProps<string>) {
   // The families arrive with the packs, after boot; re-read when the pack list moves.
   useStore((s) => s.packs.installedPacks);
   const asset = useStore((s) => s.tools.settings.scatterBrush.assetIds[0]);
-  const { index, count } = asset ? familyPosition(asset) : { index: 0, count: 0 };
+  const { index, count } = asset ? variantPosition(asset) : { index: 0, count: 0 };
   const alone = count < 2;
   const shown = value === RANDOM ? 'Random' : count > 0 ? `${index}/${count}` : '-';
   const cell = 'h-full w-[22px] rounded-none border-0 p-0 text-text-3 hover:bg-panel-2 hover:text-text';
@@ -100,7 +103,34 @@ export function VariantStepper({ def, value, onChange }: SettingProps<string>) {
   );
 }
 
-/** A swatch for the colour the next stamp is placed with; None puts it back to untinted. */
+/**
+ * Add its light: shown only while the props in hand include one that brings a light. The line
+ * under it says what lands with the next prop, from the preset and the picture picked
+ * ("Candle light, starts on").
+ */
+export function AddLightSwitch({ def, value, onChange }: SettingProps<boolean>) {
+  useStore((s) => s.packs.installedPacks);
+  const pool = useStore(useShallow((s) => s.tools.settings.scatterBrush.assetIds));
+  const note = addLightNote(pool);
+  if (note === null) return null;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <SettingRow
+        label={
+          <span className="inline-flex items-center gap-1.5">
+            <Lightbulb aria-hidden strokeWidth={1.75} className="size-3.5 text-text-3" />
+            {def.label}
+          </span>
+        }
+      >
+        <Switch aria-label={def.label} checked={value} onCheckedChange={(next: boolean) => onChange(next)} />
+      </SettingRow>
+      <p className="w-full min-w-0 truncate text-[11px] text-text-3" data-testid="add-light-note">
+        {value ? note : 'No light comes with it'}
+      </p>
+    </div>
+  );
+}
 export function TintSwatch({ def, value, onChange }: SettingProps<string>) {
   const [draft, setDraft] = useState<string | null>(null);
   const none = value.toLowerCase() === '#ffffff';
@@ -182,6 +212,7 @@ export function PropsColumn() {
           <Tile key={id} name={name} aria-label={name} active={pool.includes(id)} onClick={() => pickAssetForTool(id)}>
             <PackThumbnailCanvas textureId={id} />
             {starred ? <Star aria-label="Favourite" className="absolute top-[3px] left-[3px] size-2.5 fill-current text-text-2" strokeWidth={0} /> : null}
+            <LightPropBadge assetId={id} />
           </Tile>
         );
       })}

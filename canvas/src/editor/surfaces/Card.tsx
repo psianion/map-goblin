@@ -2,7 +2,7 @@ import { ActionRow, Caption, FloatBox, IconKeyButton, PanelHeader } from '@dnd/u
 import { useStore } from '@/store/store';
 import type { CardDef, Verb } from '@/editor/registry';
 import { liveVerbs } from './model';
-import { groupBySection } from './sections';
+import { groupBySection, PANEL_BODY } from './sections';
 import { CardField } from './SettingItems';
 
 export function VerbButton({ verb }: { verb: Verb }) {
@@ -35,7 +35,10 @@ export function Card({ card, object, ids, layerName }: { card: CardDef; object: 
   useStore((s) => s.selection);
   useStore((s) => s.tools.shapeNodeEditId);
   const title = (card.title as (o: unknown) => string)(object);
-  const sections = groupBySection(card.fields);
+  // A field hidden for this object takes no room, and a section whose every field is hidden
+  // takes its caption with it.
+  const shown = card.fields.filter((f) => !f.visibleWhen || (f.visibleWhen as (o: unknown) => boolean)(object));
+  const sections = groupBySection(shown);
   return (
     <FloatBox className="flex w-[272px] flex-col overflow-hidden p-0" data-testid="shell-card" data-kind={card.kind}>
       <PanelHeader path={['Selection']} title={title}>
@@ -50,7 +53,7 @@ export function Card({ card, object, ids, layerName }: { card: CardDef; object: 
           <VerbButton key={v.id} verb={v} />
         ))}
       </ActionRow>
-      <div className="flex min-h-0 flex-col gap-2.5 overflow-y-auto px-3 pt-2.5 pb-3">
+      <div className={PANEL_BODY}>
         {sections.map((sec, i) => (
           <div key={sec.title ?? `s${i}`} className="flex flex-col gap-px" data-section={sec.title ?? ''}>
             {sec.title && <Caption className="mb-1.5">{sec.title}</Caption>}

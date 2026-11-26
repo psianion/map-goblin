@@ -14,7 +14,7 @@ import { tokensModule, type TokensState } from '@dnd/mechanics/tokens'
 import { crossingsModule, type CrossingsState } from '@dnd/mechanics/crossings'
 import { triggersModule } from '@dnd/mechanics/triggers'
 import { WebSocketServer } from 'ws'
-import { ensureAdminPass, verifyToken } from './auth'
+import { checkSeat, ensureAdminPass } from './auth'
 import { loadConfig, type Config } from './config'
 import { openDb } from './db/db'
 import { createStores, type Stores } from './db/stores'
@@ -52,19 +52,9 @@ export function authenticateUpgrade(
   stores: Stores,
 ): Identity | null {
   const params = new URL(req.url ?? '/', 'http://localhost').searchParams
-  const claims = verifyToken(hmacSecret, params.get('token'))
-  if (!claims) return null
-
-  const identity = stores.identities.get(claims.identityId)
-  if (!identity || identity.banned === 1) return null
-
-  // A session-bound token opens that session or nothing — ending it, or replacing it with
-  // a new one under a fresh invite code, is what makes the token stop working. An unbound
-  // (DM) token still means "whatever table this campaign is running".
-  const session = claims.sessionId
-    ? stores.sessions.get(claims.sessionId)
-    : stores.sessions.getActiveByCampaign(claims.campaignId)
-  if (!session || session.active !== 1 || session.campaign_id !== claims.campaignId) return null
+  const seat = checkSeat(hmacSecret, stores, params.get('token'))
+  if (!seat) return null
+  const { identity, session } = seat
 
   stores.identities.touchLastSeen(identity.id)
   return {

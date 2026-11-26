@@ -76,3 +76,57 @@ export function nearestProp(layer: DungeonLayer, light: LightChild): AssetChild 
   }
   return best;
 }
+
+/* ── Motion ───────────────────────────────────────────── */
+
+export type MotionKind = 'still' | 'spin' | 'sweep';
+
+export const motionKindOf = (l: Pick<LightChild, 'motion'>): MotionKind => l.motion?.kind ?? 'still';
+
+/** A spin's default pace, turns a minute, and a sweep's, degrees a second. */
+export const SPIN_DEFAULT_RPM = 6;
+export const SWEEP_DEFAULT_DEG_PER_SEC = 45;
+/** A new sweep runs this far either side of where the cone points now. */
+const SWEEP_HALF_SPAN = 45;
+
+const wrap = (deg: number): number => ((Math.round(deg) % 360) + 360) % 360;
+
+/** The motion `kind` starts as on light `l`: a spin clockwise at 6 rpm, a sweep 45° either side of its direction. */
+export function motionFor(kind: MotionKind, l: Pick<LightChild, 'cone' | 'motion'>): LightChild['motion'] {
+  if (kind === 'still') return undefined;
+  if (l.motion?.kind === kind) return l.motion;
+  if (kind === 'spin') return { kind: 'spin', rpm: SPIN_DEFAULT_RPM, clockwise: true };
+  const d = coneDirection(l as LightLike);
+  return { kind: 'sweep', from: wrap(d - SWEEP_HALF_SPAN), to: wrap(d + SWEEP_HALF_SPAN), degPerSec: SWEEP_DEFAULT_DEG_PER_SEC };
+}
+
+/* ── Groups list ──────────────────────────────────────── */
+
+/** One row of the Light tool's Groups list. */
+export interface GroupRowModel {
+  name: string;
+  /** Every light in the group, on any level. */
+  ids: string[];
+  /** What its switch reaches: the group less locked lights and lights on locked layers, as every switch leaves them. */
+  switchIds: string[];
+  /** "4 lights", or "2 of 4 on" while some are on and some off. */
+  count: string;
+  on: 'all' | 'none' | 'some';
+}
+
+/**
+ * The Groups list's rows, one per group, in the order given (by name). `lockedOut` says which
+ * lights a switch must leave alone (locked, or on a locked layer); they still count.
+ */
+export function groupRows(
+  groups: readonly { name: string; lights: readonly LightChild[] }[],
+  lockedOut: (l: LightChild) => boolean = (l) => !!l.locked,
+): GroupRowModel[] {
+  return groups.map(({ name, lights }) => {
+    const lit = lights.filter((l) => l.visible !== false).length;
+    const n = lights.length;
+    const on = lit === n ? 'all' : lit === 0 ? 'none' : 'some';
+    const switchIds = lights.filter((l) => !lockedOut(l)).map((l) => l.id);
+    return { name, ids: lights.map((l) => l.id), switchIds, count: on === 'some' ? `${lit} of ${n} on` : `${n} ${n === 1 ? 'light' : 'lights'}`, on };
+  });
+}

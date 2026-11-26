@@ -2,14 +2,14 @@
   "version": 1,
   "packs": {
     "gg-demo": {
-      "version": "0.1.2",
+      "version": "0.1.3",
       "bundleSize": 18389894,
       "entryCount": 829,
       "themes": [
         "fantasy"
       ],
       "preview": "gg-demo/preview-46d3ab4d.webp",
-      "manifest": "gg-demo/pack-c546993a.json"
+      "manifest": "gg-demo/pack-7f74489e.json"
     },
     "gg-forge": {
       "version": "1.18.0",

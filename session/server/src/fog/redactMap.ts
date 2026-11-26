@@ -51,6 +51,17 @@ import { firstLevelId, levelIdOf } from '@dnd/core/src/shared/visionGate'
 type Doors = Record<string, DoorLiveState>
 
 /**
+ * A light's group name is the DM's own label ("Vault traps"), and a player never switches a
+ * light: it stays off their copy. Embers and motion ship, since their screen draws them.
+ */
+function withoutGroup<C extends AnyChild>(child: C): C {
+  if (child.childType !== 'light' || child.group === undefined) return child
+  const out = { ...child } as Record<string, unknown>
+  delete out.group
+  return out as C
+}
+
+/**
  * Fog rework — the rooms a player holds right now, which is the geometry they are sent (D4):
  * every room with fog off, and with fog on the rooms with any cleared cell on their own level.
  * A room whose last cleared cell is fogged again stops shipping (the seat refetches).
@@ -198,7 +209,7 @@ export function childDeltaFor(
           [],
           childrenOf(layer)
             .filter((child) => childIds.has(child.id))
-            .map((child) => (child.childType === 'door' ? facing(placed(scene, child), kept) : child)) as AnyChild[],
+            .map((child) => (child.childType === 'door' ? facing(placed(scene, child), kept) : withoutGroup(child))) as AnyChild[],
           kept,
           places,
         ),
@@ -268,7 +279,7 @@ function slice(
         .filter((child) => childShips(child, layer, scene, kept, doors, cut))
         // A door on the edge of the known world keeps only the side the party has been, and is
         // drawn where the referee's full map puts it.
-        .map((child) => (child.childType === 'door' ? facing(placed(scene, child), facingSet) : child)),
+        .map((child) => (child.childType === 'door' ? facing(placed(scene, child), facingSet) : withoutGroup(child))),
       facingSet,
       places,
     ),

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 
 interface FakeSprite {
   label: string;
@@ -79,11 +79,17 @@ import {
   overheadEntries,
   setAssetChildrenAlpha,
   setOverheadFade,
+  shownAssetStats,
   subscribeToAssets,
 } from './subscribeToAssets';
 import { getLayerEntry, getOverheadContainer } from './sceneGraph';
 import { useStore } from '../store/store';
-import type { AssetChild, DungeonLayer } from '../store/types';
+import { undoManager } from '../store/undoManager';
+import { createDungeonLayer } from '../store/factories';
+import { toggleLightsOnPropCommand } from '../store/lightCommands';
+import { getAssetPackManager, resetAssetPackManager } from './assetPackInstance';
+import type { ManifestEntry, PackManifest } from './assetPackManager';
+import type { AssetChild, DungeonLayer, LightChild } from '../store/types';
 
 function asset(id: string): AssetChild {
   return {
@@ -289,5 +295,113 @@ describe('subscribeToAssets', () => {
     expect(sprite('canopy').alpha).toBeCloseTo(0.25);
     setOverheadFade('canopy', 1);
     expect(sprite('canopy').alpha).toBe(1);
+  });
+});
+
+describe('subscribeToAssets: a light prop`s picture follows its light', () => {
+  let unsub: (() => void) | null = null;
+  let objects: MockContainer;
+  let propLayer = '';
+  let lightLayer = '';
+
+  const prop = (id: string, assetId: string): AssetChild => ({ ...asset(id), assetId });
+  const light = (id: string, attachedTo: string, visible = true): LightChild => ({
+    id,
+    name: id,
+    childType: 'light',
+    visible,
+    color: '#ffc98a',
+    radius: 2,
+    featherRadius: 1,
+    intensity: 0.7,
+    falloff: 'quadratic',
+    position: { x: 0, y: 0 },
+    attachedTo,
+  });
+  const textureOf = (id: string) => (objects.children.find((s) => s.label === `placed-${id}`) as FakeSprite & { texture: { id: string } }).texture.id;
+
+  beforeAll(() => {
+    resetAssetPackManager();
+    const manager = getAssetPackManager();
+    const entry = (material: string, light?: ManifestEntry['light']): ManifestEntry => ({
+      type: 'object',
+      material,
+      gridSize: '1x1',
+      pieceType: 'object',
+      variant: 'A',
+      tags: [],
+      ...(light ? { light } : {}),
+    });
+    const states = { on: 'candle_lit', off: 'candle_unlit' };
+    const manifest: PackManifest = {
+      name: 'gg-demo',
+      description: '',
+      version: '0.0.1',
+      bundleSize: 0,
+      atlases: {},
+      files: {},
+      entries: {
+        candle_lit: entry('light_candle_large_lit', { preset: 'candle', states }),
+        candle_unlit: entry('light_candle_large_unlit', { preset: 'candle', states }),
+        crate: entry('crate'),
+      },
+    };
+    (manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set('gg-demo', manifest);
+    manager.catalogVersion++;
+  });
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    undoManager.clear();
+    const first = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    propLayer = first.id;
+    const second = createDungeonLayer('Lighting', first.levelId);
+    useStore.getState().addLayer(second);
+    lightLayer = second.id;
+    objects = new MockContainer();
+    vi.mocked(getOverheadContainer).mockReturnValue(new MockContainer() as never);
+    vi.mocked(getLayerEntry).mockReturnValue({
+      sublayers: {
+        floor: new MockContainer(),
+        shadows: new MockContainer(),
+        grid: new MockContainer(),
+        walls: new MockContainer(),
+        doors: new MockContainer(),
+        objects,
+        imageGrid: new MockContainer(),
+        labels: new MockContainer(),
+      },
+    } as never);
+  });
+
+  afterEach(() => {
+    unsub?.();
+    unsub = null;
+  });
+
+  it('swaps to the unlit picture when a light on another layer goes off, and back, through undo and redo', () => {
+    useStore.getState().addChild(propLayer, prop('candle', 'gg-demo:candle_lit'));
+    useStore.getState().addChild(lightLayer, light('flame', 'candle'));
+    unsub = subscribeToAssets();
+    expect(textureOf('candle')).toBe('gg-demo:candle_lit');
+
+    undoManager.execute(toggleLightsOnPropCommand('candle')!);
+    expect(textureOf('candle')).toBe('gg-demo:candle_unlit');
+    undoManager.undo();
+    expect(textureOf('candle')).toBe('gg-demo:candle_lit');
+    undoManager.redo();
+    expect(textureOf('candle')).toBe('gg-demo:candle_unlit');
+    // The prop itself never changes.
+    const placed = (useStore.getState().layers.find((l) => l.id === propLayer) as DungeonLayer).children[0] as AssetChild;
+    expect(placed.assetId).toBe('gg-demo:candle_lit');
+  });
+
+  it('builds no light index for props whose picture never follows a light', () => {
+    for (let i = 0; i < 20; i++) useStore.getState().addChild(propLayer, prop(`crate${i}`, 'gg-demo:crate'));
+    unsub = subscribeToAssets();
+    const builds = shownAssetStats.hostBuilds;
+    useStore.getState().updateChild(propLayer, 'crate3', { position: { x: 5, y: 5 } } as never);
+    expect(shownAssetStats.hostBuilds).toBe(builds);
+    expect(textureOf('crate3')).toBe('gg-demo:crate');
   });
 });

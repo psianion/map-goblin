@@ -3,7 +3,7 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { Point } from '../../types/geometry';
 import type { AssetChild, DungeonLayer, ScatterBrushSettings } from '../../store/types';
 import { useStore } from '../../store/store';
-import { familyMembers, nextAssetName, siblingOf } from '../../assets/packCatalog';
+import { familyVariants, lightPropOf, nextAssetName, siblingOf } from '../../assets/packCatalog';
 import { resolveTexture } from '../../assets/textureLoader';
 import { mulberry32 } from '../../geometry/seededRng';
 import { CompositeCommand, createChildRemovalCommand } from '../../store/commands';
@@ -366,15 +366,22 @@ export class StampScatterTool implements DrawingTool {
     if (!at) return;
     const name = nextAssetName(at.assetId, layer.children.map((c) => c.name));
     const child = makeChild(name, at.assetId, at.position, at.rotation, at.width, at.height, at.tint, at.flipX);
+    // A light prop comes with its light, in the same undo step, unless Add its light is off.
+    const lights = settings.addLight !== false && !!lightPropOf(at.assetId);
     undoManager.execute(
-      createPlacePropsCommand(layer.id, [child], { under: settings.placeUnder, label: 'Place prop' }),
+      createPlacePropsCommand(layer.id, [child], {
+        under: settings.placeUnder,
+        label: lights ? 'Place prop and light' : 'Place prop',
+        lights,
+      }),
     );
 
     const store = useStore.getState();
     store.trackRecentUse(at.assetId);
     this.stampCount++;
     if (settings.stampVary) {
-      const members = familyMembers(at.assetId);
+      // A light prop re-rolls its model, keeping the state picked (`familyVariants`).
+      const members = familyVariants(at.assetId);
       if (members.length > 1) {
         const rng = mulberry32(settings.seed + this.stampCount);
         const next = members[Math.floor(rng() * members.length)].id;
@@ -439,10 +446,12 @@ export class StampScatterTool implements DrawingTool {
       taken.push(name);
       return makeChild(name, p.assetId, p.position, p.rotation, p.width, p.height, p.tint, false);
     });
+    const lights = stroke.ctx.settings.addLight !== false && children.some((c) => !!lightPropOf(c.assetId));
     undoManager.execute(
       createPlacePropsCommand(layer.id, children, {
         under: stroke.ctx.settings.placeUnder,
-        label: 'Scatter props',
+        label: lights ? 'Scatter props and lights' : 'Scatter props',
+        lights,
       }),
     );
     const store = useStore.getState();

@@ -5,7 +5,7 @@ import type { ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
 import { useShell } from '@/editor/shell/shellStore';
 import { pickTool, useFamilyOf, useSettingGetter } from './hooks';
-import { groupBySection } from './sections';
+import { groupBySection, PANEL_BODY } from './sections';
 import { ToolSetting } from './SettingItems';
 
 /** The slot's width: 272, so a 248 setting row sits inside 12 either side. */
@@ -59,7 +59,7 @@ export function ToolPanel({ tool }: { tool: ToolDef }) {
         )}
       </PanelHeader>
       {(sections.length > 0 || Extra) && (
-        <div className="flex min-h-0 flex-col gap-2.5 overflow-y-auto px-3 pt-2.5 pb-3">
+        <div className={PANEL_BODY}>
           {sections.map((sec, i) => (
             <div key={sec.title ?? `s${i}`} className="flex flex-col gap-px" data-section={sec.title ?? ''}>
               {sec.title && <Caption className="mb-1.5">{sec.title}</Caption>}

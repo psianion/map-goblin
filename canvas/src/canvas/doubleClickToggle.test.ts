@@ -112,4 +112,54 @@ describe('toggleFixtureAt', () => {
     expect(toggleFixtureAt({ x: 10, y: 10 }, 1)).toBe(false);
     expect((child('door-1') as DoorChild).state).toBe('closed');
   });
+
+  describe('a light prop', () => {
+    const prop = (over: Partial<AssetChild> = {}): AssetChild => ({
+      id: 'candle',
+      name: 'Candle',
+      childType: 'asset',
+      visible: true,
+      objectType: 'asset',
+      assetId: 'gg-demo:light_candle_large_lit_1x1_object_A',
+      position: { x: 30, y: 30 },
+      rotation: 0,
+      scale: 1,
+      width: 2,
+      height: 2,
+      tint: '#ffffff',
+      flipX: false,
+      flipY: false,
+      ...over,
+    });
+    // At zoom 100 a light's icon is a few hundredths of a cell, so a click on the prop's edge
+    // lands on the prop, not on the light at its centre.
+    const ZOOM = 100;
+
+    it('switches its attached lights, with their group, as one undo step', () => {
+      seed([
+        prop(),
+        makeLight({ id: 'flame', attachedTo: 'candle', position: { x: 30, y: 30 }, group: 'Hall' }),
+        makeLight({ id: 'mate', position: { x: 2, y: 2 }, group: 'Hall' }),
+      ]);
+      expect(toggleFixtureAt({ x: 30.8, y: 30.8 }, ZOOM)).toBe(true);
+      expect((child('flame') as LightChild).visible).toBe(false);
+      expect((child('mate') as LightChild).visible).toBe(false);
+      undoManager.undo();
+      expect((child('flame') as LightChild).visible).toBe(true);
+      expect((child('mate') as LightChild).visible).toBe(true);
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('leaves a locked prop`s light alone', () => {
+      seed([prop({ locked: true }), makeLight({ id: 'flame', attachedTo: 'candle', position: { x: 30, y: 30 } })]);
+      toggleFixtureAt({ x: 30.8, y: 30.8 }, ZOOM);
+      expect((child('flame') as LightChild).visible).toBe(true);
+      expect(undoManager.canUndo()).toBe(false);
+    });
+
+    it('leaves a prop with no light to whatever double-click did before', () => {
+      seed([prop()]);
+      expect(toggleFixtureAt({ x: 30.8, y: 30.8 }, ZOOM)).toBe(false);
+    });
+  });
 });

@@ -1,14 +1,14 @@
 // Stamp and Scatter: two tools over the one props brush (the core's scatterBrush), told
 // apart by its stamp mode. They share the pool of props, the prop strip and Place under.
 
-import { FlipHorizontal2, SprayCan, Stamp } from 'lucide-react';
+import { FlipHorizontal2, Lightbulb, SprayCan, Stamp } from 'lucide-react';
 import { z } from 'zod';
 import { PROPS_RANGES } from '@dnd/core/src/store/slices/tools';
 import type { ScatterBrushSettings } from '@/store/types';
 import { defineSetting, defineTool } from '@/editor/registry/define';
 import { editErase } from '@/editor/registry/shared';
 import type { CoreStore, DockColumnDef, EditorState } from '@/editor/registry/types';
-import { AngleChip, CompactSlider, PropsColumn, TintSwatch, TintsField, VariantStepper } from './ObjectsControls';
+import { AddLightSwitch, AngleChip, CompactSlider, PropsColumn, TintSwatch, TintsField, VariantStepper } from './ObjectsControls';
 import { RANDOM } from './variant';
 
 const brush = (s: EditorState) => s.tools.settings.scatterBrush;
@@ -29,6 +29,23 @@ export const placeUnder = defineSetting<boolean>({
   control: 'switch',
   section: 'Placement',
   path: 'scatterBrush.placeUnder',
+});
+
+/**
+ * A light prop comes with its light, attached, in the same undo step. Shown only while the
+ * picked prop brings a light (`AddLightSwitch`); defined once, both tools list it.
+ */
+export const addLight = defineSetting<boolean>({
+  id: 'objects.addLight',
+  label: 'Add its light',
+  schema: z.boolean(),
+  default: true,
+  home: 'panel',
+  control: 'custom',
+  section: 'Placement',
+  icon: Lightbulb,
+  render: AddLightSwitch,
+  path: 'scatterBrush.addLight',
 });
 
 const propsColumn: DockColumnDef = { id: 'objects.props', caption: 'Props', render: PropsColumn };
@@ -134,7 +151,7 @@ export const stampTool = defineTool({
   inHand: (s) => brush(s).stampMode,
   onPick: (store) => setBrush(store, { stampMode: true }),
   opensAssets: 'object',
-  settings: [stampScale, stampAngle, stampMirror, stampVariant, stampTint, keepPlacing, placeUnder],
+  settings: [stampScale, stampAngle, stampMirror, stampVariant, stampTint, keepPlacing, placeUnder, addLight],
   dock: [propsColumn],
   hint: () => ({
     label: 'Stamp',
@@ -314,6 +331,7 @@ export const scatterTool = defineTool({
     scatterAvoidOverlap,
     scatterStayOnFloor,
     placeUnder,
+    addLight,
     editErase,
   ],
   dock: [propsColumn],

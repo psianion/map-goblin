@@ -13,6 +13,7 @@ import {
 } from '@/canvas/menuRegistry'
 import type { DungeonLayer } from '@/store/types'
 import { openCanvasMenuRef, type CanvasMenuPayload } from './canvasMenuRef'
+import { setPickHighlight } from '@/canvas/pickHighlight'
 
 export function CanvasContextMenu() {
   const [payload, setPayload] = useState<CanvasMenuPayload | null>(null)
@@ -85,7 +86,11 @@ export function CanvasContextMenu() {
   return (
     <ContextMenu
       pos={{ x: payload.x, y: payload.y }}
-      onClose={() => setPayload(null)}
+      onClose={() => {
+        // A pick row pointed at when the menu went: its outline goes with it.
+        setPickHighlight(null)
+        setPayload(null)
+      }}
       items={rows}
     />
   )

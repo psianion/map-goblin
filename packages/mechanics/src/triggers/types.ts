@@ -136,6 +136,8 @@ export type LightEdit = Partial<{
   nightOnly: { min: number; max: number }
   darkness: boolean
   darkvisionSees: boolean
+  /** Burning low (core `shownLight` draws it at its embers values); false puts it back to full. */
+  embers: boolean
 }>
 
 /** A DM's live edit to one room for the scene: today only its place. Places are not secrets, so

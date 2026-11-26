@@ -6,7 +6,9 @@
 import { Assets, Sprite, Texture } from 'pixi.js';
 import { useStore } from '../store/store';
 import { getLayerEntry, getOverheadContainer } from './sceneGraph';
-import type { AssetChild, Layer } from '../store/types';
+import type { AssetChild, Layer, LightChild } from '../store/types';
+import { lightPropOf } from '../assets/packCatalog';
+import { lightsByHost, shownAssetId, type LightStates } from '../shared/propLights';
 import { resolveTexture } from '../assets/textureLoader';
 import { syncPropShadows } from './shadowPass';
 import { isLayerShown } from '../store/selectors';
@@ -125,13 +127,63 @@ export function refreshAssetTextures(): void {
   }
 }
 
-/** Resolve and assign the child's texture; async-loads uncached custom images. */
-function applyTexture(sprite: Sprite, obj: AssetChild, spriteMap: Map<string, Sprite>, waters: readonly WaterBody[]): void {
-  texturedAs.set(sprite, obj.assetId);
+/** Lights by the prop they are attached to, rebuilt only when `layers` is a new array. */
+let hostsRef: readonly Layer[] | null = null;
+let hostsIndex = new Map<string, LightChild[]>();
+/** How many times the index was built: the work-count guard reads it. */
+export const shownAssetStats = { hostBuilds: 0 };
+function hostsOf(layers: readonly Layer[]): Map<string, LightChild[]> {
+  if (layers !== hostsRef) {
+    hostsRef = layers;
+    hostsIndex = lightsByHost(layers);
+    shownAssetStats.hostBuilds++;
+  }
+  return hostsIndex;
+}
+
+/**
+ * A prop's pictures by state, or null for one whose picture never follows a light, per
+ * `assetId`, held until the catalogue changes. A plain prop pays one map read per sync.
+ */
+const statesByAsset = new Map<string, LightStates | null>();
+let statesVersion = -1;
+function statesOf(assetId: string): LightStates | null {
+  const version = getAssetPackManager().catalogVersion;
+  if (version !== statesVersion) {
+    statesVersion = version;
+    statesByAsset.clear();
+  }
+  let states = statesByAsset.get(assetId);
+  if (states === undefined) {
+    states = lightPropOf(assetId)?.states ?? null;
+    statesByAsset.set(assetId, states);
+  }
+  return states;
+}
+
+/**
+ * The picture a prop shows: a light prop's follows its attached lights (`shownAssetId`); every
+ * other prop, its own `assetId`, untouched. Never written back to the prop.
+ */
+export function shownAssetOf(obj: AssetChild, layers: readonly Layer[]): string {
+  const states = statesOf(obj.assetId);
+  if (!states) return obj.assetId;
+  return shownAssetId(obj, states, hostsOf(layers).get(obj.id) ?? []);
+}
+
+/** Resolve and assign the child's texture (`shown`, the picture it shows); async-loads uncached custom images. */
+function applyTexture(
+  sprite: Sprite,
+  obj: AssetChild,
+  spriteMap: Map<string, Sprite>,
+  waters: readonly WaterBody[],
+  shown: string = obj.assetId,
+): void {
+  texturedAs.set(sprite, shown);
   const isCustomImage = obj.assetId.startsWith('data:') || obj.assetId.startsWith('blob:');
   if (!isCustomImage) {
     // Pack, legacy, or bundled texture — sync resolution via unified resolver
-    const resolved = resolveTexture(obj.assetId);
+    const resolved = resolveTexture(shown);
     sprite.texture = resolved.width > 0 ? resolved : Texture.WHITE;
     return;
   }
@@ -251,6 +303,8 @@ export function subscribeToAssets(): () => void {
       ),
     (dungeonLayers) => {
       const currentLayerIds = new Set(dungeonLayers.map((l) => l.id));
+      // Light props read their attached lights, which may stand on any layer.
+      const layersNow = useStore.getState().layers;
 
       // ── Remove sprite maps for layers that no longer exist ──────────
       for (const [layerId, spriteMap] of spriteMaps.entries()) {
@@ -312,7 +366,8 @@ export function subscribeToAssets(): () => void {
           // Covers both a fresh sprite and a swapped assetId on an existing
           // one. Texture before syncSprite: the width/height setters compute
           // scale relative to whatever texture the sprite holds.
-          if (texturedAs.get(sprite) !== obj.assetId) applyTexture(sprite, obj, spriteMap, layer.waters);
+          const shown = shownAssetOf(obj, layersNow);
+          if (texturedAs.get(sprite) !== shown) applyTexture(sprite, obj, spriteMap, layer.waters, shown);
           syncSprite(sprite, obj, layer.waters);
           sprite.zIndex = isOverhead ? layer.index * LAYER_Z + i : i;
         }
@@ -345,7 +400,7 @@ export function subscribeToAssets(): () => void {
         if (!sprite || sprite.destroyed || sprite.texture.width > 1) continue;
         if (obj.assetId.startsWith('data:') || obj.assetId.startsWith('blob:')) continue;
         const waters = watersUnder(layers, index);
-        applyTexture(sprite, obj, spriteMap, waters);
+        applyTexture(sprite, obj, spriteMap, waters, shownAssetOf(obj, layers));
         if (sprite.texture.width <= 1) continue;
         syncSprite(sprite, obj, waters);
         changed = true;

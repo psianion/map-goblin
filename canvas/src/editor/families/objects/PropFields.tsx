@@ -6,7 +6,7 @@ import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, FlipHorizontal2, Fl
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import type { ZOrderOp } from '@dnd/core/src/store/propEdits';
-import { familyMembers } from '@dnd/core/src/assets/packCatalog';
+import { variantTiles } from './propLightModel';
 import { IconKeyButton, SecondaryButton, Seg, SettingRow, Tile, Input } from '@dnd/ui';
 import { isBattlemapLayer } from '@/editor/models/layerSheetModel';
 import { convertToTrace, lineUpPicture, moveToBattlemap } from '@/editor/models/battlemapActions';
@@ -102,12 +102,15 @@ export function OrderField({ def }: SettingProps<null>) {
   );
 }
 
-/** The prop's family, its member ringed; a pick swaps it in, Replace opens the library to swap in anything. */
+/**
+ * The prop's family, its member ringed; a pick swaps it in, Replace opens the library to swap in
+ * anything. A light prop's states fold into one tile per variant (`variantTiles`).
+ */
 export function VariantField({ value, onChange }: SettingProps<string>) {
   // Families and thumbnails arrive with the packs, after boot.
   useStore((s) => s.packs.installedPacks);
   const ids = useStore(useShallow((s) => s.selection.selectedIds));
-  const members = value ? familyMembers(value) : [];
+  const members = value ? variantTiles(value) : [];
   return (
     <div className="flex flex-col gap-1.5">
       {members.length > 1 ? (

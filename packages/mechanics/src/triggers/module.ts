@@ -131,6 +131,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       'set-light': ['dm'],
       'reset-light': ['dm'],
       'set-lights-all': ['dm'],
+      'set-lights': ['dm'],
       'set-room': ['dm'],
       'set-seat-level': ['dm'],
       'set-dm-level': ['dm'],
@@ -218,6 +219,8 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       return resetLight(p, ctx)
     case 'set-lights-all':
       return setLightsAll(p, ctx, deps)
+    case 'set-lights':
+      return setLights(p, ctx, deps)
     case 'set-room':
       return setRoom(p, ctx)
     case 'set-seat-level':
@@ -419,6 +422,7 @@ function parseLightPatch(v: unknown): LightEdit {
   }
   if (p.darkness !== undefined) patch.darkness = bool(p.darkness, 'patch.darkness')
   if (p.darkvisionSees !== undefined) patch.darkvisionSees = bool(p.darkvisionSees, 'patch.darkvisionSees')
+  if (p.embers !== undefined) patch.embers = bool(p.embers, 'patch.embers')
   if (Object.keys(patch).length === 0) bad('patch needs at least one field')
   return patch
 }
@@ -462,6 +466,35 @@ function setLightsAll(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
     if (lightEdits[id]?.darkness) continue
     lightEdits[id] = { ...lightEdits[id], visible: on }
   }
+  setScene(ctx, sceneId, { ...scene, lightEdits })
+}
+
+/** The most lights one `set-lights` may name: more than any map holds, small enough to bound the work. */
+const SET_LIGHTS_MAX = 1000
+
+/**
+ * DM-only: some lights on or off at once (a light group, a room, a prop's lights), and with
+ * `embers` their embers flag too (a brazier's State: false puts it back to full fire). The
+ * client works out the ids from the map; every one must be a placed light of the scene
+ * (`lightIdsOf`, which leaves darkness sources out), or the whole command is refused. Writes
+ * into each light's edit like `set-lights-all`, so `reset-light` still hands one back.
+ */
+function setLights(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
+  const sceneId = sceneOf(p, ctx)
+  if (!Array.isArray(p.ids)) bad('ids must be a list of light ids')
+  const ids = [...new Set((p.ids as unknown[]).map((id, i) => str(id, `ids[${i}]`, ID_MAX)))]
+  if (ids.length === 0) bad('ids needs at least one light')
+  if (ids.length > SET_LIGHTS_MAX) bad(`ids holds at most ${SET_LIGHTS_MAX} lights`)
+  const on = bool(p.on, 'on')
+  const embers = p.embers === undefined ? undefined : bool(p.embers, 'embers')
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  // Fails closed: without the map's light list only lights that already carry an edit count,
+  // as `set-lights-all` falls back to.
+  const known = new Set(deps.lightIdsOf ? deps.lightIdsOf(ctx.campaignId, sceneId) : Object.keys(scene.lightEdits))
+  const unknown = ids.find((id) => !known.has(id))
+  if (unknown !== undefined) bad(`no light '${unknown}' in that scene`)
+  const lightEdits = { ...scene.lightEdits }
+  for (const id of ids) lightEdits[id] = { ...lightEdits[id], visible: on, ...(embers === undefined ? {} : { embers }) }
   setScene(ctx, sceneId, { ...scene, lightEdits })
 }
 
@@ -529,6 +562,11 @@ function resetLight(p: Payload, ctx: Ctx): void {
  *
  * A light authored "off at the table" (`tableOn: false`) starts out; a live `visible` edit
  * (a per-light toggle, All lights, a trigger) still wins.
+ *
+ * Embers ride along as a flag (`embers`), never as reduced fields: the result is written onto
+ * the light child, and core's `shownLight` draws a burning-low light at a third of its reach,
+ * 60 % of its strength and its ember red on every screen. Scaling here as well would apply it
+ * twice, and the DM's card would read the reduced reach as the light's own.
  */
 export function effectiveLight<
   T extends {

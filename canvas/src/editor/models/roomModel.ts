@@ -349,3 +349,10 @@ export function roomCountText(rooms: number, suggested: number): string {
   const base = `${rooms} room${rooms === 1 ? '' : 's'}`;
   return suggested > 0 ? `${base} · ${suggested} suggested` : base;
 }
+
+/** A room's lights as its Lights row reads them: "5 lights, 3 on", and whether all are on, all off, or mixed. */
+export function roomLightsSummary(lights: readonly { visible: boolean }[]): { label: string; state: 'on' | 'off' | 'mixed' } {
+  const on = lights.filter((l) => l.visible !== false).length;
+  const label = `${lights.length} ${lights.length === 1 ? 'light' : 'lights'}, ${on} on`;
+  return { label, state: on === lights.length ? 'on' : on === 0 ? 'off' : 'mixed' };
+}

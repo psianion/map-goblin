@@ -14,6 +14,14 @@ export interface WebSocketClientOptions {
   onLatency?: (ms: number) => void;
   /** Keepalive ping period; 0 disables. */
   pingIntervalMs?: number;
+  /**
+   * Asked when a socket closes without ever having opened: is this seat one the server will
+   * never take again? The browser hides the upgrade's 401, so this is how an expired or
+   * ended seat is told apart from a server that is down. The retry is scheduled either way.
+   */
+  isRefused?: () => Promise<boolean>;
+  /** Called once when `isRefused` says yes; the client has stopped for good by then. */
+  onRefused?: () => void;
 }
 
 const BACKOFF_MIN_MS = 500;
@@ -27,6 +35,9 @@ export class WebSocketClient {
   #pingTimer: ReturnType<typeof setInterval> | null = null;
   #attempt = 0;
   #stopped = false;
+  /** Bumped by `close()` and by every socket that opens, so a late refusal answer can tell it is stale. */
+  #epoch = 0;
+  #asking = false;
 
   status: ConnectionStatus = 'closed';
   latencyMs: number | null = null;
@@ -45,6 +56,7 @@ export class WebSocketClient {
   /** Deliberate teardown: no retry follows. */
   close(): void {
     this.#stopped = true;
+    this.#epoch += 1;
     if (this.#retryTimer) clearTimeout(this.#retryTimer);
     this.#retryTimer = null;
     this.#stopPing();
@@ -78,21 +90,39 @@ export class WebSocketClient {
     this.#setStatus(status);
     const ws = new WebSocket(this.#url());
     this.#ws = ws;
+    let opened = false;
 
     ws.onopen = () => {
+      opened = true;
+      this.#epoch += 1;
       this.#attempt = 0;
       this.#setStatus('open');
       this.send({ type: 'join', protocolVersion: PROTOCOL_VERSION });
       this.#startPing();
     };
     ws.onmessage = (ev: MessageEvent) => this.#receive(ev.data);
-    ws.onerror = () => ws.close(); // onclose does the retrying
+    // No onerror: browsers always follow error with close, and onclose does the retrying.
     ws.onclose = () => {
       if (this.#ws !== ws) return; // superseded by close()/reconnect
       this.#ws = null;
       this.#stopPing();
       this.#scheduleRetry();
+      if (!opened) this.#askIfRefused();
     };
+  }
+
+  /** One question at a time; a yes stops the client unless it was closed or got back in meanwhile. */
+  #askIfRefused(): void {
+    const ask = this.#opts.isRefused;
+    if (!ask || this.#asking) return;
+    this.#asking = true;
+    const epoch = this.#epoch;
+    void ask().then((refused) => {
+      this.#asking = false;
+      if (!refused || epoch !== this.#epoch) return;
+      this.close();
+      this.#opts.onRefused?.();
+    });
   }
 
   #scheduleRetry(): void {

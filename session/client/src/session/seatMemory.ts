@@ -7,6 +7,8 @@ export interface RememberedSeat {
   identityId: string;
   token: string;
   sessionId: string;
+  /** The invite code the seat was taken with; seats remembered before it was kept have none. */
+  code?: string;
 }
 
 const keyOf = (campaignId: string): string => `gg.table.seat.${campaignId}`;
@@ -16,7 +18,13 @@ export function rememberedSeat(campaignId: string): RememberedSeat | null {
   try {
     const raw = JSON.parse(localStorage.getItem(keyOf(campaignId)) ?? 'null') as Partial<RememberedSeat> | null;
     if (!raw || typeof raw.name !== 'string' || typeof raw.token !== 'string' || typeof raw.sessionId !== 'string') return null;
-    return { name: raw.name, identityId: String(raw.identityId ?? ''), token: raw.token, sessionId: raw.sessionId };
+    return {
+      name: raw.name,
+      identityId: String(raw.identityId ?? ''),
+      token: raw.token,
+      sessionId: raw.sessionId,
+      ...(typeof raw.code === 'string' ? { code: raw.code } : {}),
+    };
   } catch {
     return null;
   }

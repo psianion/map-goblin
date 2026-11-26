@@ -7,6 +7,25 @@ import { SegmentQuadtree } from './SegmentQuadtree'
 import { extractWallSegments } from './raycaster'
 import { useStore } from '../../store/store'
 import type { Segment } from './raycaster'
+import { shownLight } from '../../shared/lightEmbers'
+import { isMoving } from '../../shared/lightMotion'
+
+/**
+ * The light as the sweep and the composite draw it: embers applied (`shownLight`). The same
+ * object back for a light that is not burning as embers, and one cached object per stored
+ * light that is, so the store's per-light identity still says whether anything changed.
+ */
+const shownCache = new WeakMap<LightChild, LightChild>()
+function asShown(light: LightChild): LightChild {
+  const shown = shownLight(light)
+  if (shown === light) return light
+  let cached = shownCache.get(light)
+  if (!cached) {
+    cached = shown
+    shownCache.set(light, cached)
+  }
+  return cached
+}
 
 /** One room face of the shown level and the place it resolves to (the grade mask's input). */
 export interface RegionFace {
@@ -90,7 +109,12 @@ export class LightManager {
     return this.lights.filter((l) => l.visible !== false)
   }
 
-  syncFromStore(newLights: LightChild[]): void {
+  /** Counters for the work-count guards: how many visibility sweeps have run. */
+  readonly stats = { sweeps: 0 }
+
+  /** The store's lights, as they light: one burning as embers is held at its embers values (`shownLight`). */
+  syncFromStore(storeLights: LightChild[]): void {
+    const newLights = storeLights.map(asShown)
     const prevMap = new Map(this.lights.map((l) => [l.id, l]))
     const newIds = new Set(newLights.map((l) => l.id))
 
@@ -115,8 +139,11 @@ export class LightManager {
         // The sweep's own inputs beyond position and reach: the wedge, and whether walls cut it.
         const shapeChanged =
           prev.cone?.angle !== light.cone?.angle ||
-          prev.cone?.direction !== light.cone?.direction ||
-          !!prev.throughWalls !== !!light.throughWalls
+          // A moving cone is swept as the full circle, so where it points does not reach the sweep.
+          (!isMoving(light) && prev.cone?.direction !== light.cone?.direction) ||
+          !!prev.throughWalls !== !!light.throughWalls ||
+          // A moving cone is swept as the full circle, a still one as its wedge.
+          isMoving(prev) !== isMoving(light)
         if (posChanged || radChanged || falloffChanged || shapeChanged) {
           this.markStale(light.id)
         }
@@ -177,7 +204,9 @@ export class LightManager {
     if (cached && !this.dirtySet.has(light.id)) {
       return cached
     }
-    // A through-walls light sweeps against nothing: its pool is the full disc (or wedge).
+    // A through-walls light sweeps against nothing: its pool is the full disc (or wedge). A
+    // moving cone is swept once as the full circle and turned by a wedge mask each frame
+    // (LightingRenderer), so its motion never sweeps again.
     const nearSegments = light.throughWalls
       ? []
       : this.quadtree.query(
@@ -190,8 +219,9 @@ export class LightManager {
       [light.position.x, light.position.y],
       light.radius,
       nearSegments,
-      light.cone,
+      isMoving(light) ? undefined : light.cone,
     )
+    this.stats.sweeps++
     this.shadowCache.set(light.id, polygon)
     this.dirtySet.delete(light.id)
     return polygon

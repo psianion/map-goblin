@@ -290,9 +290,33 @@ export function refreshDmToken(campaignId: string, token: string): Promise<{ tok
   return request(`/api/campaigns/${encodeURIComponent(campaignId)}/dm-token/refresh`, { method: 'POST' }, token);
 }
 
+/**
+ * What the server made of a seat: a fresh token for the same seat, a seat it will never take
+ * again (expired, banned, its table ended), or no answer worth acting on.
+ */
+export type SeatRenewal = { token: string; exp: number } | 'refused' | 'unreachable';
+
+/**
+ * Any session token → a fresh one for the same seat. Not through `request`: the callers branch
+ * on the outcome, not on a sentence, and its 401 wording is about the admin pass.
+ */
+export async function renewSeat(token: string): Promise<SeatRenewal> {
+  try {
+    const res = await fetch(`${endpoints.httpBase}/api/seat/refresh`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401 || res.status === 403) return 'refused';
+    if (!res.ok) return 'unreachable';
+    return (await res.json()) as { token: string; exp: number };
+  } catch {
+    return 'unreachable';
+  }
+}
+
 // ─── Plumbing ───────────────────────────────────────────────
 
-const UNREACHABLE = 'Could not reach the server. Check the address, and that it is running.';
+export const UNREACHABLE = 'Could not reach the server. Check the address, and that it is running.';
 
 /** Statuses whose server-side wording is too terse to put in front of a person. */
 const FRIENDLY: Record<number, string> = {
