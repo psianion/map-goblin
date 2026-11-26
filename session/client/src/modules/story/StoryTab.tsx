@@ -8,7 +8,7 @@ import { usePortraitUrl } from '../../shell/portrait';
 import { withoutSupersededSeats } from '../../shell/top/roster';
 import { uploadArt } from '../tokens/portrait';
 import { useMapRooms, useScenePrep } from '../triggers/scenePrep';
-import { currentAudience, useStoryAudience } from './audience';
+import { currentAudience, stillUp, stillUpText, useStoryAudience } from './audience';
 
 const send = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('story', action, payload);
 
@@ -92,6 +92,11 @@ export function StoryBody() {
             Hide
           </Button>
         </div>
+        {story.titleCard && (
+          <span className="text-xs text-text-3" data-testid="story-title-count">
+            {stillUpText(stillUp(story.titleCard, withoutSupersededSeats(roster)))}
+          </span>
+        )}
       </section>
 
       <section className="flex flex-col gap-1">
@@ -195,6 +200,7 @@ function HandoutCard({ h, shown }: { h: Handout; shown: StoryState['shown'] }) {
 /** Board 17, right: the handouts with Add, Show and Hide. */
 export function StoryStrip() {
   const story = useStory();
+  const seats = withoutSupersededSeats(useSessionStore((s) => s.session?.players ?? []));
   const [adding, setAdding] = useState(false);
   const [caption, setCaption] = useState('');
   const [text, setText] = useState('');
@@ -270,9 +276,14 @@ export function StoryStrip() {
         </Button>
       )}
       {story.shown && (
-        <Button variant="ghost" size="sm" className="shrink-0 self-start" onClick={() => send('hide', {})}>
-          Hide from everyone
-        </Button>
+        <div className="flex shrink-0 flex-col items-start gap-0.5" data-testid="story-showing">
+          <Button variant="ghost" size="sm" onClick={() => send('hide', {})}>
+            Hide from everyone
+          </Button>
+          <span className="px-2.5 text-xs text-text-3" data-testid="story-showing-count">
+            {stillUpText(stillUp(story.shown, seats))}
+          </span>
+        </div>
       )}
     </div>
   );

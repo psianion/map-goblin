@@ -50,16 +50,13 @@ test.describe('@play pause', () => {
   test('a paused table freezes the player’s seat, and resuming frees it', async ({ hostSession, joinAsPlayer }) => {
     const dm = hostSession.page;
     const player = await joinAsPlayer('Bram');
-    await assertMapLoaded(player);
 
-    // Bram's piece is the player's to move.
+    // Bram's piece is the player's to move: picked in the lobby, on the map at Start.
     const seat = await player.evaluate(() => (window as unknown as Probe).__sessionStore.getState().you!.identityId);
-    await dm.evaluate((identityId) => {
-      const store = (window as unknown as Probe).__sessionStore.getState();
-      const tokens = (store.session.modules.tokens as { byScene: Record<string, Record<string, { id: string; name: string }>> }).byScene;
-      const token = Object.values(tokens[store.session.activeSceneId ?? ''] ?? {}).find((t) => t.name === 'Bram')!;
-      store.sendCommand('tokens', 'assign', { id: token.id, identityId });
-    }, seat);
+    await player.getByTestId('lobby-pc').filter({ hasText: 'Bram' }).click();
+    await expect(player.getByTestId('lobby-mine')).toHaveText('Bram');
+    await dm.getByTestId('lobby-start').click();
+    await assertMapLoaded(player);
     await expect.poll(async () => (await bram(player))?.ownerId).toBe(seat);
 
     // The DM pauses from the Session menu; a Paused chip sits by the title.

@@ -125,16 +125,10 @@ test.describe('@map the fog, on the outdoor cave', () => {
     const context = await newContext();
     const player = await context.newPage();
     await joinTable(player, invite, 'Pim');
-    const me = await player.evaluate(() => (window as unknown as { __sessionStore: StoreProbe }).__sessionStore.getState().you!.identityId);
-    const bram = await page.evaluate(() => {
-      const st = (
-        window as unknown as {
-          __sessionStore: { getState(): { session: { activeSceneId: string; modules: { tokens: { byScene: Record<string, Record<string, { id: string; name: string }>> } } } } };
-        }
-      ).__sessionStore.getState();
-      return Object.values(st.session.modules.tokens.byScene[st.session.activeSceneId]!).find((t) => t.name === 'Bram')!.id;
-    });
-    await send(page, 'tokens', 'assign', { id: bram, identityId: me });
+    // The table waits in the lobby: Pim picks Bram there, and Start puts him in the party start area.
+    await player.getByTestId('lobby-pc').filter({ hasText: 'Bram' }).click();
+    await expect(player.getByTestId('lobby-mine')).toHaveText('Bram');
+    await send(page, 'table', 'start', { on: true });
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.partyStart);
     await expect.poll(() => roomsHeld(player)).toContain('room-hall');
     await expect.poll(() => tokenAt(player, 'Goblin')).not.toBeNull();

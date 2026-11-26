@@ -13,19 +13,22 @@ function bramAndMe(page: Page): Promise<{ me: string | null; owner: string | nul
   });
 }
 
-/** The DM hands Bram to a seat: the Owner picker's command. */
+/**
+ * The seat picks Bram in the lobby, which stamps its name on him, and the DM starts the table,
+ * which puts him on the map (table lobby pass).
+ */
 async function handBram(hostSession: { page: Page; token: string }, seat: Page): Promise<string> {
-  const { bramId } = await bramAndMe(hostSession.page);
   const { me } = await bramAndMe(seat);
-  expect(bramId, 'Bram on the live scene').not.toBeNull();
   expect(me, 'the seat has an identity').not.toBeNull();
-  await dmCommands(hostSession.token, [{ module: 'tokens', action: 'assign', payload: { id: bramId, identityId: me } }]);
+  await seat.getByTestId('lobby-pc').filter({ hasText: 'Bram' }).click();
+  await expect(seat.getByTestId('lobby-mine')).toHaveText('Bram');
+  await dmCommands(hostSession.token, [{ module: 'table', action: 'start', payload: { on: true } }]);
   await expect.poll(async () => (await bramAndMe(seat)).owner).toBe(me);
   return me!;
 }
 
 test.describe('@rejoin a returning player', () => {
-  test('the Owner picker stamps the name, and a new tab is offered "Continue as"', async ({ hostSession, newContext }) => {
+  test('picking a character stamps the name, and a new tab is offered "Continue as"', async ({ hostSession, newContext }) => {
     const context = await newContext();
     const pim = await context.newPage();
     await joinTable(pim, hostSession.inviteCode, 'Pim');

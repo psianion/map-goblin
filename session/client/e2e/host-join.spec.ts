@@ -17,6 +17,7 @@ test.describe('@host host and join', () => {
     await expect(page.getByTestId('library-card')).toHaveCount(1);
     await expect(page.getByTestId('library-card')).toContainText('Published');
     await expect(page.getByTestId('host-starting-room')).toBeVisible();
+    await expect(page.getByTestId('host-starting-room')).toContainText('Where the party starts');
     await page.getByTestId('start-room').first().click();
 
     await page.getByTestId('host-back').click();
@@ -59,10 +60,12 @@ test.describe('@host host and join', () => {
     expect(new URL(page.url()).hash).toBe('');
   });
 
-  test('a player joins and waits while no scene is live, then sees the table', async ({ hostSession, newContext }) => {
+  test('a player joins into the lobby, then sees the table once the DM starts it', async ({ hostSession, newContext }) => {
     const player = await (await newContext()).newPage();
     await joinTable(player, hostSession.inviteCode, 'Pia');
     await expect(hostSession.page.getByTestId('presence-avatar')).toHaveCount(2);
+    await expect(player.getByTestId('lobby')).toBeVisible();
+    await hostSession.page.getByTestId('lobby-start').click();
     await expect(player.getByTestId('title-card')).toBeVisible();
   });
 });
