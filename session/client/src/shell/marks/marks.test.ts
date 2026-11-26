@@ -5,7 +5,19 @@ import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { attachMarkInput } from './markInput';
-import { CLEAR_DRAWINGS, CLEAR_TEMPLATES, LEAVE_MS, adoptOwnTemplate, distanceLabel, receiveMark, sendMark, useMarks } from './marks';
+import { STROKE_MAX, rulerCells } from './geometry';
+import {
+  CLEAR_DRAWINGS,
+  CLEAR_TEMPLATES,
+  LEAVE_MS,
+  MARK_TTL_MS,
+  adoptOwnTemplate,
+  distanceLabel,
+  receiveMark,
+  sendMark,
+  useMarks,
+  useTemplateShape,
+} from './marks';
 import { useLocalPins } from './pins';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'DM', role: 'dm', connected: true };
@@ -17,6 +29,7 @@ beforeEach(() => {
   useSessionStore.setState({ you: dm });
   useMarks.setState({ marks: [] });
   useLocalPins.setState({ pins: [] });
+  useTemplateShape.setState({ shape: 'circle' });
   canvas = document.createElement('canvas');
   document.body.appendChild(canvas);
   // One world unit per ten screen pixels, no offset.
@@ -41,14 +54,99 @@ describe('mark tools', () => {
     ]);
   });
 
-  it('holds a ruler while dragging and drops it on release', () => {
+  it('snaps a ruler to cell centres, holds it while dragging, and lets it fade 1.5 s after release', () => {
+    useActiveTool.getState().setActiveTool('measure');
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 2, clientY: 3 });
+    fireEvent.pointerMove(canvas, { clientX: 31, clientY: 44 });
+    expect(useMarks.getState().marks[0]?.msg).toEqual({ kind: 'ruler', from: { x: 0.5, y: 0.5 }, to: { x: 3.5, y: 4.5 } });
+    expect(rulerCells({ x: 0.5, y: 0.5 }, { x: 3.5, y: 4.5 })).toBe(4);
+    fireEvent.pointerUp(canvas, {});
+    expect(useMarks.getState().marks).toHaveLength(1);
+    useMarks.getState().prune(Date.now() + MARK_TTL_MS.ruler - 100);
+    expect(useMarks.getState().marks).toHaveLength(1);
+    useMarks.getState().prune(Date.now() + MARK_TTL_MS.ruler + 1);
+    expect(useMarks.getState().marks).toEqual([]);
+  });
+
+  it('measures the straight line freely with Alt held', () => {
+    useActiveTool.getState().setActiveTool('measure');
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 2, clientY: 3, altKey: true });
+    fireEvent.pointerMove(canvas, { clientX: 32, clientY: 43, altKey: true });
+    const msg = useMarks.getState().marks[0]?.msg;
+    expect(msg).toEqual({ kind: 'ruler', from: { x: 0.2, y: 0.3 }, to: { x: 3.2, y: 4.3 } });
+    expect(rulerCells({ x: 0.2, y: 0.3 }, { x: 3.2, y: 4.3 })).toBeCloseTo(5);
+  });
+
+  it('always sends where the ruler was let go, however fast the last move came', () => {
+    const sent: unknown[] = [];
+    const real = useSessionStore.getState().sendMark;
+    useSessionStore.setState({ sendMark: (m) => sent.push(m) });
+    useActiveTool.getState().setActiveTool('measure');
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(canvas, { clientX: 10, clientY: 0 });
+    fireEvent.pointerMove(canvas, { clientX: 55, clientY: 0 });
+    fireEvent.pointerUp(canvas, {});
+    useSessionStore.setState({ sendMark: real });
+    expect(sent.at(-1)).toEqual({ kind: 'ruler', from: { x: 0.5, y: 0.5 }, to: { x: 5.5, y: 0.5 } });
+  });
+
+  it('calls a ruler drag off with Esc, keeping the tool in hand, and with a right-click', () => {
     useActiveTool.getState().setActiveTool('measure');
     fireEvent.pointerDown(canvas, { button: 0, clientX: 0, clientY: 0 });
     fireEvent.pointerMove(canvas, { clientX: 30, clientY: 40 });
-    expect(useMarks.getState().marks[0]?.msg).toEqual({ kind: 'ruler', from: { x: 0, y: 0 }, to: { x: 3, y: 4 } });
-    fireEvent.pointerUp(canvas, {});
-    useMarks.getState().prune(Date.now() + 2000);
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.dispatchEvent(esc);
+    expect(esc.defaultPrevented).toBe(true);
+    expect(useActiveTool.getState().activeTool).toBe('measure');
+    // Leaving: a move after the cancel no longer drags it.
+    fireEvent.pointerMove(canvas, { clientX: 90, clientY: 90 });
+    expect(useMarks.getState().marks[0]?.msg).toMatchObject({ to: { x: 3.5, y: 4.5 } });
+    useMarks.getState().prune(Date.now() + LEAVE_MS + 1);
     expect(useMarks.getState().marks).toEqual([]);
+
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(canvas, { clientX: 30, clientY: 40, button: 2 });
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    canvas.dispatchEvent(menu);
+    expect(menu.defaultPrevented).toBe(true);
+    useMarks.getState().prune(Date.now() + LEAVE_MS + 1);
+    expect(useMarks.getState().marks).toEqual([]);
+  });
+
+  it('lays each template shape from a snapped origin in whole cells, a cone and a line aimed at the pointer', () => {
+    const sent: unknown[] = [];
+    const real = useSessionStore.getState().sendMark;
+    useSessionStore.setState({ sendMark: (m) => sent.push(m) });
+    useActiveTool.getState().setActiveTool('template');
+    for (const shape of ['circle', 'cone', 'line', 'square'] as const) {
+      useTemplateShape.getState().setShape(shape);
+      fireEvent.pointerDown(canvas, { button: 0, clientX: 1, clientY: 51 });
+      fireEvent.pointerMove(canvas, { clientX: 42, clientY: 51 });
+      fireEvent.pointerUp(canvas, {});
+    }
+    useSessionStore.setState({ sendMark: real });
+    // (0.1, 5.1) snaps to the corner (0, 5); the pointer is 4.2 cells away, so 4 cells.
+    expect(sent).toEqual([
+      { kind: 'template', shape: 'circle', origin: { x: 0, y: 5 }, size: 4 },
+      { kind: 'template', shape: 'cone', origin: { x: 0, y: 5 }, size: 4, toward: { x: 4.2, y: 5.1 } },
+      { kind: 'template', shape: 'line', origin: { x: 0, y: 5 }, size: 4, toward: { x: 4.2, y: 5.1 } },
+      { kind: 'template', shape: 'square', origin: { x: 0, y: 5 }, size: 4, toward: { x: 4.2, y: 5.1 } },
+    ]);
+    useTemplateShape.getState().setShape('circle');
+  });
+
+  it('thins a long stroke as it is drawn so it never passes 500 points', () => {
+    const sent: { kind: string; points?: unknown[] }[] = [];
+    const real = useSessionStore.getState().sendMark;
+    useSessionStore.setState({ sendMark: (m) => sent.push(m as never) });
+    useActiveTool.getState().setActiveTool('draw');
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 0, clientY: 0 });
+    for (let i = 1; i <= 4000; i++) fireEvent.pointerMove(canvas, { clientX: 400 + 300 * Math.cos(i / 50), clientY: 300 * Math.sin(i / 50) });
+    fireEvent.pointerUp(canvas, {});
+    useSessionStore.setState({ sendMark: real });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.points!.length).toBeGreaterThan(100);
+    expect(sent[0]!.points!.length).toBeLessThanOrEqual(STROKE_MAX);
   });
 
   // Table fix pass, decision d: a template stands until the DM clears it; a drawing keeps 10 s.
@@ -97,8 +195,12 @@ describe('mark tools', () => {
     expect(useLocalPins.getState().pins[0]).toMatchObject({ x: 2, y: 3, text: '', dmOnly: true });
   });
 
-  it('leaves the pointer alone with Select in hand', () => {
+  it('leaves the pointer alone with Select or another tool in hand', () => {
     fireEvent.pointerDown(canvas, { button: 0, clientX: 20, clientY: 30 });
+    expect(useMarks.getState().marks).toEqual([]);
+    useActiveTool.getState().setActiveTool('party-start');
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 20, clientY: 30 });
+    fireEvent.pointerUp(canvas, {});
     expect(useMarks.getState().marks).toEqual([]);
   });
 });
