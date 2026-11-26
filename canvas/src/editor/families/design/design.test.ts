@@ -720,6 +720,45 @@ describe('the floor card', () => {
     expect(child<ShapeChild>('b')).not.toHaveProperty('edgeBand', null);
   });
 
+  it("shows a brush cave one rock choice, its own, and changes it in one undo step", () => {
+    seed([shape('c', { edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } })], ['c']);
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).style.wallTextureSetId = 'stone';
+    });
+    const c = () => child<ShapeChild>('c');
+    const shown = (id: string) => { const f = field('shape', id); return !f.visibleWhen || f.visibleWhen(c()); };
+    // The rock it has, picked; no Walls or Edge band beside it to disagree.
+    expect(shown('card.floor.rock')).toBe(true);
+    expect(shown('card.floor.walls')).toBe(false);
+    expect(shown('card.floor.edgeBand')).toBe(false);
+    expect(read('shape', 'card.floor.rock', c())).toBe('GG_Cave_Ink');
+    write('shape', 'card.floor.rock', ['c'], 'GG_Cave_Moss');
+    expect(c().edgeMaterial).toBe('GG_Cave_Moss');
+    expect(c().styleOverrides?.wallTextureSetId).toBe('');
+    expect(c().ground).toBeUndefined();
+    expect(read('shape', 'card.floor.rock', c())).toBe('GG_Cave_Moss');
+    expect(undoManager.size()).toBe(1);
+    undoManager.undo();
+    expect(c().edgeMaterial).toBe('GG_Cave_Ink');
+    // Wall width keeps writing the cave's own pin.
+    write('shape', 'card.floor.wallWidth', ['c'], 0.75);
+    expect(c().styleOverrides?.wallWidth).toBe(0.75);
+  });
+
+  it("a brush ground piece's rock rim is changed by its rock choice, not by an Edge band it never reads", () => {
+    seed([shape('g', { ground: true, edgeMaterial: 'GG_Cave_Ink' }), shape('plain')], ['g']);
+    const g = () => child<ShapeChild>('g');
+    const shown = (id: string, o: ShapeChild) => { const f = field('shape', id); return !f.visibleWhen || f.visibleWhen(o); };
+    expect(shown('card.floor.rock', g())).toBe(true);
+    expect(shown('card.floor.edgeBand', g())).toBe(false);
+    write('shape', 'card.floor.rock', ['g'], 'GG_Cave_Moss');
+    expect(g().edgeMaterial).toBe('GG_Cave_Moss');
+    expect(g().ground).toBe(true);
+    // A floor with no rock of its own has no rock choice.
+    expect(shown('card.floor.rock', child<ShapeChild>('plain'))).toBe(false);
+    expect(shown('card.floor.edgeBand', child<ShapeChild>('plain'))).toBe(true);
+  });
+
   it('sets a floor’s Height in half steps, undoably, 0 stored as nothing', () => {
     seed([shape('a')], ['a']);
     const a = () => child<ShapeChild>('a');

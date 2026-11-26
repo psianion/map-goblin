@@ -604,7 +604,7 @@ describe('cases the checker had not seen, with a seeded kit', () => {
   const caves = (bands: LaidBand[]) => bands.filter((b) => b.kind !== 'cliff');
   const tipsOf = (b: LaidBand): V[] => [b.ring[0] as V, b.ring[b.ring.length - 1] as V];
 
-  it('cuts a cliff where it crosses a brush cave’s rock, each stretch stopping at the rock’s face', () => {
+  it('cuts a cliff where it crosses a brush cave’s rock, each stretch running on to the rock’s line and narrowing only over that rock', () => {
     seedKit();
     const { bands, rockLines } = layLayer(CAVE_CASES[0].layer(KITS));
     expect(broken(caves(bands)), report(bands)).toEqual(clean(caves(bands)));
@@ -614,10 +614,10 @@ describe('cases the checker had not seen, with a seeded kit', () => {
     const half = BAND_DRAWN_WIDTH / 2;
     for (const c of cliffs) {
       expect(c.closed).toBe(false);
-      // Each tip at the face of the rock (half its width off its line), within 0.15.
-      for (const t of tipsOf(c)) expect(Math.abs(Math.min(...rock.map((w) => toLine(t, w))) - half)).toBeLessThanOrEqual(0.15);
-      // Nowhere else nearer the rock's line than its face, less 0.15.
-      for (const p of c.ring as V[]) expect(Math.min(...rock.map((w) => toLine(p, w)))).toBeGreaterThanOrEqual(half - 0.15);
+      // Each tip on the rock's line, within 0.05: it runs on under the rock.
+      for (const t of tipsOf(c)) expect(Math.min(...rock.map((w) => toLine(t, w)))).toBeLessThanOrEqual(0.05);
+      // It narrows only over that rock: away from its tips (twice the rock's half width, for a slanted crossing), nowhere nearer the rock's line than its face, less 0.15.
+      for (const p of c.ring as V[]) if (Math.min(...tipsOf(c).map((t) => Math.hypot(p[0] - t[0], p[1] - t[1]))) > 2 * half) expect(Math.min(...rock.map((w) => toLine(p, w)))).toBeGreaterThanOrEqual(half - 0.15);
     }
   });
 

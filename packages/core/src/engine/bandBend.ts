@@ -58,6 +58,8 @@ export interface PieceBend {
   b?: BendEnd;
   /** Each end narrowed to a tip: an open end with no end piece laid there. */
   taper?: [boolean, boolean];
+  /** How far back from each tapered end it narrows, world cells; 0 or absent takes the kit's own reach (TAPER_REACH). */
+  reach?: [number, number];
   /** The share of its rock's width left at its art's start and end, drawn in toward its middle in a straight line between: a piece narrowing into a sharp tip. */
   narrow?: [number, number];
   /** The size the piece's stretch was laid at: every distance here is cells times this. */
@@ -127,6 +129,8 @@ interface EndFrame {
   /** The joint's slope; null for an end only tapered. */
   slope: number | null;
   taper: boolean;
+  /** How far back from its end a tapered end narrows. */
+  taperLen: number;
   /** The middle of the solid rock along this end: [outward, offset] pairs, outward rising. */
   middle: Vec[] | null;
   /** On a bend: where its art ends, from the centre, that distance, and which way round is inward. */
@@ -199,6 +203,8 @@ function warpOf(pl: WalkPlacement): PieceWarp | null {
   });
   const overlap = (END_OVERLAP_PX / GRID_CELL_PX) * pl.at.scale;
   const taperLen = Math.min(TAPER_REACH * unit, TAPER_SHARE * chord);
+  // An end given its own reach narrows over that, never over more than the piece.
+  const taperOf = (k: 0 | 1): number => (bend.reach?.[k] ? Math.min(bend.reach[k], chord) : taperLen);
   const ends: EndFrame[] = [];
   for (const k of [0, 1] as const) {
     const mitre = k === 0 ? bend.a : bend.b;
@@ -230,6 +236,7 @@ function warpOf(pl: WalkPlacement): PieceWarp | null {
       side,
       slope: mitre ? slopes[k] : null,
       taper,
+      taperLen: taperOf(k),
       middle: mid2 && mid2.length >= 2 ? mid2 : null,
       r0,
       r0Len: Math.hypot(r0[0], r0[1]),
@@ -314,8 +321,8 @@ function warpOf(pl: WalkPlacement): PieceWarp | null {
         mx = mx + (e.out[0] * a + e.n[0] * b);
         my = my + (e.out[1] * a + e.n[1] * b);
       }
-      if (e.taper && taperLen > 0) {
-        const q = 1 - inward / taperLen;
+      if (e.taper && e.taperLen > 0) {
+        const q = 1 - inward / e.taperLen;
         if (q > 0) {
           // On a narrowing piece the taper narrows what is left of it.
           const c = (pull ?? middleAt(e, s) - w) * (1 - share * taperWidth(q));
@@ -442,12 +449,12 @@ function meshCuts(warp: PieceWarp, curved: boolean, tl: Vec, ux: Vec, uy: Vec): 
         }
       }
     }
-    if (e.taper && warp.taperLen > 0) {
+    if (e.taper && e.taperLen > 0) {
       // Round the quarter circle, as finely as the furthest art from the rock's middle asks: the
       // last span, at the tip, strays a quarter of its angle times that.
       const moved = far + (e.middle ? Math.max(...e.middle.map((m) => Math.abs(m[1]))) : warp.rockHalf);
       const steps = Math.max(4, Math.ceil(Math.PI / 2 / ((4 * tol) / Math.max(moved, 1e-9))));
-      for (let k = 0; k <= steps; k++) inwardAt(warp.taperLen * (1 - Math.sin(((Math.PI / 2) * k) / steps)));
+      for (let k = 0; k <= steps; k++) inwardAt(e.taperLen * (1 - Math.sin(((Math.PI / 2) * k) / steps)));
     }
   }
   // A narrowing piece draws its art in by a share that grows along it and with the offset: a twist

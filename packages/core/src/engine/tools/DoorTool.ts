@@ -574,6 +574,7 @@ export class DoorTool implements DrawingTool {
     }
     const plan = stairSpanAt(layer, [point.x, point.y], store.tools.settings.doorWidth || 1);
     if (!plan || !plan.valid) {
+      if (plan?.why) notify.warning(plan.why);
       store.setSelectedIds([]);
       return;
     }

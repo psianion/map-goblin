@@ -529,11 +529,16 @@ export function stairFlights(layer: Pick<DungeonLayer, 'children'> & { mergedFlo
         });
         if (!best) continue;
         const { drop, a, b } = best as { drop: number; a: Vec; b: Vec };
-        const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-        // Outside is the left of travel along the ring: (dy, -dx). A plateau's low side is outside, a pit's inside.
-        const left: Vec = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
-        let down: Vec = drop > 0 ? left : [-left[0], -left[1]];
         const [p, q] = [line[0], line[line.length - 1]];
+        // The flight lies square across the chord between the span's ends, so it is exactly as wide
+        // as the gap cut for it, on a diagonal or curved stretch as on a straight one.
+        const chord = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        const [ux, uy] = chord > 1e-9 ? [(q[0] - p[0]) / chord, (q[1] - p[1]) / chord] : [(b[0] - a[0]) / (Math.hypot(b[0] - a[0], b[1] - a[1]) || 1), (b[1] - a[1]) / (Math.hypot(b[0] - a[0], b[1] - a[1]) || 1)];
+        // Outside is the left of travel along the ring: (dy, -dx), the chord turned the ring's way.
+        // A plateau's low side is outside, a pit's inside.
+        const way = ux * (b[0] - a[0]) + uy * (b[1] - a[1]) >= 0 ? 1 : -1;
+        const left: Vec = [uy * way, -ux * way];
+        let down: Vec = drop > 0 ? left : [-left[0], -left[1]];
         const floor = layer.mergedFloor;
         if (floor && floor.length > 0) {
           const mid: Vec = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];

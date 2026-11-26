@@ -17,7 +17,7 @@ import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import { layBandRing } from './caveBandRenderer';
 import { cliffArt, cliffPieces } from './plateauKit';
 import { cliffLineOf, cliffRockLines, rockLineOf } from './rockLines';
-import { cliffKey, cliffLedge, laidRuns, ledgeRuns, renderPlateaus, walkCliff } from './plateauRenderer';
+import { cliffFreeTips, cliffKey, cliffLedge, fittedAlongWalls, laidRuns, ledgeRuns, renderPlateaus, walkCliff } from './plateauRenderer';
 import { jointsOf } from '../assets/caveWallKit';
 import { bandSize } from '../assets/packCatalog';
 import { layerPlateaus, pointInPoly } from '../shared/plateaus';
@@ -93,6 +93,14 @@ const toRock = (p: readonly number[], line: RockLine) => Math.min(...line.runs.m
 const mid = (pl: WalkPlacement): Pt => [(pl.P[0] + pl.Q[0]) / 2, (pl.P[1] + pl.Q[1]) / 2];
 /** A walk's two outer joints. */
 const tipsOf = (walk: WalkPlacement[]) => [jointsOf(walk[0].piece, walk[0].at)[0], jointsOf(walk[walk.length - 1].piece, walk[walk.length - 1].at)[1]];
+/** How far past its head (`k` 0) or tail end `p` lies along a run of `pts`, read over its last half cell: less than 0 short of it. */
+function alongEnd(pts: readonly (readonly number[])[], k: number, p: readonly number[]): number {
+  const run = k === 0 ? pts : [...pts].reverse();
+  const end = run[0];
+  const back = run.find((q) => dist(q, end) >= 0.5) ?? run[run.length - 1];
+  const len = dist(end, back);
+  return ((end[0] - back[0]) * (p[0] - end[0]) + (end[1] - back[1]) * (p[1] - end[1])) / len;
+}
 
 /** Everything drawn under `parent` with `label`. */
 function drawnWith(parent: Container, label: string): Container[] {
@@ -250,7 +258,138 @@ describe('other cliffs against a wall', () => {
     expect(drawn[0].filter((pl) => pl.branch === 'end')).toEqual([]);
   });
 
-  it('stops a cliff short of a painted cave’s rock, at its floor-side face', () => {
+  const paintedCave = (ring: Pt[] = room): ShapeChild => ({
+    id: 'cave',
+    name: 'cave',
+    childType: 'shape',
+    visible: true,
+    shapeType: 'polygon',
+    contours: [ring],
+    textureScale: 1,
+    textureOffsetX: 0,
+    textureOffsetY: 0,
+    textureFillRotation: 0,
+    textureTint: '#ffffff',
+    edgeMaterial: SET,
+    styleOverrides: { wallTextureSetId: '' },
+  });
+  const even = (p: Pt, rings: Pt[][]) => rings.reduce((hit, r) => (pointInPoly(p[0], p[1], r) ? !hit : hit), false);
+
+  // A plateau or pit running out through a painted cave's top wall (y 0): square, at 45° and at 30°.
+  const square = rect(4, -1, 7, 3);
+  const at45: Pt[] = [[1, -1], [5, -1], [9, 3], [5, 3]];
+  const at30: Pt[] = [[1.5, -0.5], [3.5, -0.5], [3.5 + 3.5 * Math.sqrt(3), 3], [1.5 + 3.5 * Math.sqrt(3), 3]];
+  const cases: [string, Pt[], number][] = [
+    ['square', square, 1],
+    ['at 45°', at45, 1 / Math.SQRT1_2],
+    ['at 30°', at30, 2],
+  ];
+  for (const saved of [true, false]) {
+    for (const height of [2, -1]) {
+      for (const [name, ring, slant] of cases) {
+        it(`runs a ${height > 0 ? 'plateau' : 'pit'}’s cliff on into a painted cave’s rock ${name}, ${saved ? 'with' : 'with no'} saved line: full width to the face, its tip in the rock`, () => {
+          const wall = wallOf(room);
+          const layer = layerOf([paintedCave(), plat(ring, height)], saved ? { rockLines: [wall] } : {});
+          const half = 0.6 * bandSize(SET, 0.5);
+          const { stretches, placed, drawn } = cliffOf(layer);
+          const meeting = stretches.filter((s) => s.butts.some(Boolean));
+          expect(meeting.length).toBeGreaterThan(0);
+          // The rock's line: its saved line, else the cave's own outline.
+          const line: RockLine = saved ? wall : { edge: room, closed: true, runs: [[...room, room[0]]] };
+          for (const [i, s] of stretches.entries()) {
+            const pts = s.run.points;
+            const tips = [pts[0], pts[pts.length - 1]];
+            for (const k of [0, 1]) {
+              if (!s.butts[k]) continue;
+              // Laid on to the rock's line, not stopped short of it.
+              expect(toRock(tips[k], line)).toBeLessThan(0.05);
+              // Narrowing only over the rock it lies on: half its width, more where it meets it aslant
+              // (a saved line wanders, so its own slant there), never more than twice that.
+              expect(s.reach![k]).toBeGreaterThan(half - 0.05);
+              expect(s.reach![k]).toBeLessThan(2 * half + 0.05);
+              if (!saved) expect(Math.abs(s.reach![k] - half * Math.min(slant, 2))).toBeLessThan(0.05);
+            }
+            // The walk's own tips at the rock are held to the line (bare), never run on past the rock.
+            const walk = placed[i];
+            if (walk.length === 0) continue;
+            const taper = cliffFreeTips(s, drawn[i]);
+            for (const j of tipsOf(walk)) {
+              if (toRock(j, line) > 0.5) continue;
+              expect(toRock(j, line)).toBeLessThan(half);
+              expect(typeof taper?.(j)).toBe('number');
+            }
+          }
+          // The top, or the pit's floor, ends at the rock: none of it on the rock's floor side of the line near a tip.
+          const [band] = layerPlateaus(layer).bands;
+          const top = fittedAlongWalls(band.surface, laidRuns(layer, band), undefined) as Pt[][];
+          for (const s of meeting) {
+            const pts = s.run.points;
+            for (const k of [0, 1]) {
+              if (!s.butts[k]) continue;
+              const tip = (k === 0 ? pts[0] : pts[pts.length - 1]) as Pt;
+              expect(even([tip[0], tip[1] + half * 0.5], top)).toBe(false);
+            }
+          }
+        });
+      }
+    }
+  }
+
+  // A brushed, curved plateau or pit (48 short edges, a hair of wobble) running out through a wide
+  // painted cave's top wall (y 0): a round one meeting it square, an oval one a cell past it at 45° and at 30°.
+  const wide = rect(0, 0, 16, 10);
+  const brushed = (deg: number): Pt[] => {
+    const square = deg === 90;
+    const [b, cy] = square ? [3, 0] : [3, 2];
+    const a = square ? 3 : (b * Math.sqrt(1 - (cy / b) ** 2)) / ((cy / b) * Math.tan((deg * Math.PI) / 180));
+    return Array.from({ length: 48 }, (_, k) => {
+      const t = (2 * Math.PI * k) / 48 + 0.03;
+      const w = 1 + 0.01 * Math.sin(5 * t);
+      return [8 + a * w * Math.cos(t), cy + b * w * Math.sin(t)] as Pt;
+    });
+  };
+  for (const saved of [true, false]) {
+    for (const height of [2, -1]) {
+      for (const [name, deg] of [['square', 90], ['at 45°', 45], ['at 30°', 30]] as [string, number][]) {
+        it(`runs a curved ${height > 0 ? 'plateau' : 'pit'}’s cliff on into a painted cave’s rock ${name}, ${saved ? 'with' : 'with no'} saved line: its rock to the rock’s line, no top past it`, () => {
+          const wall = wallOf(wide);
+          const layer = layerOf([paintedCave(wide), plat(brushed(deg), height)], saved ? { rockLines: [wall] } : {});
+          const half = 0.6 * bandSize(SET, 0.5);
+          const { stretches, placed } = cliffOf(layer);
+          let tips = 0;
+          for (const [i, s] of stretches.entries()) {
+            const walk = placed[i];
+            if (walk.length === 0) continue;
+            const pts = s.run.points;
+            const outer = tipsOf(walk);
+            for (const k of [0, 1]) {
+              if (!s.butts[k]) continue;
+              const tip = k === 0 ? pts[0] : pts[pts.length - 1];
+              const joint = outer.reduce((b, j) => (dist(j, tip) < dist(b, tip) ? j : b));
+              // The walk's own tip is level with the rock's line, along the run (a walked curve's rock sits off its
+              // outline, on the low side): full width up to the rock, narrowing only over it, no stump past it.
+              expect(Math.abs(alongEnd(pts, k, joint))).toBeLessThan(0.08);
+              tips++;
+            }
+          }
+          expect(tips).toBeGreaterThan(0);
+          // The top, or the pit's floor, ends at the rock.
+          const [band] = layerPlateaus(layer).bands;
+          const top = fittedAlongWalls(band.surface, laidRuns(layer, band), undefined) as Pt[][];
+          for (const s of stretches) {
+            const pts = s.run.points;
+            for (const k of [0, 1]) {
+              if (!s.butts[k]) continue;
+              const tip = (k === 0 ? pts[0] : pts[pts.length - 1]) as Pt;
+              expect(even([tip[0], tip[1] + half * 0.5], top)).toBe(false);
+            }
+          }
+        });
+      }
+    }
+  }
+
+  it('stops a cliff at a painted cave’s rock with its rock under the cave’s, not before it', () => {
     const cave: ShapeChild = {
       id: 'cave',
       name: 'cave',
@@ -272,11 +411,12 @@ describe('other cliffs against a wall', () => {
     expect(stretches).toHaveLength(1);
     expect(stretches[0].merged).toEqual([true, true]);
     const pts = stretches[0].run.points;
+    expect(stretches[0].butts).toEqual([true, true]);
     for (const tip of [pts[0], pts[pts.length - 1]]) {
-      // Half the rock's width back from its line, toward the floor.
-      expect(toRock(tip, wall)).toBeGreaterThan(half - 0.2);
-      expect(toRock(tip, wall)).toBeLessThan(half + 0.1);
-      expect(pointInPoly(tip[0], tip[1], room)).toBe(true);
+      // On to the rock's line, where it lies under the cave's rock.
+      expect(toRock(tip, wall)).toBeLessThan(0.05);
     }
+    // Narrowing over the half of the rock it lies on, from its floor-side face.
+    for (const r of stretches[0].reach!) expect(Math.abs(r - half)).toBeLessThan(0.05);
   });
 });

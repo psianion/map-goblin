@@ -16,10 +16,11 @@ import { setClipperModule } from '../geometry/Clipper2Engine';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import { rebuildDungeonLayer } from './floorWallRenderer';
 import { cliffRockLines } from './rockLines';
-import { cliffFreeTips, cliffLedge, laidRuns, renderPlateaus, walkCliff } from './plateauRenderer';
+import { cliffFreeTips, cliffLedge, laidRuns, plateauAlongWalls, renderPlateaus, STAIR_TAPER, walkCliff, walkStretch } from './plateauRenderer';
+import { stairSpanAt } from '../shared/stairPlace';
 import { jointsOf } from '../assets/caveWallKit';
 import { STAIR_SIDE_LINE } from '../assets/stairKits';
-import { layerPlateaus } from '../shared/plateaus';
+import { layerPlateaus, pointInPoly, stairFlights, stairLine } from '../shared/plateaus';
 import type { LayerEntry } from './sceneGraph';
 import type { BandMeasure, ManifestEntry } from './packManifest';
 import { useStore } from '../store/store';
@@ -113,7 +114,9 @@ describe('stairs on a measured cliff', () => {
       for (const end of [[4, 0], [6, 0]]) {
         const tip = joints.reduce((b, j) => (Math.hypot(j[0] - end[0], j[1] - end[1]) < Math.hypot(b[0] - end[0], b[1] - end[1]) ? j : b));
         expect(Math.hypot(tip[0] - end[0], tip[1] - end[1])).toBeLessThan(0.5);
-        expect(taper(tip)).toBe(true);
+        // Full width to the flight's side, narrowing over no more than a quarter of a cell.
+        expect(taper(tip)).toBe(STAIR_TAPER);
+        expect(STAIR_TAPER).toBeLessThanOrEqual(0.25);
       }
       // No rock is laid across the span.
       expect(joints.some(([x, y]) => x > 4.2 && x < 5.8 && Math.abs(y) < 0.3)).toBe(false);
@@ -228,6 +231,93 @@ describe('stairs on a measured cliff', () => {
     expect(wide.scale.x * wide.texture.frame.width).toBeCloseTo(2);
     expect(one.scale.x * one.texture.frame.width).toBeCloseTo(1);
   });
+});
+
+describe('stairs on a curved stretch of a brushed outline', () => {
+  beforeEach(() => {
+    resetAssetPackManager();
+    useStore.getState().resetToDefault();
+    seedCliffKit();
+  });
+
+  // A round plateau (or pit) of 40 short edges, each under a cell: no one edge holds a flight.
+  const R = 5;
+  const round: Pt[] = Array.from({ length: 40 }, (_, k) => [10 + R * Math.cos((2 * Math.PI * k) / 40), 10 + R * Math.sin((2 * Math.PI * k) / 40)]);
+  const roundPlat = (height: number, stairs?: { id: string; ring: number; from: number; to: number }[]): PlateauChild =>
+    ({ id: 'plat', name: 'plat', childType: 'plateau', visible: true, contours: [round], height, edge: 'cliff', edgeArt: SET, ...(stairs && { stairs }) }) as PlateauChild;
+
+  for (const height of [1, -1]) {
+    for (const width of [1, 2]) {
+      it(`lays a ${width}-wide flight there in one click, exactly as wide as its gap, the ${height > 0 ? 'top' : 'pit floor'} trimmed beside it`, () => {
+        const layer = setUp(roundPlat(height));
+        // A click just off the edge, low side or high side alike.
+        const r = R + 0.2 * Math.sign(height);
+        const plan = stairSpanAt(layer, [10 + r * Math.cos(1), 10 + r * Math.sin(1)], width);
+        expect(plan).not.toBeNull();
+        expect(plan!.valid).toBe(true);
+        const line = stairLine(plan!.plateau, plan!.span);
+        expect(line.length).toBeGreaterThan(2);
+        const [p, q] = [line[0], line[line.length - 1]];
+        // The gap's ends lie the width apart, and the flight's top step runs between them.
+        expect(Math.hypot(q[0] - p[0], q[1] - p[1])).toBeCloseTo(width, 4);
+        const laid = setUp(roundPlat(height, [{ id: 's', ...plan!.span }]));
+        const [f] = stairFlights(laid);
+        const [a, b] = f.top;
+        expect(Math.hypot(b[0] - a[0], b[1] - a[1])).toBeCloseTo(width, 4);
+        // Square across its top step, onto the low side.
+        expect(Math.abs(f.down[0] * (b[0] - a[0]) + f.down[1] * (b[1] - a[1]))).toBeLessThan(1e-9);
+        const mid = [(a[0] + b[0]) / 2 + f.down[0] * 0.3, (a[1] + b[1]) / 2 + f.down[1] * 0.3];
+        expect(pointInPoly(mid[0], mid[1], round)).toBe(height < 0);
+        // The cliff stops at both ends, each tip narrowing over a quarter cell at most.
+        const band = layerPlateaus(laid).bands[0];
+        const [c] = laidRuns(laid, band)[0].cliffs!;
+        expect(c.opens).toEqual([true, true]);
+        expect(c.reach).toEqual([STAIR_TAPER, STAIR_TAPER]);
+        // Its rock runs right up to the flight's sides: the walk's own tips on the gap's ends.
+        // (A walked curve's rock sits off its outline on the low side, so it is read along the run.)
+        const walk = walkStretch(c);
+        const outer = [jointsOf(walk[0].piece, walk[0].at)[0], jointsOf(walk[walk.length - 1].piece, walk[walk.length - 1].at)[1]];
+        const run = c.run.points;
+        for (const k of [0, 1]) {
+          const end = k === 0 ? run : [...run].reverse();
+          expect(Math.min(...[p, q].map((v) => Math.hypot(v[0] - end[0][0], v[1] - end[0][1])))).toBeLessThan(0.02);
+          const back = end.find((v) => Math.hypot(v[0] - end[0][0], v[1] - end[0][1]) >= 0.5)!;
+          const len = Math.hypot(end[0][0] - back[0], end[0][1] - back[1]);
+          const joint = outer.reduce((b, j) => (Math.hypot(j[0] - end[0][0], j[1] - end[0][1]) < Math.hypot(b[0] - end[0][0], b[1] - end[0][1]) ? j : b));
+          const along = ((end[0][0] - back[0]) * (joint[0] - end[0][0]) + (end[0][1] - back[1]) * (joint[1] - end[0][1])) / len;
+          expect(Math.abs(along)).toBeLessThan(0.08);
+        }
+        // Nothing of the top (or the pit's floor) lies between the curve and the top step.
+        const top = plateauAlongWalls(laid, laid.children[0] as PlateauChild, band.surface, undefined, false);
+        // The point of the curve furthest from the step, and the step's own point under it.
+        const off = (v: readonly number[]) => Math.abs((q[0] - p[0]) * (v[1] - p[1]) - (q[1] - p[1]) * (v[0] - p[0])) / width;
+        const arcMid = line.reduce((best, v) => (off(v) > off(best) ? v : best));
+        const t = ((arcMid[0] - p[0]) * (q[0] - p[0]) + (arcMid[1] - p[1]) * (q[1] - p[1])) / (width * width);
+        const chordMid = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+        // Nearer the curve than the step: the sliver is thin on a one-cell span.
+        const between = [0.8 * arcMid[0] + 0.2 * chordMid[0], 0.8 * arcMid[1] + 0.2 * chordMid[1]];
+        expect(top.reduce((hit, r) => (pointInPoly(between[0], between[1], r) ? !hit : hit), false)).toBe(false);
+      });
+    }
+  }
+
+  // The outline's start point lies at angle 0: a click on it, or just either side of it.
+  for (const angle of [0, 0.05, -0.05]) {
+    it(`lays a flight where the stretch runs across the outline's start point (${angle})`, () => {
+      const layer = setUp(roundPlat(1));
+      const plan = stairSpanAt(layer, [10 + 5.2 * Math.cos(angle), 10 + 5.2 * Math.sin(angle)], 2);
+      expect(plan?.valid).toBe(true);
+      const total = 40 * Math.hypot(round[1][0] - round[0][0], round[1][1] - round[0][1]);
+      expect(plan!.span.from).toBeGreaterThanOrEqual(0);
+      expect(plan!.span.to).toBeLessThanOrEqual(total + 1e-6);
+      const line = stairLine(plan!.plateau, plan!.span);
+      const [p, q] = [line[0], line[line.length - 1]];
+      expect(Math.hypot(q[0] - p[0], q[1] - p[1])).toBeCloseTo(2, 4);
+      // Beside the pointer: the flight takes in the point clicked, or comes within half its width of it.
+      const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+      expect(Math.hypot(mid[0] - (10 + 5 * Math.cos(angle)), mid[1] - (10 + 5 * Math.sin(angle)))).toBeLessThan(1.05);
+    });
+  }
 });
 
 const walks = (layer: DungeonLayer) => [...cliffRockLines(layer).walks.values()].map((m) => [...m.values()]);

@@ -1,17 +1,19 @@
 // The brush's swatches: one tile per installed material, its fill as the picture. The
 // Material entry lists the band sets with border art (gg-forge's cave ink) first, then the
 // plain floor textures; the Terrain entry lists the ground textures first, the Water entry
-// the water textures. A click picks what the next stroke of that entry paints.
+// the water textures. A click picks what the next stroke of that entry paints; with a brush
+// cave or a rock-rimmed piece picked, the Material entry shows and changes its rock too.
 
 import { useEffect, useRef } from 'react';
 import { useStore } from '@/store/store';
-import type { BrushKind } from '@/store/types';
+import type { BrushKind, MapBuilderStore } from '@/store/types';
+import { pickMaterial, shownMaterial } from './materialPick';
 import { DockColumn, Tile } from '@dnd/ui';
 import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { SwatchPicker } from '@/editor/SwatchPicker';
 import { swatchLabel } from '@/editor/swatchLabel';
-import { brushMaterial, brushMaterialIds, defaultShoreId, materialFillId, materialLabel, SHORE_NONE, shoreChoices } from '@dnd/core/src/assets/materialKit';
+import { brushMaterialIds, defaultShoreId, materialFillId, materialLabel, SHORE_NONE, shoreChoices } from '@dnd/core/src/assets/materialKit';
 import { getBandSet } from '@dnd/core/src/assets/packCatalog';
 
 /** A water piece's shore: any outdoor floor the packs ship, or None, read live as the swatches are. '' is the default (dirt). */
@@ -24,15 +26,10 @@ export function ShoreField({ def, value, onChange }: SettingProps<string>) {
 const TITLES: Record<BrushKind, string> = { material: 'Material', terrain: 'Ground', water: 'Water' };
 
 function Swatches({ kind }: { kind: BrushKind }) {
-  const picked = useStore((s) => brushMaterial(s.tools.settings.material, kind));
+  const picked = useStore((s) => shownMaterial(s as MapBuilderStore, kind));
   // Pack thumbnails and sets arrive after boot; re-read the catalogue when the pack list moves.
   useStore((s) => s.packs.installedPacks);
-  const pick = (material: string) =>
-    useStore.setState((s) => {
-      if (kind === 'terrain') s.tools.settings.material.groundMaterial = material;
-      else if (kind === 'water') s.tools.settings.material.waterMaterial = material;
-      else s.tools.settings.material.material = material;
-    });
+  const pick = (material: string) => pickMaterial(kind, material);
   // The picked tile stays in view when the strip scrolls, on first show and on every pick.
   // Only the strip moves: scrollIntoView would also drag the dock sideways under its clip.
   const row = useRef<HTMLDivElement>(null);

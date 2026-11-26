@@ -1,5 +1,7 @@
 import type { AnyChild, CliffEntrance, LightChild, DungeonLayer, PlateauChild, StairSpan, ZoneChild } from '../store/types';
-import type { RingGeometry, Room, WallSegment } from '../shared/types';
+import type { RingGeometry, Room, ShapeChild, WallSegment } from '../shared/types';
+import { caveEdges, drawnShapeRings, wallWidthPin } from '../shared/caveFloor';
+import { layerDrawStyle } from './levelLook';
 import { flattenRing } from '../shared/bezier';
 import { distanceToLine, pathwayBounds, pathwayLine } from '../shared/pathway';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
@@ -329,6 +331,46 @@ function wallHits(layer: DungeonLayer, point: [number, number], opts?: PickOptio
   return hits.map((h) => h.wall);
 }
 
+/** Distance from `point` to the nearest edge of any of `rings`, each walked closed. */
+function distanceToRings(rings: readonly (readonly [number, number][])[], point: [number, number]): number {
+  let best = Infinity;
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const d = projectPointOntoLineSegment(point, ring[i] as [number, number], ring[(i + 1) % ring.length] as [number, number]).distance;
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * The brush caves whose rock reaches `point`: the rock rides the outline of the union of a
+ * cave's floors (`caveEdges`), as far either side as a drawn cave wall's. Of the floors in that
+ * union, the one whose own outline lies nearest answers.
+ */
+function caveRockHits(layer: DungeonLayer, point: [number, number], opts?: PickOptions): ShapeChild[] {
+  const caves = layer.children.filter(
+    (c): c is ShapeChild => c.childType === 'shape' && c.visible && !!c.edgeMaterial && !c.ground && (!c.locked || takesLocked(opts)),
+  );
+  if (caves.length === 0) return [];
+  const slop = opts?.zoom ? WALL_HIT_SLOP_PX / opts.zoom : 0;
+  const layerWidth = layerDrawStyle(layer).wallWidth;
+  const out: ShapeChild[] = [];
+  for (const edge of caveEdges(layer)) {
+    const reach = Math.max(BAND_WALL_REACH * bandSize(edge.material, edge.width ?? layerWidth), WALL_MIN_HIT_RADIUS) + slop;
+    if (distanceToRings(edge.rings, point) > reach) continue;
+    let best: ShapeChild | null = null;
+    let bestD = Infinity;
+    for (const c of caves) {
+      if (c.edgeMaterial !== edge.material || wallWidthPin(c) !== edge.width) continue;
+      const d = distanceToRings(drawnShapeRings(c), point);
+      if (d < bestD) [best, bestD] = [c, d];
+    }
+    if (best) out.push(best);
+  }
+  return out;
+}
+
 /** World-space box around a drawn wall's line, grown by `reach` on every side. */
 export function getWallBounds(
   wall: Pick<WallSegment, 'points'>,
@@ -526,7 +568,7 @@ export function pointOnZoneEdge(zone: Pick<ZoneChild, 'shape'>, point: [number, 
 
 /**
  * Everything under `point` on one layer, topmost first: what stands on the walls (lights,
- * labels, props, doors), stairs, a zone by its outline, the drawn walls, plateaus, the room
+ * labels, props, doors), stairs, a zone by its outline, the drawn walls, a brush cave by its rock, plateaus, the room
  * the point is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by
  * its area, then the floors.
  */
@@ -544,6 +586,8 @@ function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOpt
   for (const z of zoneHits) if (pointOnZoneEdge(z, point, opts?.zoom)) yield childHit(layer.id, z);
   const walls = wallHits(layer, point, opts);
   for (const w of walls) yield wallHit(layer.id, w);
+  // A brush cave's rock is its wall: a click on it, inside or outside the outline, takes the cave.
+  for (const c of caveRockHits(layer, point, opts)) yield childHit(layer.id, c);
   // Plateaus draw over the floors and the rooms on them: next, before either.
   const plateaus = layer.children.filter((c) => c.childType === 'plateau');
   for (const c of childHits(plateaus, point, layer, opts)) yield childHit(layer.id, c);

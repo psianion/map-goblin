@@ -1022,6 +1022,24 @@ describe('DoorTool, Stairs style', () => {
     }
   });
 
+  it('says why it lays no flight round a sharp corner of a brushed outline', () => {
+    const corners: [number, number][] = [[10, 10], [14, 10], [14, 14], [10, 14]];
+    const fine = corners.flatMap((a, k) => {
+      const b = corners[(k + 1) % 4];
+      return Array.from({ length: 8 }, (_, j): [number, number] => [a[0] + ((b[0] - a[0]) * j) / 8, a[1] + ((b[1] - a[1]) * j) / 8]);
+    });
+    useStore.setState((s) => {
+      const p = (s.layers.find((l) => l.type === 'dungeon') as DungeonLayer).children.find((c) => c.id === 'p1') as unknown as { contours: [number, number][][] };
+      p.contours = [fine];
+    });
+    useStore.getState().updateToolSettings({ doorWidth: 1 });
+    const warning = vi.fn();
+    setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
+    click(tool, 13.95, 9.9);
+    expect(spans()).toEqual([]);
+    expect(warning).toHaveBeenCalledWith(expect.stringMatching(/corner/i));
+  });
+
   it('deletes the picked stairs, the cliff whole again', () => {
     click(tool, 12.3, 9.8);
     tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));

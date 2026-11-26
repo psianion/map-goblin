@@ -34,7 +34,12 @@ export interface StairPlan {
   flight: StairFlight | null;
   /** Laid on no other stairs of the plateau, with a drop under it. */
   valid: boolean;
+  /** Why it may not be laid, where the tool says so: a sharp corner in its stretch. */
+  why?: string;
 }
+
+/** What the tool says where a flight would run round a sharp corner. */
+export const STAIRS_CORNER = 'Stairs can’t turn a sharp corner. Place them where the edge runs smoother.';
 
 /** The ring and edge of `plateau`'s own outline the segment a–b lies along, and where that edge starts along the ring. */
 function outlineEdge(plateau: PlateauChild, a: Vec, b: Vec): { ring: number; p: Vec; q: Vec; s0: number } | null {
@@ -69,6 +74,7 @@ export function stairSpanAt(layer: Pick<DungeonLayer, 'children' | 'rockLines'> 
   const overlaps = occupied(owner, ignore).some((s) => s.ring === span.ring && s.from < span.to - EPS && s.to > span.from + EPS);
   const probe = { ...owner, stairs: [...others, { ...span, id: '\u0000plan' }] } as PlateauChild;
   const flight = stairFlights({ children: layer.children.map((c) => (c === owner ? probe : c)), mergedFloor: layer.mergedFloor }).find((f) => f.span.id === '\u0000plan') ?? null;
+  if (hit.corner) return { plateau: owner, span, flight, valid: false, why: STAIRS_CORNER };
   return { plateau: owner, span, flight, valid: !overlaps && flight !== null };
 }
 
@@ -88,7 +94,7 @@ function spanAt(
   point: Vec,
   width: (plateau: PlateauChild) => number,
   accept: (plateau: PlateauChild) => boolean,
-): { owner: PlateauChild; span: Omit<StairSpan, 'id' | 'kit'> } | null {
+): { owner: PlateauChild; span: Omit<StairSpan, 'id' | 'kit'>; corner?: true } | null {
   let best: { d: number; a: Vec; b: Vec; owner: PlateauChild } | null = null;
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
@@ -113,11 +119,106 @@ function spanAt(
   const { p, q } = edge;
   const L = Math.hypot(q[0] - p[0], q[1] - p[1]);
   const cells = Math.floor(L + EPS);
-  if (cells < 1) return null;
-  const w = Math.min(cells, Math.max(1, Math.round(width(hit.owner))));
+  const asked = Math.max(1, Math.round(width(hit.owner)));
   const t = segDist(point, p, q).t * L;
+  // An edge too short for the width, on a curve (a brushed outline's many short edges): the
+  // stretch round the pointer whose ends lie the width apart.
+  if (cells < asked) {
+    const arc = arcSpan(shapeRing(hit.owner, edge.ring), edge.s0 + t, asked);
+    if (arc && !arc.corner) return { owner: hit.owner, span: { ring: edge.ring, from: arc.from, to: arc.to } };
+    // Round a sharp corner, with no whole cell of edge to fall back on: refused, and why.
+    if (arc && cells < 1) return { owner: hit.owner, span: { ring: edge.ring, from: arc.from, to: arc.to }, corner: true };
+  }
+  if (cells < 1) return null;
+  const w = Math.min(cells, asked);
   const start = Math.max(0, Math.min(cells - w, Math.round(t - w / 2)));
   return { owner: hit.owner, span: { ring: edge.ring, from: edge.s0 + start, to: edge.s0 + start + w } };
+}
+
+/** A vertex turning more than this, degrees, is a corner a span on a curve never runs round. */
+const CURVE_CORNER_DEG = 40;
+
+/**
+ * The stretch of `ring` round `s` (a length along it) whose ends lie exactly `w` apart, as far
+ * along it either side of `s`: a span on a curve, as wide across as asked. Near the ring's seam
+ * (its first point), where a span cannot run on past it, the stretch is slid along to end there.
+ * `corner` where that stretch runs round a corner. Null where nowhere comes `w` across.
+ */
+function arcSpan(ring: Polygon, s: number, w: number): { from: number; to: number; corner?: true } | null {
+  const n = ring.length;
+  if (n < 3) return null;
+  const cum = [0];
+  for (let i = 0; i < n; i++) cum.push(cum[i] + Math.hypot(ring[(i + 1) % n][0] - ring[i][0], ring[(i + 1) % n][1] - ring[i][1]));
+  const total = cum[n];
+  const at = (d: number): Vec => {
+    let i = 0;
+    while (i < n - 1 && cum[i + 1] < d) i++;
+    const a = ring[i];
+    const b = ring[(i + 1) % n];
+    const f = Math.max(0, Math.min(1, (d - cum[i]) / (cum[i + 1] - cum[i] || 1)));
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  };
+  const apart = (x: number, y: number): number => {
+    const [a, b] = [at(x), at(y)];
+    return Math.hypot(b[0] - a[0], b[1] - a[1]);
+  };
+  /** How far along from `d0`, `dir` 1 on or -1 back, the ring first comes `w` across; null past the seam. */
+  const reach = (d0: number, dir: 1 | -1, start: number): number | null => {
+    let lo = 0;
+    let hi = start;
+    while (apart(d0, d0 + dir * hi) < w - EPS) {
+      lo = hi;
+      hi += w / 4;
+      if (d0 + dir * hi < 0 || d0 + dir * hi > total) return null;
+    }
+    for (let k = 0; k < 40 && hi - lo > 1e-6; k++) {
+      const mid = (lo + hi) / 2;
+      if (apart(d0, d0 + dir * mid) < w) lo = mid;
+      else hi = mid;
+    }
+    return hi;
+  };
+  // Widened about `s` until it is `w` across, then halved down onto it.
+  let lo = w / 2;
+  let hi = w / 2;
+  let fits = true;
+  while (apart(s - hi, s + hi) < w - EPS) {
+    hi += w / 4;
+    if (s - hi < 0 || s + hi > total) {
+      fits = false;
+      break;
+    }
+  }
+  if (s - hi < 0 || s + hi > total) fits = false;
+  let from: number;
+  let to: number;
+  if (fits) {
+    for (let k = 0; k < 40 && hi - lo > 1e-6; k++) {
+      const mid = (lo + hi) / 2;
+      if (apart(s - mid, s + mid) < w) lo = mid;
+      else hi = mid;
+    }
+    [from, to] = [s - hi, s + hi];
+  } else if (s < total / 2) {
+    // By the seam's start: from it on.
+    const len = reach(0, 1, w / 2);
+    if (len === null) return null;
+    [from, to] = [0, len];
+  } else {
+    // By the seam's end: back from it.
+    const len = reach(total, -1, w / 2);
+    if (len === null) return null;
+    [from, to] = [total - len, total];
+  }
+  const round = (x: number): number => Math.round(x * 1e6) / 1e6;
+  // No corner inside it.
+  for (let i = 1; i < n; i++) {
+    if (cum[i] <= from + EPS || cum[i] >= to - EPS) continue;
+    const [a, v, b] = [ring[i - 1], ring[i], ring[(i + 1) % n]];
+    const turn = Math.abs(Math.atan2((v[0] - a[0]) * (b[1] - v[1]) - (v[1] - a[1]) * (b[0] - v[0]), (v[0] - a[0]) * (b[0] - v[0]) + (v[1] - a[1]) * (b[1] - v[1])));
+    if (turn > (CURVE_CORNER_DEG * Math.PI) / 180) return { from: round(from), to: round(to), corner: true };
+  }
+  return { from: round(from), to: round(to) };
 }
 
 /** What a click with the Opening style would make on a cliff edge: a cave mouth. */
@@ -148,7 +249,7 @@ export function entranceSpanAt(
   const others = (owner.entrances ?? []).filter((s) => s.id !== ignore);
   const probe = { ...owner, entrances: [...others, { ...span, id: '\u0000plan' }] } as PlateauChild;
   const info = layerPlateaus({ children: layer.children.map((c) => (c === owner ? probe : c)) }).entrances.find((e) => e.span.id === '\u0000plan') ?? null;
-  return { plateau: owner, span, info, valid: !overlaps && info !== null };
+  return { plateau: owner, span, info, valid: !hit.corner && !overlaps && info !== null };
 }
 
 /** How near a cave mouth's span, across the edge, a point picks it, cells. */
@@ -228,10 +329,14 @@ function resized<T extends { id: string; ring: number; from: number; to: number 
     const L = Math.hypot(q[0] - p[0], q[1] - p[1]);
     if (mid >= s0 - EPS && mid <= s0 + L + EPS) {
       const cells = Math.floor(L + EPS);
-      if (cells < 1) return null;
-      const w = Math.min(cells, Math.max(1, Math.round(width)));
+      const asked = Math.max(1, Math.round(width));
+      // On a curve, the stretch round the span's middle that is that wide across (as a click lays it).
+      const found = cells < asked ? arcSpan(ring, mid, asked) : null;
+      const arc = found && !found.corner ? found : null;
+      if (!arc && cells < 1) return null;
+      const w = Math.min(cells, asked);
       const start = Math.max(0, Math.min(cells - w, Math.round(span.from - s0)));
-      const next = { ...span, from: s0 + start, to: s0 + start + w };
+      const next = arc ? { ...span, from: arc.from, to: arc.to } : { ...span, from: s0 + start, to: s0 + start + w };
       const overlaps = occupied(plateau, span.id).some((s) => s.ring === span.ring && s.from < next.to - EPS && s.to > next.from + EPS);
       return overlaps ? null : next;
     }

@@ -58,6 +58,22 @@ describe('laying stairs with the Door tool', () => {
     expect(stairSpanAt(layerOf(top), [10.4, 9.9], 1)!.valid).toBe(true);
   });
 
+  it('will not run a flight round a sharp corner of a brushed outline, and says so', () => {
+    // The 10..14 square drawn as half-cell edges: no edge holds a flight, and the corner at (14, 10) turns 90°.
+    const fine: [number, number][] = [];
+    const corners: [number, number][] = [[10, 10], [14, 10], [14, 14], [10, 14]];
+    corners.forEach((a, k) => {
+      const b = corners[(k + 1) % 4];
+      for (let j = 0; j < 8; j++) fine.push([a[0] + ((b[0] - a[0]) * j) / 8, a[1] + ((b[1] - a[1]) * j) / 8]);
+    });
+    const plan = stairSpanAt(layerOf(plat('top', 1, { contours: [fine] })), [13.95, 9.9], 1)!;
+    expect(plan).not.toBeNull();
+    expect(plan.valid).toBe(false);
+    expect(plan.why).toMatch(/corner/i);
+    // Along the straight, away from the corner, it lays.
+    expect(stairSpanAt(layerOf(plat('top', 1, { contours: [fine] })), [12, 9.9], 1)!.valid).toBe(true);
+  });
+
   it('finds the stairs under the pointer, on the flight or its top', () => {
     const top = plat('top', 2, { stairs: [{ id: 's', ring: 0, from: 1, to: 3 }] });
     expect(stairsAt(layerOf(top), [12, 9])?.span.id).toBe('s');

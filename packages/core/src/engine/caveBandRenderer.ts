@@ -275,6 +275,7 @@ function layTipRun(
   tailTip: boolean,
   gaps: DoorGap[],
   set: CaveKitPiece[],
+  reach: [boolean, boolean] = [false, false],
 ): WalkPlacement[] {
   const n = run.length;
   const t0 = norm(sub(run[Math.min(2, n - 1)], run[0]));
@@ -288,6 +289,10 @@ function layTipRun(
     gaps,
     set,
     LIVE_WALK,
+    false,
+    [false, false],
+    [false, false],
+    reach,
   );
 }
 
@@ -2191,7 +2196,7 @@ function layConnectors(placed: WalkPlacement[], set: CaveKitPiece[], size: numbe
  * `taperAt` says to (see {@link bandBends}), then the connectors over the joints left
  * open (see {@link bandConnectors}), above them.
  */
-export function withConnectors(placed: WalkPlacement[], set: CaveKitPiece[], size = 1, taperAt?: (end: Vec) => boolean): WalkPlacement[] {
+export function withConnectors(placed: WalkPlacement[], set: CaveKitPiece[], size = 1, taperAt?: TaperAt): WalkPlacement[] {
   const drawn = bandBends(placed, set, size, taperAt);
   const connectors = bandConnectors(placed, set, size);
   return connectors.length === 0 ? drawn : [...drawn, ...connectors];
@@ -2266,6 +2271,12 @@ export function mitredJoints(placed: WalkPlacement[], set: CaveKitPiece[], size 
   return out;
 }
 
+/**
+ * Which open ends of a run narrow to a tip: false for none, true over the kit's own reach, or a
+ * number, the world cells it narrows over.
+ */
+export type TaperAt = (end: Vec) => boolean | number;
+
 /** How far from an open end, cells at size 1, a mouth or door gap counts as the one it stops at. */
 const TAPER_GAP_REACH = 0.5;
 
@@ -2284,7 +2295,7 @@ export function mouthEnds(gaps: readonly DoorGap[], size = 1): ((end: Vec) => bo
  * `taperAt` says to narrowed to a tip, where no end piece is laid. Others are as laid, and a
  * kit with no measured pieces is returned untouched.
  */
-export function bandBends(placed: WalkPlacement[], set: CaveKitPiece[], size = 1, taperAt?: (end: Vec) => boolean): WalkPlacement[] {
+export function bandBends(placed: WalkPlacement[], set: CaveKitPiece[], size = 1, taperAt?: TaperAt): WalkPlacement[] {
   if (placed.length === 0 || !set.some((p) => p.exact)) return placed;
   const joints = mitredJoints(placed, set, size);
   const ends = placed.map(() => ({ a: undefined as BendEnd | undefined, b: undefined as BendEnd | undefined, openA: true, openB: true }));
@@ -2310,13 +2321,13 @@ export function bandBends(placed: WalkPlacement[], set: CaveKitPiece[], size = 1
     const e = ends[k];
     const [J0, J1] = jointsOf(pl.piece, pl.at);
     // A piece narrowed to nothing at a sharp tip (wedgeTip) is tapered there too.
-    const taper: [boolean, boolean] = [
-      (!!taperAt && pl.branch !== 'end' && e.openA && taperAt(J0)) || (!e.a && pl.narrow?.[0] === 0),
-      (!!taperAt && pl.branch !== 'end' && e.openB && taperAt(J1)) || (!e.b && pl.narrow?.[1] === 0),
-    ];
+    const asked = [taperAt && pl.branch !== 'end' && e.openA ? taperAt(J0) : false, taperAt && pl.branch !== 'end' && e.openB ? taperAt(J1) : false];
+    const taper: [boolean, boolean] = [asked[0] !== false || (!e.a && pl.narrow?.[0] === 0), asked[1] !== false || (!e.b && pl.narrow?.[1] === 0)];
+    // An end asked to narrow over a reach of its own (a number) keeps it.
+    const reach: [number, number] = [typeof asked[0] === 'number' ? asked[0] : 0, typeof asked[1] === 'number' ? asked[1] : 0];
     if (!e.a && !e.b && !taper[0] && !taper[1] && !pl.narrow) return pl;
     const unit = pl.size ?? size;
-    const bend: PieceBend = { unit, half: (overlap / 2) * pl.at.scale, rockHalf: rockHalf * unit, ...(e.a && { a: e.a }), ...(e.b && { b: e.b }), ...((taper[0] || taper[1]) && { taper }), ...(pl.narrow && { narrow: pl.narrow }) };
+    const bend: PieceBend = { unit, half: (overlap / 2) * pl.at.scale, rockHalf: rockHalf * unit, ...(e.a && { a: e.a }), ...(e.b && { b: e.b }), ...((taper[0] || taper[1]) && { taper }), ...((reach[0] || reach[1]) && { reach }), ...(pl.narrow && { narrow: pl.narrow }) };
     // The same piece bent the same way is the same drawing: a rebuild reuses its mesh.
     const key = JSON.stringify(bend);
     const kept = keptBends.get(pl);
@@ -2360,6 +2371,7 @@ function keptMesh(pl: WalkPlacement, laidAs: number[], build: () => ReturnType<t
     end(bend?.a),
     end(bend?.b),
     bend?.taper ? `${bend.taper[0] ? 1 : 0}${bend.taper[1] ? 1 : 0}` : '-',
+    bend?.reach ? `${r(bend.reach[0])},${r(bend.reach[1])}` : '-',
     bend?.narrow ? `${r(bend.narrow[0])},${r(bend.narrow[1])}` : '-',
     r(bend?.unit ?? 0),
     r(bend?.half ?? 0),
@@ -2542,7 +2554,9 @@ export function layBandChain(
   const turnKey = (t: WalkPlacement | null): string => (t ? `{${t.piece.key}@${[...t.P, ...t.Q].map((v) => v.toFixed(3)).join(',')}}` : '');
   const kind = `${cliff ? 'cliff-chain' : 'chain'}${merged[0] ? '<' : ''}${merged[1] ? '>' : ''}${bare[0] ? '(' : ''}${bare[1] ? ')' : ''}${turnKey(turns[0])}${turnKey(turns[1])}`;
   return keptLaying(kind, points, gaps, set, size, () => {
-    let laid = size !== 1 ? laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set, 1, cliff, merged, bare)) : layChain(points as Curve, gaps, set, { lap: true }, cliff, merged, bare);
+    // A cliff's walk round a curve lays right up to a tip at a wall's rock or at stairs; one at an entrance's piece meets that piece.
+    const reach: [boolean, boolean] = [cliff && (merged[0] || bare[0]) && !turns[0], cliff && (merged[1] || bare[1]) && !turns[1]];
+    let laid = size !== 1 ? laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set, 1, cliff, merged, bare)) : layChain(points as Curve, gaps, set, { lap: true }, cliff, merged, bare, reach);
     if (turns[1]) laid = meetTurn(laid, turns[1], false, set, size);
     if (turns[0]) laid = meetTurn(laid, turns[0], true, set, size);
     return turns[0] || turns[1] ? [...(turns[0] ? [turns[0]] : []), ...laid, ...(turns[1] ? [turns[1]] : [])] : laid;
@@ -2582,7 +2596,11 @@ function meetTurn(laid: WalkPlacement[], turn: WalkPlacement, head: boolean, set
   return out;
 }
 
-function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions, cliff = false, merged: [boolean, boolean] = [false, false], bare: [boolean, boolean] = [false, false]): WalkPlacement[] {
+/**
+ * `layChain` for an open run: `reach` says which of its ends the curved walk lays right up to (a
+ * cliff's tip at a wall's rock or a flight of stairs); the others it lays as it always has.
+ */
+function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions, cliff = false, merged: [boolean, boolean] = [false, false], bare: [boolean, boolean] = [false, false], reach: [boolean, boolean] = [false, false]): WalkPlacement[] {
   if (points.length < 2) return [];
   // A measured kit's run with openings on it is laid stretch by stretch between them.
   const measured = set.some((p) => p.exact);
@@ -2600,17 +2618,116 @@ function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: Wal
   if (tips.length) {
     const ends = [0, ...tips, base.length - 1];
     return ends.slice(0, -1).flatMap((from, k) => {
-      return layTipRun(base.slice(from, ends[k + 1] + 1), k > 0, k + 1 < ends.length - 1, cuts, set);
+      return layTipRun(base.slice(from, ends[k + 1] + 1), k > 0, k + 1 < ends.length - 1, cuts, set, [k === 0 && reach[0], k + 1 === ends.length - 1 && reach[1]]);
     });
   }
-  const ride = padEnds(bandRide(base, false, kitOut(set)));
-  const first = END_PAD;
-  const last = ride.length - 1 - END_PAD;
-  const spans = openSpans(ride, cuts, false) ?? [[first, last]];
   const walk = { ...opts, accept: keepsToOutline(base, false, set) };
-  return spans.flatMap(([from, to]) =>
-    meetNeighbours(trimLaps(fullSize(laySpan(ride, set, Math.max(from, first), Math.min(to, last), walk), set), set, false), set, false),
-  );
+  const walked = (extra: [number, number]): WalkPlacement[] => {
+    const ride = padEnds(reachEnds(bandRide(base, false, kitOut(set)), base, reach, extra));
+    const first = END_PAD;
+    const last = ride.length - 1 - END_PAD;
+    const spans = openSpans(ride, cuts, false) ?? [[first, last]];
+    const laid = spans.flatMap(([from, to]) =>
+      meetNeighbours(trimLaps(fullSize(laySpan(ride, set, Math.max(from, first), Math.min(to, last), walk), set), set, false), set, false),
+    );
+    return (reach[0] || reach[1]) && spans.length === 1 ? meetEnds(laid, base, reach, set) : laid;
+  };
+  const laid = walked([0, 0]);
+  if (!reach[0] && !reach[1]) return laid;
+  // An end piece the walk closed onto the end that could not be sized to reach it: the walk again
+  // with the ride carried on further there (a walk picks its pieces anew, so by a few amounts), the
+  // one whose ends come nearest kept.
+  const left = (placed: WalkPlacement[]): [number, number] => [reach[0] ? endShort(placed, base, true) : 0, reach[1] ? endShort(placed, base, false) : 0];
+  const worst = (placed: WalkPlacement[]): number => Math.max(...left(placed).map(Math.abs));
+  const short = left(laid);
+  if (Math.max(...short) <= REACH_SLACK) return laid;
+  let best = laid;
+  for (const f of REACH_TRIES) {
+    const again = walked([Math.max(0, short[0]) * f, Math.max(0, short[1]) * f]);
+    if (worst(again) < worst(best)) best = again;
+    if (worst(best) <= REACH_SLACK) break;
+  }
+  return best;
+}
+
+/** The shares of what a curved walk fell short by that it is carried on further by, in turn, when it is tried again. */
+const REACH_TRIES = [1, 0.5, 1.5];
+
+/** How far short of a run's end a curved walk's outer joint may lie, cells, before the walk is tried again carried on further. */
+const REACH_SLACK = 0.05;
+
+/** How far `placed`'s outer joint at its head (or tail) lies short of that end of the run `base`, read over its last half cell: less than 0 past it. */
+function endShort(placed: WalkPlacement[], base: Curve, head: boolean): number {
+  if (placed.length === 0) return 0;
+  const pl = placed[head ? 0 : placed.length - 1];
+  return dot(sub(head ? base[0] : base[base.length - 1], jointsOf(pl.piece, pl.at)[head ? 0 : 1]), endOut(base, head));
+}
+
+/** The way out of a run `base` at its head (or tail), read over its last half cell. */
+function endOut(base: Curve, head: boolean): Vec {
+  const end = head ? base[0] : base[base.length - 1];
+  let back = end;
+  for (let i = 1; i < base.length && dist(back, end) < 0.5; i++) back = head ? base[i] : base[base.length - 1 - i];
+  return norm(sub(end, back));
+}
+
+/**
+ * An open run's ride (`bandRide` of `base`) carried on along its own direction at each end `reach`
+ * names, as far as it falls short of that end of the run, and `extra` cells on: rounding the ride
+ * draws its ends back along a curve, and the walk lays only as far as the ride goes. Sampled again
+ * from its start.
+ */
+function reachEnds(ride: Curve, base: Curve, reach: [boolean, boolean], extra: [number, number] = [0, 0]): Curve {
+  if ((!reach[0] && !reach[1]) || ride.length < 3 || base.length < 3) return ride;
+  const on = (k: 0 | 1): Vec | null => {
+    const [end, inner] = k === 0 ? [base[0], base[2]] : [base[base.length - 1], base[base.length - 3]];
+    const out = norm(sub(end, inner));
+    const at = k === 0 ? ride[0] : ride[ride.length - 1];
+    const dir = k === 0 ? mul(tangentOpen(ride, 0), -1) : tangentOpen(ride, ride.length - 1);
+    const short = dot(sub(end, at), out) + extra[k];
+    const along = dot(dir, out);
+    // Only on toward the end, and only along a ride heading that way.
+    return reach[k] && short > 1e-3 && along > 0.5 ? add(at, mul(dir, short / along)) : null;
+  };
+  const head = on(0);
+  const tail = on(1);
+  if (!head && !tail) return ride;
+  return resampleOpen([...(head ? [head] : []), ...ride, ...(tail ? [tail] : [])], CURVE_STEP);
+}
+
+/**
+ * A curved walk's first and last pieces, at the ends `reach` names, lengthened or shortened along
+ * their travel there until their outer joint lies level with that end of the run `base` (read
+ * over its last half cell), within the sizes a piece is laid at: the ride only comes near the end,
+ * and a piece's joint sits off its chord, not off the ride.
+ */
+function meetEnds(laid: WalkPlacement[], base: Curve, reach: [boolean, boolean], set: CaveKitPiece[]): WalkPlacement[] {
+  let out = laid;
+  for (const head of [true, false]) {
+    if (out.length === 0 || !reach[head ? 0 : 1]) continue;
+    const k = head ? 0 : out.length - 1;
+    const pl = out[k];
+    const short = endShort(out, base, head);
+    if (Math.abs(short) < 1e-3) continue;
+    // Travel at that end, outward, as jointLap reads it.
+    const chord = Math.atan2(pl.Q[1] - pl.P[1], pl.Q[0] - pl.P[0]);
+    const half = (pl.piece.turnDeg * Math.PI) / 360;
+    const along = head ? chord - half + Math.PI : chord + half;
+    const t: Vec = [Math.cos(along), Math.sin(along)];
+    const c = dot(t, endOut(base, head));
+    if (c < 0.5) continue;
+    const move = mul(t, short / c);
+    const P = head ? add(pl.P, move) : pl.P;
+    const Q = head ? pl.Q : add(pl.Q, move);
+    // Kept to the sizes a piece is laid at, or, for a closing piece the walk already laid past them, nearer its own.
+    const natural = dist(...pl.piece.jointsCells);
+    const L = dist(P, Q);
+    const off = (len: number): number => Math.abs(Math.log(len / natural));
+    if ((L > natural * MEASURED_SCALE[1] || L < natural * MEASURED_SCALE[0]) && off(L) > off(dist(pl.P, pl.Q))) continue;
+    out = [...out];
+    out[k] = { ...pl, P, Q, at: placePiece(pl.piece, P, Q, kitOut(set), 0, pl.nudge) };
+  }
+  return out;
 }
 
 /* ── Ground under the rock ─────────────────────────────────────────────

@@ -37,6 +37,18 @@ export function EdgeBandField({ def, value: stored, onChange }: SettingProps<str
   );
 }
 
+/**
+ * A brush cave's rock, or a brush ground piece's rim, by picture: every installed cave or
+ * cliff kit. The rock is always there, so there is no None.
+ */
+export function RockField({ def, value: stored, onChange }: SettingProps<string>) {
+  useStore((s) => s.packs.installedPacks);
+  const value = stored ? canonicalSetId(stored) : stored;
+  const ids = getBandSetIds();
+  if (value && !ids.includes(value)) ids.push(value);
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={ids.map(bandSwatch)} value={value} onPick={onChange} compact={def.home === 'dock'} twoLines />;
+}
+
 /** The Walls value that means no wall at all: a ground piece. */
 export const NO_WALLS = '__nowalls__';
 /** The Walls value a walled floor shows when its walls are a plain line, with no set. */

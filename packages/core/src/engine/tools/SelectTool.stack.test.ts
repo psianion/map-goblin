@@ -158,6 +158,31 @@ describe('Select: picking stacked objects', () => {
     expect(undoManager.canUndo()).toBe(false);
   });
 
+  it("a click on a brush cave's rock picks the cave: under a prop and a door, over the rooms and other floors", () => {
+    add({
+      id: 'f', name: 'f', childType: 'shape', visible: true, shapeType: 'rectangle', flipX: false, flipY: false,
+      contours: [[[0, 0], [20, 0], [20, 20], [0, 20]]],
+    } as unknown as ShapeChild);
+    add({
+      id: 'cave', name: 'cave', childType: 'shape', visible: true, shapeType: 'polygon', flipX: false, flipY: false,
+      contours: [[[4, 4], [10, 4], [10, 10], [4, 10]]], edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' },
+    } as unknown as ShapeChild);
+    // Just outside the cave's outline, on its rock: the cave answers, the floor under it next.
+    expect(stackIds(7, 3.8).slice(0, 2)).toEqual(['cave', 'f']);
+    // Just inside, on the rock too: the cave first.
+    expect(stackIds(7, 4.2)[0]).toBe('cave');
+    // Well off the rock, outside: only the floor.
+    expect(stackIds(7, 2)).toEqual(['f']);
+    clickAt(tool, 7, 3.8, 1000);
+    expect(sel()).toEqual(['cave']);
+    // A prop on the rock still wins.
+    asset('p', 7, 3.8);
+    expect(stackIds(7, 3.8).slice(0, 3)).toEqual(['p', 'cave', 'f']);
+    // A hidden cave has no rock to pick.
+    useStore.getState().updateChild(layer().id, 'cave', { visible: false } as Partial<AnyChild>);
+    expect(stackIds(7, 3.8)).not.toContain('cave');
+  });
+
   it('the second click of a double-click keeps the pick, so the double-click acts on the top', () => {
     asset('p', 2, 2);
     floor('f');
