@@ -3,28 +3,22 @@
 // their PC back, and token defs written before table v2 read with its defaults.
 
 import {
-  OUTSIDE_MAP,
-  SOLID_GROUND,
-  fanAround,
+  besideParty,
+  cellKey,
   normalizeTokenDef,
   ownPcOf,
-  type PartyStartArea,
+  partySpots,
+  ringOffsets,
+  standsAt,
+  targetLevel,
+  type PartyTarget,
   type TableFlags,
-  type Token,
   type TokenDef,
   type TokensState,
 } from '@dnd/mechanics/tokens'
 import type { Stores } from './db/stores'
 import type { Vision } from './fog/vision'
 import type { AfterWrite, DispatchContext, ModuleRegistry } from './modules/registry'
-
-/** Spots tried past one per PC, for a PC whose first spot is taken. */
-const SPARE_SPOTS = 24
-
-/** Where `placeParty` puts the party: the DM's area, or fanned out beside a point. */
-export type PartyTarget = { area: PartyStartArea } | { near: { x: number; y: number }; levelId?: string }
-
-const cellOf = (x: number, y: number): string => `${Math.floor(x)},${Math.floor(y)}`
 
 /**
  * Places each def on the scene: the standable, free cells of the area from its centre outward,
@@ -43,24 +37,10 @@ export function placeParty(
 ): number {
   if (defs.length === 0) return 0
   const state = modules.readState(at.campaignId, 'tokens') as TokensState | undefined
-  const area = 'area' in target ? target.area : null
-  const levelId = area ? area.levelId : 'near' in target ? target.levelId : undefined
-  const centre = area
-    ? { x: Math.floor((area.x0 + area.x1) / 2) + 0.5, y: Math.floor((area.y0 + area.y1) / 2) + 0.5 }
-    : (target as { near: { x: number; y: number } }).near
-  const cells: { x: number; y: number }[] = []
-  if (area) {
-    for (let y = area.y0; y <= area.y1; y++) for (let x = area.x0; x <= area.x1; x++) cells.push({ x: x + 0.5, y: y + 0.5 })
-    cells.sort((a, b) => Math.hypot(a.x - centre.x, a.y - centre.y) - Math.hypot(b.x - centre.x, b.y - centre.y))
-  }
-  const spots = [...cells, ...fanAround(centre, defs.length + SPARE_SPOTS)]
-  const taken = new Set(Object.values(state?.byScene[at.sceneId] ?? {}).map((t) => cellOf(t.x, t.y)))
-
+  const levelId = targetLevel(target)
+  const spots = partySpots(target, defs.length)
+  const taken = new Set(Object.values(state?.byScene[at.sceneId] ?? {}).map((t) => cellKey(t.x, t.y)))
   const scene = vision.visionOf(at.sceneId)
-  const standable = (x: number, y: number, def: TokenDef): boolean => {
-    const why = scene?.walkRefusal?.({ ...def, defId: def.id, x, y, elevation: 0, z: 0, hidden: false, ownerId: null, ...(levelId ? { levelId } : {}) }, { x, y }, null)
-    return !why || !(why.startsWith(OUTSIDE_MAP) || why.startsWith(SOLID_GROUND))
-  }
   const ctx: DispatchContext = {
     campaignId: at.campaignId,
     sessionId: at.sessionId,
@@ -74,7 +54,7 @@ export function placeParty(
   for (const def of defs) {
     while (next < spots.length) {
       const spot = spots[next++]!
-      if (taken.has(cellOf(spot.x, spot.y)) || !standable(spot.x, spot.y, def)) continue
+      if (taken.has(cellKey(spot.x, spot.y)) || !standsAt(scene, def.size, spot.x, spot.y, levelId)) continue
       const refused = modules.dispatch(
         'tokens',
         'place',
@@ -82,22 +62,13 @@ export function placeParty(
         ctx,
       )
       if (!refused) {
-        taken.add(cellOf(spot.x, spot.y))
+        taken.add(cellKey(spot.x, spot.y))
         placed++
         break
       }
     }
   }
   return placed
-}
-
-/** Beside the party: fanned out from the centre of the PC tokens on the scene, on their level. */
-function besideParty(onScene: readonly Token[]): PartyTarget | null {
-  const party = onScene.filter((t) => t.kind === 'pc' && !t.hidden)
-  if (party.length === 0) return null
-  const mean = (pick: (t: Token) => number) => party.reduce((sum, t) => sum + pick(t), 0) / party.length
-  const near = { x: Math.floor(mean((t) => t.x)) + 0.5, y: Math.floor(mean((t) => t.y)) + 0.5 }
-  return { near, ...(party[0]!.levelId ? { levelId: party[0]!.levelId } : {}) }
 }
 
 /**
@@ -163,6 +134,73 @@ export function storePartyStart(
     },
   )
   if (refused) console.warn(`[party] party start refused: ${refused.message}`)
+}
+
+/** How many rings of cells round the map's start a party start area may move to find standing room. */
+const START_SEARCH_RINGS = 24
+
+/**
+ * Finishing pass 12.1: a scene that goes live with no party start area gets one, so the DM always
+ * sees an outline and Start always places the party. It is the 3 by 3 cells round the map's own
+ * `partyStart`, else round the centre of the map, moved to the nearest spot where all nine cells
+ * can be stood on (else the one with the most). A scene that has an area keeps it.
+ */
+export function ensurePartyStart(
+  modules: ModuleRegistry,
+  vision: Pick<Vision, 'sceneMapOf' | 'visionOf'>,
+  at: { campaignId: string; sessionId: string; sceneId: string; broadcast?: DispatchContext['broadcast'] },
+): void {
+  const state = modules.readState(at.campaignId, 'tokens') as TokensState | undefined
+  if (state?.partyStart?.[at.sceneId]) return
+  const map = vision.sceneMapOf(at.sceneId)
+  if (!map) return
+  const start = map.data.mapSettings?.partyStart
+  const { frame } = map
+  const point = start ?? (frame ? { x: (frame.minX + frame.maxX) / 2, y: (frame.minY + frame.maxY) / 2 } : null)
+  if (!point) return
+  const levels = map.data.levels ?? []
+  const levelId = start?.levelId && levels.length > 1 && levels.some((l) => l.id === start.levelId) ? start.levelId : undefined
+
+  const scene = vision.visionOf(at.sceneId)
+  const seen = new Map<string, boolean>()
+  const stands = (x: number, y: number): boolean => {
+    const key = `${x},${y}`
+    let ok = seen.get(key)
+    if (ok === undefined) seen.set(key, (ok = standsAt(scene, 'medium', x + 0.5, y + 0.5, levelId)))
+    return ok
+  }
+  const [px, py] = [Math.floor(point.x), Math.floor(point.y)]
+  let best = { x: px, y: py, room: 0 }
+  for (const [dx, dy] of ringOffsets(START_SEARCH_RINGS)) {
+    const [x, y] = [px + dx, py + dy]
+    if (!stands(x, y)) continue
+    let room = 0
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (stands(x + i, y + j)) room++
+    if (room > best.room) best = { x, y, room }
+    if (room === 9) break
+  }
+  const refused = modules.dispatch(
+    'tokens',
+    'set-party-start',
+    { sceneId: at.sceneId, rect: { x0: best.x - 1, y0: best.y - 1, x1: best.x + 1, y1: best.y + 1 }, ...(levelId ? { levelId } : {}) },
+    {
+      campaignId: at.campaignId,
+      sessionId: at.sessionId,
+      activeSceneId: at.sceneId,
+      sender: { role: 'dm', identityId: 'server' },
+      players: [],
+      broadcast: at.broadcast ?? (() => {}),
+    },
+  )
+  if (refused) console.warn(`[party] party start refused: ${refused.message}`)
+}
+
+/** A scene the DM switches to gets its party start area then (`ensurePartyStart`). */
+export function partyStartOnSwitch(vision: Pick<Vision, 'sceneMapOf' | 'visionOf'>): AfterWrite {
+  return ({ module, action, sceneId }, ctx, registry) => {
+    if (module !== 'scenes' || action !== 'activate' || !sceneId) return
+    ensurePartyStart(registry, vision, { campaignId: ctx.campaignId, sessionId: ctx.sessionId, sceneId, broadcast: ctx.broadcast })
+  }
 }
 
 /**

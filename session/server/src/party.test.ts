@@ -195,6 +195,78 @@ describe('the party at Start (table lobby pass §3.5)', () => {
       t.close()
     })
   })
+
+  it('the DM puts a character on the map, or hands one to a seat, beside the party (finishing pass 12.1)', async () => {
+    await withScene(async (fixture) => {
+      const t = await lobby(fixture, { Pim: 'bram' })
+      await t.start(1)
+      const bram = t.onScene()[0]!
+      t.dm.command('tokens', 'place-pc', { defId: 'cora' })
+      await t.dm.until(() => t.onScene().length === 2)
+      const late = await call(fixture.base, 'POST', '/api/join', { body: { code: t.opened.body.inviteCode, name: 'Yara' } })
+      const yara = await seat(fixture.server.port, late.body.token as string)
+      t.dm.command('tokens', 'library-upsert', { id: 'ysolde', ownerIdentityId: yara.identityId, ownerName: 'Yara' })
+      await t.dm.until(() => t.onScene().length === 3)
+      for (const defId of ['cora', 'ysolde']) {
+        const tok = t.onScene().find((x) => x.defId === defId)!
+        expect(Math.max(Math.abs(tok.x - bram.x), Math.abs(tok.y - bram.y))).toBeLessThanOrEqual(1)
+      }
+      expect(t.onScene().find((x) => x.defId === 'ysolde')).toMatchObject({ ownerId: yara.identityId })
+      // Once there, it is not put down twice.
+      t.dm.command('tokens', 'place-pc', { defId: 'cora' })
+      await t.dm.until(() => t.dm.frames.some((m) => m.type === 'error'))
+      expect(t.onScene()).toHaveLength(3)
+      yara.socket.close()
+      t.close()
+    })
+  })
+})
+
+describe('a scene with no party start area (finishing pass 12.1)', () => {
+  const bram = { ...oldDef('bram', 'Bram'), kind: 'pc' as const }
+
+  it('gets one when the table opens, when the DM switches to it, and when the table is joined again', async () => {
+    await withScene(async ({ server, base, campaignId, dmToken, sceneId }) => {
+      const other = (await call(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: MAP })).body.sceneId as string
+      server.stores.moduleState.put(campaignId, 'tokens', { library: { bram }, byScene: {} })
+      const opened = await call(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId, sceneId } })
+      const areaOf = (id: string) => tokensOf(server, campaignId).partyStart?.[id]
+      const area = areaOf(sceneId)
+      expect(area).toBeDefined()
+      expect([area!.x1 - area!.x0, area!.y1 - area!.y0]).toEqual([2, 2])
+      expect(areaOf(other)).toBeUndefined()
+
+      const dm = await seat(server.port, dmToken)
+      const snapshot = dm.frames.find((m) => m.type === 'session-state')!.state as { campaignName?: string }
+      expect(snapshot.campaignName).toBe('Party')
+      const joined = await call(base, 'POST', '/api/join', { body: { code: opened.body.inviteCode, name: 'Pim' } })
+      const pim = await seat(server.port, joined.body.token as string)
+      pim.command('tokens', 'pc-claim', { defId: 'bram' })
+      await dm.until(() => !!tokensOf(server, campaignId).library.bram!.ownerIdentityId)
+
+      // Switched to before Start: the party still has somewhere to stand.
+      dm.command('scenes', 'activate', { sceneId: other })
+      await dm.until(() => !!areaOf(other))
+      dm.command('table', 'start', { on: true })
+      await dm.until(() => Object.keys(tokensOf(server, campaignId).byScene[other] ?? {}).length === 1)
+      const placed = Object.values(tokensOf(server, campaignId).byScene[other]!)[0]!
+      const inside = areaOf(other)!
+      expect(placed.x).toBeGreaterThanOrEqual(inside.x0)
+      expect(placed.x).toBeLessThanOrEqual(inside.x1 + 1)
+      expect(placed.y).toBeGreaterThanOrEqual(inside.y0)
+      expect(placed.y).toBeLessThanOrEqual(inside.y1 + 1)
+
+      // A table every seat left, its live scene's area gone, gets one back when it is joined again.
+      dm.command('tokens', 'set-party-start', { sceneId: other, rect: null })
+      await dm.until(() => !areaOf(other))
+      dm.socket.close()
+      pim.socket.close()
+      await new Promise((r) => setTimeout(r, 100))
+      const again = await seat(server.port, dmToken)
+      expect(areaOf(other)).toBeDefined()
+      again.socket.close()
+    })
+  })
 })
 
 describe('a returning player', () => {

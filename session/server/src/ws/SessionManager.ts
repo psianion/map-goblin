@@ -62,6 +62,10 @@ export interface SessionManagerOptions {
    * seats are shown the row.
    */
   tableFlags?: (sessionId: string) => TableFlags | null
+  /** Called with the live scene when a session opens in this process, before anyone is sent a snapshot. */
+  sceneLive?: (at: { campaignId: string; sessionId: string; sceneId: string }) => void
+  /** The campaign's own name, for the lobby header (`SessionState.campaignName`). */
+  campaignName?: (campaignId: string) => string | null
 }
 
 export class SessionManager {
@@ -75,6 +79,8 @@ export class SessionManager {
   private readonly sessionActive: (sessionId: string) => boolean
   private readonly isBanned: (identityId: string) => boolean
   private readonly tableFlags: NonNullable<SessionManagerOptions['tableFlags']>
+  private readonly sceneLive: NonNullable<SessionManagerOptions['sceneLive']>
+  private readonly campaignName: NonNullable<SessionManagerOptions['campaignName']>
 
   constructor(
     /** Already populated — boot owns which modules exist (§2.3.8). */
@@ -88,6 +94,8 @@ export class SessionManager {
       sessionActive = () => true,
       isBanned = () => false,
       tableFlags = () => null,
+      sceneLive = () => {},
+      campaignName = () => null,
     }: SessionManagerOptions = {},
   ) {
     this.missedPongLimit = missedPongLimit
@@ -95,6 +103,8 @@ export class SessionManager {
     this.sessionActive = sessionActive
     this.isBanned = isBanned
     this.tableFlags = tableFlags
+    this.sceneLive = sceneLive
+    this.campaignName = campaignName
     this.timer = setInterval(() => this.heartbeat(), heartbeatMs)
     this.timer.unref()
 
@@ -379,6 +389,8 @@ export class SessionManager {
     const session: Session = { id, campaignId, players: new Map(), clients: new Set(), dmSeen: false, templates: [] }
     this.sessions.set(id, session)
     this.syncTable(session)
+    const { activeSceneId } = this.scenes(session)
+    if (activeSceneId) this.sceneLive({ campaignId, sessionId: id, sceneId: activeSceneId })
     return session
   }
 
@@ -400,10 +412,12 @@ export class SessionManager {
   /** Scenes and the active one are read fresh: an upload between joins must show up. */
   private snapshot(session: Session, viewer: Viewer): SessionState {
     const { scenes, activeSceneId } = this.scenes(session)
+    const campaignName = this.campaignName(session.campaignId)
     return {
       protocolVersion: PROTOCOL_VERSION,
       sessionId: session.id,
       campaignId: session.campaignId,
+      ...(campaignName ? { campaignName } : {}),
       // #47 D5 — the DM sees the whole library; a player sees only what has been
       // published/made visible to them. The currently active scene still loads either
       // way (fog and door redaction are what actually gate its content) — this only

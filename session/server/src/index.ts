@@ -24,7 +24,7 @@ import { createVision } from './fog/vision'
 import { createTerrain } from './fog/terrain'
 import { clientAddress, createRequestHandler } from './http'
 import { createMirror, mirrorRootFor } from './mirror'
-import { partyPlacement } from './party'
+import { ensurePartyStart, partyPlacement, partyStartOnSwitch } from './party'
 import { afterWrites, effectsClear, effectsTick, hiddenCombatants } from './modules/effectsTick'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
@@ -113,7 +113,8 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   // Table v2: the DM's pause and movement lock, read off the session's row (migration 006),
   // which the table module writes through. A pause refuses every player command at dispatch,
   // and so does a table still in its lobby (009) but for the lobby's own. Starting the table
-  // puts the party on the map (`partyPlacement`).
+  // puts the party on the map (`partyPlacement`), and a scene switched to gets a party start
+  // area when it has none (`partyStartOnSwitch`).
   const table = sessionTable(stores)
   const modules = new ModuleRegistry(
     stores.moduleState,
@@ -123,6 +124,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       effectsClear,
       hiddenCombatants,
       partyPlacement(vision, table.flagsOf),
+      partyStartOnSwitch(vision),
       backToLobby(table.flagsOf),
     ),
     table.seatGate,
@@ -237,6 +239,10 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     sessionActive: (id) => stores.sessions.get(id)?.active === 1,
     isBanned: (identityId) => stores.identities.isBanned(identityId),
     tableFlags: table.flagsOf,
+    // A table opened again in this process (a restart, or the first join) gets the live scene's
+    // party start area if it has none; a scene switch gets it through `partyStartOnSwitch`.
+    sceneLive: (at) => ensurePartyStart(modules, vision, at),
+    campaignName: (campaignId) => stores.campaigns.get(campaignId)?.name ?? null,
     ...options,
   })
   sessionsRef = sessions

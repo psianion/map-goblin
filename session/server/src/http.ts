@@ -22,7 +22,7 @@ import {
 import { createHandoffStore, type HandoffStore } from './handoff'
 import { writeCampaignExport } from './export'
 import { slug, type Mirror } from './mirror'
-import { fillTokenDefaults, reattachPc, storePartyStart } from './party'
+import { ensurePartyStart, fillTokenDefaults, reattachPc, storePartyStart } from './party'
 import { PROTOCOL_VERSION } from './config'
 import {
   MAX_ASSET_BYTES,
@@ -1235,6 +1235,10 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
     if (levelId) deps.modules.dispatch('triggers', 'set-start-level', { sceneId: point.sceneId, levelId }, ctx)
     storePartyStart(deps.modules, { campaignId, sessionId: session.id, sceneId: point.sceneId, centre: point, levelId, dmId: dm.id })
   }
+
+  // Finishing pass 12.1: with no start picked, the scene the table opens on still gets an area.
+  const opensOn = scene ?? deps.stores.scenes.listByCampaign(campaignId)[0]?.id
+  if (opensOn) ensurePartyStart(deps.modules, deps.vision, { campaignId, sessionId: session.id, sceneId: opensOn })
 
   json(res, 201, {
     sessionId: session.id,

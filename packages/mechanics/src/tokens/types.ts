@@ -145,6 +145,8 @@ export const PC_TAKEN = 'pc-taken'
 export const PC_ALREADY_OWNED = 'pc-already-owned'
 export const PLAYER_PCS_OFF = 'player-pcs-off'
 export const NO_OWN_PC = 'no-own-pc'
+/** The DM's `place-pc` found no free ground near the party or its start area. */
+export const NO_PC_SPOT = 'no-pc-spot'
 
 /**
  * What the fog rules say about one scene (S3 D3/D6/D8). The sets are the server's — it

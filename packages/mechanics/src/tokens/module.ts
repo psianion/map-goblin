@@ -9,7 +9,8 @@ import { ANY_ROLE, type GameModule, type ModuleContext, type Viewer } from '../c
 import { refusal as refusalText } from '../doors/types'
 import { fanAround } from './fan'
 import { sightPartyIds } from './links'
-import { CLEAR_EFFECTS, NO_OWN_PC, PC_ALREADY_OWNED, PC_TAKEN, PLAYER_PCS_OFF } from './types'
+import { besideParty, cellKey, partySpots, standsAt, targetLevel } from './party'
+import { CLEAR_EFFECTS, NO_OWN_PC, NO_PC_SPOT, PC_ALREADY_OWNED, PC_TAKEN, PLAYER_PCS_OFF } from './types'
 import type {
   LevelFilterOf,
   PartyStartArea,
@@ -60,6 +61,7 @@ import { HP_MAX } from '../initiative/types'
 
 export * from './fan'
 export * from './links'
+export * from './party'
 export * from './types'
 export * from './walk'
 // The client snaps optimistically during a drag (§2.4.6) against the same function the
@@ -152,6 +154,7 @@ export function tokensModule(
       'pc-update': ['player'],
       'pc-release': ['player'],
       'set-party-start': ['dm'],
+      'place-pc': ['dm'],
     },
     initialState: { library: {}, byScene: {} },
 
@@ -283,7 +286,7 @@ function run(
 ): void {
   switch (action) {
     case 'library-upsert':
-      return libraryUpsert(p, ctx)
+      return libraryUpsert(p, ctx, visionOf, terrainOf, tableOf)
     case 'library-delete':
       return libraryDelete(p, ctx)
     case 'place':
@@ -330,6 +333,8 @@ function run(
       return pcRelease(ctx)
     case 'set-party-start':
       return setPartyStart(p, ctx)
+    case 'place-pc':
+      return placePc(p, ctx, visionOf, terrainOf)
     default:
       bad(`tokens has no action '${action}'`)
   }
@@ -365,7 +370,7 @@ function put(ctx: Ctx, sceneId: string, token: Token): void {
   })
 }
 
-function libraryUpsert(p: Payload, ctx: Ctx): void {
+function libraryUpsert(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf, tableOf: TableOf): void {
   const { state } = ctx
   const id = p.id === undefined ? mintId('def') : str(p.id, 'id', ID_MAX)
   const base = state.library[id]
@@ -379,6 +384,14 @@ function libraryUpsert(p: Payload, ctx: Ctx): void {
     // def (`base` unset) has nothing placed from it yet, so there is nothing to walk.
     byScene: base ? propagateDefEdit(state.byScene, id, def, base.ownerIdentityId) : state.byScene,
   })
+  // Finishing pass 12.1: a character handed to a seat on a started table joins the party on the
+  // live scene, as Start would have put it. With nowhere to stand it stays off the map, and the
+  // DM's roster offers "Put on the map", which says why.
+  const handed = def.kind === 'pc' && !!def.ownerIdentityId && def.ownerIdentityId !== base?.ownerIdentityId
+  const sceneId = ctx.activeSceneId
+  if (!handed || !sceneId || !tableOf({ campaignId: ctx.campaignId, sessionId: ctx.sessionId })?.started) return
+  if (Object.values(ctx.state.byScene[sceneId] ?? {}).some((t) => t.defId === id)) return
+  placeBesideParty(def, sceneId, ctx, visionOf, terrainOf)
 }
 
 /** Overwrite the def-owned fields on every instance placed from `def`; instance-only fields
@@ -1073,4 +1086,37 @@ function setPartyStart(p: Payload, ctx: Ctx): void {
     partyStart[sceneId] = area
   }
   ctx.setState({ ...state, partyStart })
+}
+
+/**
+ * Puts `def` on the scene beside the party (fanned out from the centre of its PC tokens), else in
+ * the scene's party start area, on the first free spot it can stand on. Placed as the sender, who
+ * is the DM. False when there is no such spot.
+ */
+function placeBesideParty(def: TokenDef, sceneId: string, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): boolean {
+  const onScene = Object.values(ctx.state.byScene[sceneId] ?? {})
+  const area = ctx.state.partyStart?.[sceneId]
+  const target = besideParty(onScene) ?? (area ? { area } : null)
+  if (!target) return false
+  const levelId = targetLevel(target)
+  const scene = visionOf(sceneId)
+  const taken = new Set(onScene.map((t) => cellKey(t.x, t.y)))
+  const spot = partySpots(target, onScene.length + 1).find(
+    (s) => !taken.has(cellKey(s.x, s.y)) && standsAt(scene, def.size, s.x, s.y, levelId),
+  )
+  if (!spot) return false
+  place({ sceneId, defId: def.id, x: spot.x, y: spot.y, ...(levelId ? { levelId } : {}) }, ctx, visionOf, terrainOf)
+  return true
+}
+
+/** `place-pc {defId}` — the DM puts a character that is not on the live scene beside the party, else in its start area. */
+function placePc(p: Payload, ctx: Ctx, visionOf: VisionOf, terrainOf: TerrainOf): void {
+  const defId = str(p.defId, 'defId', ID_MAX)
+  const def = ctx.state.library[defId]
+  if (!def || def.kind !== 'pc') bad('no such character')
+  const sceneId = ctx.activeSceneId ?? bad('there is no live scene to put the character on')
+  if (Object.values(ctx.state.byScene[sceneId] ?? {}).some((t) => t.defId === defId)) bad(`${def.name} is already on the map`)
+  if (!placeBesideParty(def, sceneId, ctx, visionOf, terrainOf)) {
+    bad(refusalText(NO_PC_SPOT, defId, `There is no free ground near the party or its start for ${def.name}.`))
+  }
 }

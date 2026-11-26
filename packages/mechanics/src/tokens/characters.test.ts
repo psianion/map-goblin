@@ -4,8 +4,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Viewer } from '../contract'
 import { tokensModule as buildTokens } from './module'
-import { NO_OWN_PC, PC_ALREADY_OWNED, PC_TAKEN, PLAYER_PCS_OFF } from './types'
-import type { TableFlags, Token, TokenDef, TokensState } from './types'
+import { NO_OWN_PC, NO_PC_SPOT, PC_ALREADY_OWNED, PC_TAKEN, PLAYER_PCS_OFF, SOLID_GROUND } from './types'
+import type { SceneVision, TableFlags, Token, TokenDef, TokensState } from './types'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
@@ -206,5 +206,82 @@ describe('the party start area', () => {
     const { run, module } = harness()
     const set = run(start, DM, 'set-party-start', { rect: { x0: 0, y0: 0, x1: 2, y1: 2 } }).next
     expect(module.forgetScene!(set, SCENE).partyStart).toEqual({})
+  })
+})
+
+describe('putting a character on the map (finishing pass 12.1)', () => {
+  /** A started table whose map is rock everywhere but `ground`; state is read back as written, as the registry does. */
+  function live(ground: (x: number, y: number) => boolean = () => true, started = true) {
+    const table: TableFlags = { paused: false, movementLocked: false, started, playersMakePcs: true, lobbyShowsScene: false }
+    const scene: SceneVision = {
+      roomAt: () => null,
+      known: () => true,
+      walkRefusal: (_t, to) => (ground(to.x, to.y) ? null : `${SOLID_GROUND}: that space cannot be occupied`),
+    }
+    const module = buildTokens(() => scene, undefined, undefined, () => table)
+    return (state: TokensState, sender: Viewer, action: string, payload: unknown = {}) => {
+      let next = state
+      const error = module.handler(action, payload, {
+        campaignId: 'c-1',
+        sessionId: 's-1',
+        activeSceneId: SCENE,
+        sender,
+        players: ROSTER,
+        get state() {
+          return next
+        },
+        setState: (s) => {
+          next = s
+        },
+        broadcast: () => {},
+      })
+      return { error, next }
+    }
+  }
+  const cora = pc('cora', { ownerIdentityId: 'p-2', ownerName: 'Cass' })
+  const tokensOf = (s: TokensState, defId: string) => Object.values(s.byScene[SCENE] ?? {}).filter((t) => t.defId === defId)
+
+  it('puts it beside the party, on free ground', () => {
+    const run = live()
+    const party = { ...start, library: { ...start.library, cora } }
+    const { error, next } = run(party, DM, 'place-pc', { defId: 'cora' })
+    expect(error).toBeUndefined()
+    const [token] = tokensOf(next, 'cora')
+    expect(token).toMatchObject({ ownerId: 'p-2' })
+    expect(Math.max(Math.abs(token!.x - 1.5), Math.abs(token!.y - 1.5))).toBe(1)
+  })
+
+  it('with nobody on the map, puts it in the party start area, skipping rock', () => {
+    const run = live((x) => x > 6)
+    const empty: TokensState = { library: { cora }, byScene: {}, partyStart: { [SCENE]: { x0: 4, y0: 4, x1: 6, y1: 6 } } }
+    const [token] = tokensOf(run(empty, DM, 'place-pc', { defId: 'cora' }).next, 'cora')
+    expect(token).toMatchObject({ x: 6.5 })
+    expect(token!.y).toBeGreaterThanOrEqual(4.5)
+    expect(token!.y).toBeLessThanOrEqual(6.5)
+  })
+
+  it('refuses, saying why, when there is no ground to stand on, when it is already on the map, and to a player', () => {
+    const empty: TokensState = { library: { cora }, byScene: {}, partyStart: { [SCENE]: { x0: 0, y0: 0, x1: 2, y1: 2 } } }
+    const nowhere = live(() => false)(empty, DM, 'place-pc', { defId: 'cora' })
+    expect(nowhere.error?.message).toBe(`${NO_PC_SPOT} cora: There is no free ground near the party or its start for cora.`)
+    expect(nowhere.next).toBe(empty)
+    const run = live()
+    const placed = run(empty, DM, 'place-pc', { defId: 'cora' }).next
+    expect(run(placed, DM, 'place-pc', { defId: 'cora' }).error).toMatchObject({ code: 'invalid-command' })
+    expect(run(start, DM, 'place-pc', { defId: 'nobody' }).error).toMatchObject({ code: 'invalid-command' })
+    expect(harness().module.commands['place-pc']).toEqual(['dm'])
+  })
+
+  it('handed to a seat on a started table, joins the party; before Start, waits for it', () => {
+    const party = { ...start, library: { ...start.library, cora: pc('cora') } }
+    const handed = live()(party, DM, 'library-upsert', { id: 'cora', ownerIdentityId: 'p-2', ownerName: 'Cass' })
+    expect(handed.error).toBeUndefined()
+    expect(tokensOf(handed.next, 'cora')).toHaveLength(1)
+    expect(tokensOf(handed.next, 'cora')[0]).toMatchObject({ ownerId: 'p-2' })
+    // Editing it again does not put a second one down.
+    const edited = live()(handed.next, DM, 'library-upsert', { id: 'cora', ring: '#ff0000' }).next
+    expect(tokensOf(edited, 'cora')).toHaveLength(1)
+    const waiting = live(() => true, false)(party, DM, 'library-upsert', { id: 'cora', ownerIdentityId: 'p-2', ownerName: 'Cass' })
+    expect(tokensOf(waiting.next, 'cora')).toHaveLength(0)
   })
 })

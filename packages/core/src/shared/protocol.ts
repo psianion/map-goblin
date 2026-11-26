@@ -38,6 +38,8 @@ export interface SessionState {
   protocolVersion: number;
   sessionId: string;
   campaignId: string;
+  /** The campaign's own name, for the lobby header. Additive: absent from a server before it. */
+  campaignName?: string;
   activeSceneId: string | null;
   /** Metadata only — map data fetched via HTTP. `mapId` changes when a scene is republished. */
   scenes: { id: string; name: string; mapId: string }[];
