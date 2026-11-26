@@ -37,8 +37,12 @@ test.describe('@shell chrome', () => {
     const { page } = hostSession;
     await page.keyboard.press('m');
     await expect(page.getByTestId('rail-measure')).toHaveAttribute('aria-pressed', 'true');
+    // The armed tool's strip beside the rail names it and says what a drag does.
+    await expect(page.getByTestId('tool-strip')).toHaveAttribute('data-tool', 'measure');
+    await expect(page.getByTestId('tool-strip-hint')).toContainText('Alt');
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('rail-select')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('tool-strip')).toHaveCount(0);
     await page.getByTestId('rail-ping').click();
     await page.getByTestId('game-canvas').click({ position: { x: 400, y: 300 } });
     await expect(page.locator('[data-mark="ping"]')).toHaveCount(1);

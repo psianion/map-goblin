@@ -13,6 +13,7 @@
 // tokens command.
 
 import { useEffect } from 'react';
+import { TABLE_NOT_STARTED } from '@dnd/mechanics/table';
 import { doorRefusal } from '../modules/doors/doors';
 import { liveSceneDoors } from '../modules/doors/DoorRenderer';
 import { tokenRefusal } from '../modules/tokens/drag';
@@ -20,12 +21,23 @@ import { showToast } from './toasts';
 import { useSessionStore } from './store';
 
 /**
+ * A refused mark or command the table owes words for beyond tokens and doors: the table not
+ * started yet, and a mark the seat may not make (the server's `ws/marks.ts` says "only the DM
+ * may ..."). A paused table is already said by `tokenRefusal`.
+ */
+function tableRefusal(message: string): string | null {
+  if (message.startsWith(`${TABLE_NOT_STARTED}:`)) return 'The DM has not started the table yet.';
+  if (message.startsWith('only the DM may ')) return 'Only the DM can do that.';
+  return null;
+}
+
+/**
  * The words for one refusal, or null when it is not something to interrupt a player for
  * (a malformed payload, an id the client never showed them). Pure, so the table's copy is
  * testable without mounting the shell.
  */
 export function refusalToast(message: string, doors = liveSceneDoors()): string | null {
-  return tokenRefusal(message, doors) ?? doorRefusal(message, doors);
+  return tokenRefusal(message, doors) ?? doorRefusal(message, doors) ?? tableRefusal(message);
 }
 
 export function useRefusalToasts(): void {

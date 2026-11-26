@@ -22,6 +22,13 @@ const SIZE_MAX = 1000
 
 const SHAPES = ['circle', 'cone', 'square', 'line'] as const
 
+/**
+ * The id a `clear` names to take every standing template away at once (the DM's "Clear
+ * templates"). "Clear drawings" is a `clear` of `*drawings`: nothing here stands for it, so it is
+ * only relayed. The table client knows the same two.
+ */
+export const CLEAR_TEMPLATES = '*templates'
+
 const coord = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= COORD_MAX
 
 function point(v: unknown): MarkPoint | null {
@@ -76,7 +83,7 @@ export function parseMark(raw: unknown, role: Role): { mark: Mark; ttlMs: number
       return { mark: { kind: 'draw', points, ttl }, ttlMs: ttl }
     }
     case 'clear': {
-      if (role !== 'dm') return dmOnly('clear templates')
+      if (role !== 'dm') return dmOnly('clear marks')
       if (typeof m.id !== 'string' || m.id.length === 0 || m.id.length > ID_MAX) return { error: 'clear needs the id of a template' }
       return { mark: { kind: 'clear', id: m.id }, ttlMs: 0 }
     }
@@ -87,12 +94,14 @@ export function parseMark(raw: unknown, role: Role): { mark: Mark; ttlMs: number
 
 /**
  * The table's standing templates after one relayed mark: a template joins them, a clear takes
- * the one it names away, anything else leaves them as they were (the same array back).
+ * the one it names away (CLEAR_TEMPLATES takes them all), anything else leaves them as they
+ * were (the same array back).
  */
 export function standing(kept: readonly MarkEvent[], event: MarkEvent): readonly MarkEvent[] {
   if (event.mark.kind === 'template') return [...kept, event].slice(-STANDING_MAX)
   if (event.mark.kind === 'clear') {
     const id = event.mark.id
+    if (id === CLEAR_TEMPLATES) return kept.length ? [] : kept
     return kept.some((e) => e.id === id) ? kept.filter((e) => e.id !== id) : kept
   }
   return kept

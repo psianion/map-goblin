@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PIN_TEXT_MAX } from '@dnd/mechanics/pins';
 import { Button, SwitchRow } from '@dnd/ui';
 import { MapCard } from '../MapCard';
 import { useTableShell } from '../tableShell';
@@ -20,7 +21,7 @@ function PinEditor({ pin }: { pin: Pin }) {
           autoFocus
           value={text}
           rows={2}
-          maxLength={280}
+          maxLength={PIN_TEXT_MAX}
           aria-label="Pin text"
           data-testid="pin-text"
           placeholder="What is here"

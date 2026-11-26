@@ -8,6 +8,12 @@ test.describe('@player player shell', () => {
     await expect(player.getByTestId('title-switcher')).toHaveCount(0);
     await expect(player.getByTestId('rail-measure')).toBeVisible();
     await expect(player.getByTestId('rail-template')).toHaveCount(0);
+    // A player's ping strip has no "pull everyone's view": that is the DM's.
+    await player.getByTestId('rail-ping').click();
+    await expect(player.getByTestId('tool-strip')).toHaveAttribute('data-tool', 'ping');
+    await expect(player.getByTestId('strip-pull')).toHaveCount(0);
+    await player.getByTestId('rail-ping').click();
+    await expect(player.getByTestId('tool-strip')).toHaveCount(0);
     await expect(player.getByTestId('dock')).toHaveCount(0);
     await expect(player.getByTestId('zoom-pill')).toBeVisible();
     await expect(player.getByTestId('sheet-tab-log')).toBeVisible();
@@ -32,6 +38,12 @@ test.describe('@player player shell', () => {
     await expect(phone.getByTestId('phone-bar')).toBeVisible({ timeout: 30_000 });
     // The mark tools attach once the engine is up: a press before then lands on nothing.
     await assertMapLoaded(phone);
+    // An armed tool's strip fits beside the rail at phone width.
+    await phone.getByTestId('rail-measure').click();
+    const strip = await phone.getByTestId('tool-strip').boundingBox();
+    expect(strip && strip.x + strip.width).toBeLessThanOrEqual(390);
+    await phone.getByTestId('rail-measure').click();
+    await expect(phone.getByTestId('tool-strip')).toHaveCount(0);
     await expect(phone.getByTestId('sheet-tabs')).toBeHidden();
     await phone.getByTestId('phone-tab-log').click();
     await expect(phone.getByTestId('log-sheet')).toBeVisible();

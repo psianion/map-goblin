@@ -35,6 +35,8 @@ describe('pins', () => {
   it('keeps pins on this seat without the pins module, and writes on one', () => {
     render(<PinCard />);
     act(() => addPin(2, 3, true));
+    // The box holds what the server keeps, and no more.
+    expect(screen.getByTestId('pin-text').getAttribute('maxlength')).toBe('200');
     fireEvent.change(screen.getByTestId('pin-text'), { target: { value: 'Trap here' } });
     fireEvent.click(screen.getByTestId('pin-save'));
     expect(useLocalPins.getState().pins[0]).toMatchObject({ x: 2, y: 3, text: 'Trap here', dmOnly: true });
