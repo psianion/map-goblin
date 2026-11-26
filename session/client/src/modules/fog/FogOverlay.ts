@@ -19,7 +19,11 @@ import { cellAt, cellOutline, cellRuns, fogFrame } from './fog';
  */
 const CURSOR = { fill: 0xffffff, fillAlpha: 0.42, line: 0x1b1b1b, linePx: 1.2, dashPx: 4, gapPx: 3 };
 
-const send = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('fog', action, payload);
+const send = (action: string, payload: unknown, group?: string): void =>
+  useSessionStore.getState().sendCommand('fog', action, payload, group);
+
+/** One id per stroke, so the DM's undo takes every batch of it back as one step. */
+let strokes = 0;
 
 /** The cells inside a disc of `size` cells diameter around `center`. */
 export function disc(center: Cell, size: number): Cell[] {
@@ -120,13 +124,14 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   let strokeOp: FogBrushOp = 'clear';
   let strokeLevel = '';
   let strokeFrame: Frame | null = null;
+  let strokeGroup = '';
   let batch: Cell[] = [];
   const painted = new Set<string>();
   let lastCell: Cell | null = null;
 
   const flush = (): void => {
     if (batch.length === 0) return;
-    send('region-set', { levelId: strokeLevel, op: strokeOp, cells: batch });
+    send('region-set', { levelId: strokeLevel, op: strokeOp, cells: batch }, strokeGroup);
     batch = [];
   };
 
@@ -194,6 +199,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     strokeOp = e.altKey ? (op === 'clear' ? 'fog' : 'clear') : op;
     strokeLevel = brushLevelId();
     strokeFrame = frameNow();
+    strokeGroup = `stroke-${Date.now().toString(36)}-${(strokes += 1)}`;
     painting = true;
     painted.clear();
     batch = [];

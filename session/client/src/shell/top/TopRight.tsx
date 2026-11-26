@@ -4,6 +4,7 @@ import { Eye } from '@dnd/ui/icons';
 import { toggleAsPlayers, useAsPlayers } from '../../modules/fog/asPlayers';
 import { sceneFog } from '../../modules/fog/fog';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { HistoryButtons } from './HistoryButtons';
 import { InviteButton } from './InviteCard';
 import { Presence } from './Presence';
 import { SessionMenu } from './SessionMenu';
@@ -24,12 +25,13 @@ export function AsPlayersButton() {
   );
 }
 
-/** Top right: presence, Invite (DM), As players see it (DM, fog on), View and Session, then the download pill. */
+/** Top right: presence, Undo and Redo (DM), Invite (DM), As players see it (DM, fog on), View and Session, then the download pill. */
 export function TopRight() {
   return (
     <FloatBox className="absolute top-3 right-3 z-20 flex h-11 items-center gap-1 px-1.5 py-0" data-testid="top-right" data-chrome>
       <Presence />
       <Separator orientation="vertical" className="mx-1 h-5" />
+      <HistoryButtons />
       <InviteButton />
       <AsPlayersButton />
       <ViewMenu />

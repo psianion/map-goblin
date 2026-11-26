@@ -9,7 +9,9 @@ import { useActiveTool } from '../session/tools';
 import { useFogBrush } from '../modules/fog/brush';
 import { closeSheet, openSheet, openSheetNow } from './sheets/registry';
 import { useTableShell } from './tableShell';
-import { keyClaims, useHotkeys } from './hotkeys';
+import { keyClaims, stepName, useHotkeys } from './hotkeys';
+import { shortcutTable } from './shortcutTable';
+import { useToasts } from '../session/toasts';
 import './dock/tabs';
 import './rail/tools';
 
@@ -221,6 +223,52 @@ describe('table hotkeys', () => {
     fireEvent.keyDown(scene, { key: '1' });
     expect(useTableShell.getState().dockTab).toBe('fog');
     popover.remove();
+  });
+
+  it('Ctrl or Cmd+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo, and an undo toasts with Redo', () => {
+    const sent = captureCommands();
+    renderHook(() => useHotkeys());
+    const step = { module: 'tokens', action: 'move' };
+    useSessionStore.setState({ history: { undo: null, redo: null } });
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    expect(sent).toHaveLength(0); // nothing to undo
+
+    useSessionStore.setState({ history: { undo: step, redo: step } });
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'z', metaKey: true });
+    fireEvent.keyDown(window, { key: 'Z', ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
+    expect(sent).toEqual([
+      { type: 'history', op: 'undo' },
+      { type: 'history', op: 'undo' },
+      { type: 'history', op: 'redo' },
+      { type: 'history', op: 'redo' },
+    ]);
+    const toast = useToasts.getState().toast!;
+    expect(toast.message).toBe('Undid token move');
+    toast.action!.onAction();
+    expect(sent.at(-1)).toEqual({ type: 'history', op: 'redo' });
+  });
+
+  it('leaves undo to a field being typed in, and gives a player none', () => {
+    const sent = captureCommands();
+    renderHook(() => useHotkeys());
+    useSessionStore.setState({ history: { undo: { module: 'fog', action: 'region-set' }, redo: null } });
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    fireEvent.keyDown(input, { key: 'z', ctrlKey: true });
+    input.remove();
+    useSessionStore.setState({ you: player });
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    expect(sent).toEqual([]);
+  });
+
+  it('names a step from the table, else by its module, else plainly', () => {
+    expect(stepName({ module: 'doors', action: 'toggle' })).toBe('door');
+    expect(stepName({ module: 'pins', action: 'add' })).toBe('pin change');
+    expect(stepName({ module: 'elsewhere', action: 'x' })).toBe('last change');
+    expect(shortcutTable('dm').find((s) => s.title === 'Undo')?.rows.map((r) => r.keys)).toEqual([['Ctrl+Z'], ['Ctrl+Shift+Z', 'Ctrl+Y']]);
+    expect(shortcutTable('player').find((s) => s.title === 'Undo')).toBeUndefined();
   });
 
   it('has no key claimed twice for either role', () => {

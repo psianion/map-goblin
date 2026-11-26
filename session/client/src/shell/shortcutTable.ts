@@ -1,6 +1,6 @@
 import type { Role } from '@dnd/core/src/shared/protocol';
 import { dockTabs } from './dock/registry';
-import { BINDINGS, CAMERA_KEYS } from './hotkeys';
+import { BINDINGS, CAMERA_KEYS, HISTORY_KEYS } from './hotkeys';
 import { railToolsFor } from './rail/registry';
 
 export interface ShortcutRow {
@@ -25,6 +25,7 @@ export function shortcutTable(role: Role): ShortcutSection[] {
   ];
   if (role === 'dm') {
     sections.push({ title: 'Dock', rows: dockTabs().map((t) => ({ id: `dock:${t.id}`, label: t.title, keys: [t.key] })) });
+    sections.push({ title: 'Undo', rows: HISTORY_KEYS.map((k) => ({ ...k, keys: [...k.keys] })) });
   }
   for (const b of BINDINGS) {
     if (!b.roles.includes(role)) continue;

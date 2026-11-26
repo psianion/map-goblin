@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { Role } from '@dnd/core/src/shared/protocol';
+import type { HistoryStep, Role } from '@dnd/core/src/shared/protocol';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
 import { fogOn, type FogBrushOp, type FogState } from '@dnd/mechanics/fog';
 import { toggleBrush } from '../modules/fog/brush';
@@ -9,6 +9,7 @@ import { useInitiativeSelection } from '../modules/initiative/selection';
 import { useLightSelection } from '../modules/lights/selection';
 import { useTokenInteraction } from '../modules/tokens/drag';
 import { useSessionStore } from '../session/store';
+import { showToast } from '../session/toasts';
 import { useActiveTool } from '../session/tools';
 import { dockTabs } from './dock/registry';
 import { findMyToken } from './findMyToken';
@@ -77,6 +78,74 @@ function togglePause(): void {
   store.sendCommand('table', 'pause', { on: !table.paused });
 }
 
+/** What a step is called in the Undo and Redo tooltips and the toast, by `module.action`. */
+const STEP_NAMES: Record<string, string> = {
+  'tokens.move': 'token move',
+  'tokens.place': 'token placement',
+  'tokens.spawn': 'token placement',
+  'tokens.delete': 'token removal',
+  'tokens.hide': 'token hide',
+  'tokens.update': 'token edit',
+  'tokens.damage': 'damage',
+  'tokens.heal': 'healing',
+  'tokens.set-condition': 'condition change',
+  'tokens.set-effect': 'effect change',
+  'tokens.assign': 'token owner change',
+  'tokens.set-token-level': 'level change',
+  'tokens.library-upsert': 'token type edit',
+  'tokens.library-delete': 'token type removal',
+  'fog.region-set': 'fog brush stroke',
+  'fog.clear-all': 'Clear all',
+  'fog.fog-all': 'Fog all',
+  'fog.set-on': 'fog switch',
+  'fog.set-auto-explore': 'Auto-explore switch',
+  'fog.set-fog-look': 'fog look change',
+  'doors.toggle': 'door',
+  'doors.lock': 'door lock',
+  'doors.unlock': 'door unlock',
+  'doors.reveal-secret': 'secret door reveal',
+};
+
+/** By module, for a step the table above does not name. */
+const MODULE_NAMES: Record<string, string> = {
+  tokens: 'token change',
+  fog: 'fog change',
+  doors: 'door change',
+  triggers: 'lighting change',
+  initiative: 'initiative change',
+  story: 'story change',
+  pins: 'pin change',
+  crossings: 'crossing change',
+};
+
+export const stepName = (step: HistoryStep): string =>
+  STEP_NAMES[`${step.module}.${step.action}`] ?? MODULE_NAMES[step.module] ?? 'last change';
+
+/** The DM's undo or redo of the table's last step; an undo says so, with Redo on the toast. */
+export function historyStep(op: 'undo' | 'redo'): void {
+  const store = useSessionStore.getState();
+  if (store.you?.role !== 'dm') return;
+  const step = store.history[op];
+  if (!step) return;
+  store.sendHistory(op);
+  if (op === 'undo') showToast({ message: `Undid ${stepName(step)}`, action: { label: 'Redo', onAction: () => historyStep('redo') } });
+}
+
+/** Ctrl or Cmd+Z undoes; Ctrl or Cmd+Shift+Z and Ctrl+Y redo. */
+function historyKey(e: KeyboardEvent): 'undo' | 'redo' | null {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
+  const key = e.key.toLowerCase();
+  if (key === 'z') return e.shiftKey ? 'redo' : 'undo';
+  if (key === 'y' && e.ctrlKey && !e.shiftKey) return 'redo';
+  return null;
+}
+
+/** For the shortcuts sheet: the DM's two history keys. */
+export const HISTORY_KEYS: readonly { id: string; label: string; keys: string[] }[] = [
+  { id: 'key:undo', label: 'Undo', keys: ['Ctrl+Z'] },
+  { id: 'key:redo', label: 'Redo', keys: ['Ctrl+Shift+Z', 'Ctrl+Y'] },
+];
+
 const DM = ['dm'] as const;
 const ALL = ['dm', 'player'] as const;
 
@@ -135,6 +204,15 @@ function onKeyDown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     e.preventDefault();
     onEscape();
+    return;
+  }
+
+  // Undo and redo are the modified keys, so they come before the guard below. In a field they
+  // are the field's own.
+  const history = historyKey(e);
+  if (history && roleNow() === 'dm' && !isTyping(e.target)) {
+    e.preventDefault();
+    historyStep(history);
     return;
   }
 
