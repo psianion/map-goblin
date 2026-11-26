@@ -473,7 +473,7 @@ export default function HostSetup() {
               </div>
               {sceneId && (
                 <div className="flex flex-col gap-2" data-testid="host-starting-room">
-                  <Caption>Starting room</Caption>
+                  <Caption>Where the party starts</Caption>
                   <div className="flex flex-wrap gap-2">
                     {partyStart && (
                       <Tile name="Party start" active={startRoomId === PARTY_START} onClick={() => setStartRoomId(PARTY_START)} data-testid="start-party">

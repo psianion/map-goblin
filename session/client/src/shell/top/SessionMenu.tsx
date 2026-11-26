@@ -112,6 +112,41 @@ function EndSession() {
   );
 }
 
+/** After Start: send the players back to the lobby, behind a confirm line (table lobby pass). */
+function BackToLobby() {
+  const started = useModuleState<TableSwitches & { started?: boolean }>('table')?.started !== false;
+  const [confirming, setConfirming] = useState(false);
+  if (!started) return null;
+  if (!confirming) {
+    return (
+      <Button variant="outline" size="sm" className="self-start" data-testid="back-to-lobby" onClick={() => setConfirming(true)}>
+        Back to lobby
+      </Button>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-text-2">Players go back to the lobby. Tokens stay where they are.</p>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="back-to-lobby-confirm"
+          onClick={() => {
+            useSessionStore.getState().sendCommand('table', 'start', { on: false });
+            setConfirming(false);
+          }}
+        >
+          Back to lobby
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** The DM's own download of every set, for running scenes later without waiting. Players never get it. */
 function LibraryDownload() {
   const status = useTableAssets((s) => s.library.status);
@@ -168,6 +203,7 @@ function DmControls() {
         disabled={!table}
         onCheckedChange={(on) => setTableSwitch('lock-movement', on)}
       />
+      <BackToLobby />
       <Separator />
       <div className="flex flex-col gap-1">
         <Button

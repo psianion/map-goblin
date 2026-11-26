@@ -4,8 +4,10 @@
 import { useMemo } from 'react';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { TABLE_INITIAL, type TableState } from '@dnd/mechanics/table';
-import type { TokenDef, TokensState } from '@dnd/mechanics/tokens';
+import type { PartyStartArea, TokenDef, TokensState } from '@dnd/mechanics/tokens';
 import { useSessionStore } from '../../session/store';
+import { useActiveTool } from '../../session/tools';
+import { sceneTokens } from '../../modules/tokens/play';
 
 type SessionSlice = Pick<ReturnType<typeof useSessionStore.getState>, 'you' | 'session'>;
 
@@ -58,3 +60,23 @@ export function pcStatus(def: TokenDef, identityId: string | undefined, players:
 
 export const sendCommand = (module: string, action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand(module, action, payload);
+
+/** The DM hands `seat` the character `defId`, or none; the one it held goes back to the pool. */
+export function handCharacter(seat: PlayerInfo, defId: string | null, tokens: TokensState | undefined, sceneId: string | null): void {
+  const held = pcOf(tokens, seat.identityId);
+  if (held && held.id !== defId) sendCommand('tokens', 'library-upsert', { id: held.id, ownerIdentityId: null, ownerName: null });
+  if (!defId || held?.id === defId) return;
+  sendCommand('tokens', 'library-upsert', { id: defId, ownerIdentityId: seat.identityId, ownerName: seat.name });
+  // A character already standing on the live scene is the seat's to move straight away.
+  for (const t of sceneTokens(tokens, sceneId)) if (t.defId === defId) sendCommand('tokens', 'assign', { id: t.id, identityId: seat.identityId });
+}
+
+export type Cell = { x: number; y: number };
+
+/** The cells between two corners, corners included, whichever way the drag went. */
+export function cellRect(a: Cell, b: Cell): PartyStartArea {
+  return { x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y), x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y) };
+}
+
+/** Arm the party start tool: the next drag on the DM's map sets the live scene's area. */
+export const armPartyStart = (): void => useActiveTool.getState().setActiveTool('party-start');

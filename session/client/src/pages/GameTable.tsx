@@ -25,7 +25,9 @@ import { SheetHost } from '../shell/sheets/SheetHost';
 import { TabColumn } from '../shell/sheets/TabColumn';
 import { TableToaster } from '../shell/TableToaster';
 import { Lobby } from '../shell/lobby/Lobby';
+import { LobbyStrip } from '../shell/lobby/LobbyStrip';
 import { useInLobby } from '../shell/lobby/lobbyState';
+import { PartyStartLayer } from '../shell/lobby/PartyStartLayer';
 import { PickCharacterCard } from '../shell/lobby/PickCharacterCard';
 import { useFrameMyToken } from '../shell/lobby/useFrameMyToken';
 import { InviteCard } from '../shell/top/InviteCard';
@@ -93,6 +95,7 @@ export default function GameTable() {
         <div className="absolute inset-0">
           <GameRenderer />
           <MarksLayer />
+          <PartyStartLayer />
         </div>
 
         <CrossingMenu />
@@ -103,6 +106,7 @@ export default function GameTable() {
         <PinCard />
 
         <TitleCard />
+        <LobbyStrip />
         <TableRail />
         <TopRight />
         <CombatBar />
