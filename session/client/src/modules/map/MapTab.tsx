@@ -8,6 +8,7 @@ import { frameWorldPoint } from '../../renderer/camera';
 import { openSheet } from '../../shell/sheets/registry';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { withoutSupersededSeats } from '../../shell/top/roster';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import { CrossingsFold } from '../crossings/CrossingsFold';
 import { DoorActions } from '../doors/DoorActions';
 import { doorLabel, doorStatusLabel } from '../doors/doors';
@@ -30,6 +31,9 @@ const FAMILIES: { value: MapFamily; label: string }[] = [
 ];
 
 const triggers = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('triggers', action, payload);
+
+/** One empty roster while the session is on its way, so the store never sees a fresh array per read. */
+const NO_PLAYERS: readonly PlayerInfo[] = [];
 
 const clock = (at: number): string => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -262,7 +266,7 @@ function LevelsStrip() {
   const levels = useStore((s) => s.levels);
   const state = useModuleState<TriggersState>('triggers');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const roster = useSessionStore((s) => s.session?.players ?? []);
+  const roster = useSessionStore((s) => s.session?.players ?? NO_PLAYERS);
   if (levels.length < 2) return <p className="text-xs text-text-3">This map has one level.</p>;
   const scene = state && sceneId ? sceneTriggersOf(state, sceneId) : undefined;
   const mine = scene?.dmLevelId ?? levels[0]!.id;

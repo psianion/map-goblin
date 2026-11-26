@@ -6,6 +6,7 @@ import { notify } from '@dnd/ui/toast';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { usePortraitUrl } from '../../shell/portrait';
 import { withoutSupersededSeats } from '../../shell/top/roster';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import { uploadArt } from '../tokens/portrait';
 import { useMapRooms, useScenePrep } from '../triggers/scenePrep';
 import { currentAudience, stillUp, stillUpText, useStoryAudience } from './audience';
@@ -13,6 +14,8 @@ import { currentAudience, stillUp, stillUpText, useStoryAudience } from './audie
 const send = (action: string, payload: unknown): void => useSessionStore.getState().sendCommand('story', action, payload);
 
 const EMPTY: StoryState = { handouts: [], shown: null, titleCard: null, journal: [] };
+/** One empty roster while the session is on its way, so the store never sees a fresh array per read. */
+const NO_PLAYERS: readonly PlayerInfo[] = [];
 
 const clock = (at: number): string => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -23,7 +26,7 @@ function useStory(): StoryState {
 /** Board 17, left: audience, the title card, a room's read-aloud with Share, the journal. */
 export function StoryBody() {
   const story = useStory();
-  const roster = useSessionStore((s) => s.session?.players ?? []);
+  const roster = useSessionStore((s) => s.session?.players ?? NO_PLAYERS);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const players = withoutSupersededSeats(roster).filter((p) => p.role === 'player');
   const audience = useStoryAudience();
@@ -200,7 +203,7 @@ function HandoutCard({ h, shown }: { h: Handout; shown: StoryState['shown'] }) {
 /** Board 17, right: the handouts with Add, Show and Hide. */
 export function StoryStrip() {
   const story = useStory();
-  const seats = withoutSupersededSeats(useSessionStore((s) => s.session?.players ?? []));
+  const seats = withoutSupersededSeats(useSessionStore((s) => s.session?.players ?? NO_PLAYERS));
   const [adding, setAdding] = useState(false);
   const [caption, setCaption] = useState('');
   const [text, setText] = useState('');

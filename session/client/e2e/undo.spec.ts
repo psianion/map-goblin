@@ -65,6 +65,7 @@ test.describe('@play undo', () => {
     await expect.poll(() => topUndo(page)).toBe('tokens.place');
     await redoKey(page);
     await expect.poll(() => tokenAt(page, 'Undo Rat')).toEqual({ x: start.x + 3, y: start.y });
+    await expect(page.getByText('Redid token move')).toBeVisible();
 
     // Delete, then the button brings it back and the other button removes it again.
     const id = await page.evaluate(() => {

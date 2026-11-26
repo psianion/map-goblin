@@ -42,6 +42,10 @@ import {
 import { seatColour } from '../../shell/seatColour';
 import { TokenArtEditor } from './TokenArtEditor';
 import { TokenPortrait } from './TokenPortrait';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
+
+/** One empty roster while the session is on its way, so the store never sees a fresh array per read. */
+const NO_PLAYERS: readonly PlayerInfo[] = [];
 
 const options = <K extends string>(labels: Record<K, string>) =>
   (Object.keys(labels) as K[]).map((value) => ({ value, label: labels[value] }));
@@ -143,7 +147,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function TokenCard({ token }: { token: Token }) {
-  const players = useSessionStore((s) => s.session?.players ?? []).filter((p) => p.role === 'player');
+  const players = useSessionStore((s) => s.session?.players ?? NO_PLAYERS).filter((p) => p.role === 'player');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const initiative = useModuleState<InitiativeState>('initiative');
   const ref = useBeside(token.x, token.y, (SIZE_CELLS[token.size] ?? 1) / 2);

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { Button, Caption, Popover, PopoverContent, PopoverTrigger, Separator, SwitchRow, formatBytes } from '@dnd/ui';
 import { Users } from '@dnd/ui/icons';
@@ -12,6 +13,9 @@ import { assignToken, exportCampaign, leaveTable, setTableSwitch, type TableSwit
 
 const selectClass = 'h-7 max-w-36 rounded-control border border-line bg-panel px-1.5 text-xs text-text';
 
+/** One empty roster while the session is on its way, so the store never sees a fresh array per read. */
+const NO_PLAYERS: readonly PlayerInfo[] = [];
+
 function sceneTokens(state: TokensState | undefined, sceneId: string | null): Token[] {
   const scene = sceneId ? state?.byScene?.[sceneId] : undefined;
   return scene ? Object.values(scene).filter((t): t is Token => !!t && typeof t.id === 'string') : [];
@@ -19,7 +23,7 @@ function sceneTokens(state: TokensState | undefined, sceneId: string | null): To
 
 /** Who is here; the DM assigns each player a token on the live scene from their row. */
 function Roster({ dm }: { dm: boolean }) {
-  const roster = useSessionStore((s) => s.session?.players ?? []);
+  const roster = useSessionStore((s) => s.session?.players ?? NO_PLAYERS);
   const youId = useSessionStore((s) => s.you?.identityId);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const tokens = sceneTokens(useModuleState<TokensState>('tokens'), sceneId);

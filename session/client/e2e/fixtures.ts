@@ -97,6 +97,16 @@ export async function standUpTable(name = 'Cragmaw Hideout'): Promise<Omit<Hoste
   return { campaignId: campaign.campaignId, campaignName: name, sceneId: map.sceneId, token: campaign.token, inviteCode: session.inviteCode };
 }
 
+/** Upload another map to a campaign whose table is open: a second scene the DM can switch to. */
+export async function addScene(table: { campaignId: string; token: string }, file = SECOND_MAP): Promise<string> {
+  const map = await api<{ sceneId: string }>(
+    `/api/campaigns/${table.campaignId}/maps`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(file, 'utf8') },
+    table.token,
+  );
+  return map.sceneId;
+}
+
 /** Put a DM pass in this page's storage the way the Host page keeps one. */
 export async function holdDmPass(page: Page, table: { campaignId: string; campaignName: string; token: string }): Promise<void> {
   await page.addInitScript(

@@ -16,6 +16,10 @@ import { DEFAULT_LIGHT, DEFAULT_SIGHT, mapScale, toCells, toUnits } from './sigh
 import { TokenArtEditor } from './TokenArtEditor';
 import { TokenPortrait } from './TokenPortrait';
 import { DISPOSITION_COLOR } from './TokenRenderer';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
+
+/** One empty roster while the session is on its way, so the store never sees a fresh array per read. */
+const NO_PLAYERS: readonly PlayerInfo[] = [];
 
 const options = <K extends string>(labels: Record<K, string>) =>
   (Object.keys(labels) as K[]).map((value) => ({ value, label: labels[value] }));
@@ -70,7 +74,7 @@ function draftOf(def: TokenDef | undefined, scaleValue: number, defaults: Return
 export function TokenTypeSheet({ defId }: { defId?: string }) {
   const def = useModuleState<TokensState>('tokens')?.library?.[defId ?? ''];
   const scale = mapScale(useSessionStore((s) => s.mapData));
-  const players = useSessionStore((s) => s.session?.players ?? []).filter((p) => p.role === 'player');
+  const players = useSessionStore((s) => s.session?.players ?? NO_PLAYERS).filter((p) => p.role === 'player');
   const [draft, setDraft] = useState<Draft>(() => draftOf(def, scale.value, useNewTokenDefaults.getState()));
   const [editingArt, setEditingArt] = useState(false);
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
