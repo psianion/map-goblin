@@ -33,7 +33,7 @@ import type {
   WallSegment,
 } from '@dnd/core/src/shared/types'
 import type { MapDelta } from '@dnd/core/src/shared/protocol'
-import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
+import type { DungeonLayer, RockLine, SerializedMapData } from '@dnd/core/src/store/types'
 import {
   centreOf,
   childrenOf,
@@ -269,7 +269,7 @@ function slice(
   facingSet: ReadonlySet<string> = kept,
   cut: Cut = cutFor(scene, kept),
   places: Places = NO_PLACES,
-): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
+): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[]; rockLines?: RockLine[] } {
   return {
     ...withStandIns(
       scene.campaignId,
@@ -288,7 +288,26 @@ function slice(
     standaloneWalls: cut.open
       ? [...wallsOf(layer)]
       : wallsOf(layer).filter((wall) => scene.roomsAlong(wall).some((room) => kept.has(room))),
+    // A measured kit's rock line goes with the rooms it edges: those within a cell of its drawn
+    // outline. Against every room the player holds, so a reveal's list is the whole of theirs.
+    // With fog off the whole map ships, and every line with it.
+    ...(layer.rockLines
+      ? { rockLines: cut.open ? [...layer.rockLines] : layer.rockLines.filter((line) => rockLineNear(line, scene, facingSet)) }
+      : {}),
   }
+}
+
+/** How near a rock line's drawn outline must come to a room for the line to be that room's, cells. */
+const ROCK_LINE_REACH = 1
+
+function rockLineNear(line: RockLine, scene: SceneMap, rooms: ReadonlySet<string>): boolean {
+  return scene.rooms.some((room) => {
+    if (!rooms.has(room.id) || room.boundary.length < 3) return false
+    return (
+      line.edge.some(([x, y]) => distanceToPoly(room.boundary, x, y) <= ROCK_LINE_REACH || pointInPoly(room.boundary, x, y)) ||
+      room.boundary.some(([x, y]) => distanceToPoly(line.edge, x, y) <= ROCK_LINE_REACH)
+    )
+  })
 }
 
 /**

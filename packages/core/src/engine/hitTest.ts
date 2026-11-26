@@ -1,18 +1,21 @@
-import type { AnyChild, LightChild, DungeonLayer, ZoneChild } from '../store/types';
-import type { RingGeometry, Room, WallSegment } from '../shared/types';
+import type { AnyChild, CliffEntrance, LightChild, DungeonLayer, PlateauChild, StairSpan, ZoneChild } from '../store/types';
+import type { RingGeometry, Room, ShapeChild, WallSegment } from '../shared/types';
+import { caveEdges, drawnShapeRings, wallWidthPin } from '../shared/caveFloor';
+import { layerDrawStyle } from './levelLook';
 import { flattenRing } from '../shared/bezier';
 import { distanceToLine, pathwayBounds, pathwayLine } from '../shared/pathway';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { standaloneWallLook } from '../shared/wallLook';
 import { projectPointOntoLineSegment } from '../shared/wallSnap';
-import { bandScale, isBandSet } from '../assets/packCatalog';
+import { bandSize, isBandSet } from '../assets/packCatalog';
 import { useStore } from '../store/store';
 import { isLayerShown } from '../store/selectors';
 import { roomIndexOf } from '../shared/roomIndex';
 import { roomBadgePoints } from '../shared/roomUtils';
 import { inFrame, inRingsEvenOdd, lockedFrame } from '../shared/pieces';
 import { marqueeTabKinds } from './marqueeFilter';
-import type { SelectionKind } from '../store/selectionResolve';
+import { entranceAt, stairsAt } from '../shared/stairPlace';
+import { entranceSelectionId, stairsSelectionId, type SelectionKind } from '../store/selectionResolve';
 
 /**
  * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
@@ -278,7 +281,7 @@ const WALL_HIT_SLOP_PX = 4;
  */
 export function wallReach(wall: WallSegment, layer: Pick<DungeonLayer, 'style'>): number {
   const look = standaloneWallLook(wall, layer.style);
-  if (isBandSet(look.setId)) return Math.max(BAND_WALL_REACH * bandScale(look.width), WALL_MIN_HIT_RADIUS);
+  if (isBandSet(look.setId)) return Math.max(BAND_WALL_REACH * bandSize(look.setId, look.width), WALL_MIN_HIT_RADIUS);
   return Math.max(look.width / 2, WALL_MIN_HIT_RADIUS);
 }
 
@@ -326,6 +329,46 @@ function wallHits(layer: DungeonLayer, point: [number, number], opts?: PickOptio
   }
   hits.sort((a, b) => a.d - b.d || b.i - a.i);
   return hits.map((h) => h.wall);
+}
+
+/** Distance from `point` to the nearest edge of any of `rings`, each walked closed. */
+function distanceToRings(rings: readonly (readonly [number, number][])[], point: [number, number]): number {
+  let best = Infinity;
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const d = projectPointOntoLineSegment(point, ring[i] as [number, number], ring[(i + 1) % ring.length] as [number, number]).distance;
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * The brush caves whose rock reaches `point`: the rock rides the outline of the union of a
+ * cave's floors (`caveEdges`), as far either side as a drawn cave wall's. Of the floors in that
+ * union, the one whose own outline lies nearest answers.
+ */
+function caveRockHits(layer: DungeonLayer, point: [number, number], opts?: PickOptions): ShapeChild[] {
+  const caves = layer.children.filter(
+    (c): c is ShapeChild => c.childType === 'shape' && c.visible && !!c.edgeMaterial && !c.ground && (!c.locked || takesLocked(opts)),
+  );
+  if (caves.length === 0) return [];
+  const slop = opts?.zoom ? WALL_HIT_SLOP_PX / opts.zoom : 0;
+  const layerWidth = layerDrawStyle(layer).wallWidth;
+  const out: ShapeChild[] = [];
+  for (const edge of caveEdges(layer)) {
+    const reach = Math.max(BAND_WALL_REACH * bandSize(edge.material, edge.width ?? layerWidth), WALL_MIN_HIT_RADIUS) + slop;
+    if (distanceToRings(edge.rings, point) > reach) continue;
+    let best: ShapeChild | null = null;
+    let bestD = Infinity;
+    for (const c of caves) {
+      if (c.edgeMaterial !== edge.material || wallWidthPin(c) !== edge.width) continue;
+      const d = distanceToRings(drawnShapeRings(c), point);
+      if (d < bestD) [best, bestD] = [c, d];
+    }
+    if (best) out.push(best);
+  }
+  return out;
 }
 
 /** World-space box around a drawn wall's line, grown by `reach` on every side. */
@@ -403,6 +446,10 @@ export type PickHit = (
   | { kind: 'child'; id: string; layerId: string; child: AnyChild }
   | { kind: 'wall'; id: string; layerId: string; wall: WallSegment }
   | { kind: 'room'; id: string; layerId: string; room: Room }
+  /** A flight of stairs on a plateau's edge, by its selection id (`stairsSelectionId`). */
+  | { kind: 'stairs'; id: string; layerId: string; plateau: PlateauChild; span: StairSpan }
+  /** A cave mouth in a plateau's cliff, by its selection id (`entranceSelectionId`). */
+  | { kind: 'entrance'; id: string; layerId: string; plateau: PlateauChild; span: CliffEntrance }
 ) & {
   /** The object is locked on its own: selectable, never transformed. */
   locked?: boolean;
@@ -521,18 +568,26 @@ export function pointOnZoneEdge(zone: Pick<ZoneChild, 'shape'>, point: [number, 
 
 /**
  * Everything under `point` on one layer, topmost first: what stands on the walls (lights,
- * labels, props, doors), a zone by its outline, the drawn walls, plateaus, the room the point
- * is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by its
- * area, then the floors.
+ * labels, props, doors), stairs, a zone by its outline, the drawn walls, a brush cave by its rock, plateaus, the room
+ * the point is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by
+ * its area, then the floors.
  */
 function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOptions & { rooms?: boolean }): Generator<PickHit> {
   const above = layer.children.filter((c) => ABOVE_WALLS.has(c.childType));
   for (const c of childHits(above, point, layer, opts)) yield childHit(layer.id, c);
+  // Stairs are the Door tool's and pick as a door does: under the props, over the walls they open.
+  const stairs = stairsAt(layer, point);
+  if (stairs) yield { kind: 'stairs', id: stairsSelectionId(stairs.plateau.id, stairs.span.id), layerId: layer.id, plateau: stairs.plateau, span: stairs.span };
+  // A cave mouth picks the same way: the Door tool makes it.
+  const mouth = entranceAt(layer, point);
+  if (mouth) yield { kind: 'entrance', id: entranceSelectionId(mouth.plateau.id, mouth.span.id), layerId: layer.id, plateau: mouth.plateau, span: mouth.span };
   const zones = layer.children.filter((c): c is ZoneChild => c.childType === 'zone');
   const zoneHits = [...childHits(zones, point, layer, opts)] as ZoneChild[];
   for (const z of zoneHits) if (pointOnZoneEdge(z, point, opts?.zoom)) yield childHit(layer.id, z);
   const walls = wallHits(layer, point, opts);
   for (const w of walls) yield wallHit(layer.id, w);
+  // A brush cave's rock is its wall: a click on it, inside or outside the outline, takes the cave.
+  for (const c of caveRockHits(layer, point, opts)) yield childHit(layer.id, c);
   // Plateaus draw over the floors and the rooms on them: next, before either.
   const plateaus = layer.children.filter((c) => c.childType === 'plateau');
   for (const c of childHits(plateaus, point, layer, opts)) yield childHit(layer.id, c);
@@ -675,9 +730,9 @@ export interface StackEntry {
   hidden: boolean;
 }
 
-/** The kind a pick is, as the Pick only filter names kinds. */
+/** The kind a pick is, as the Pick only filter names kinds. Stairs and cave mouths go with the doors: the Door tool makes them all. */
 export function pickKindOf(hit: PickHit): SelectionKind {
-  return hit.kind === 'child' ? hit.child.childType : hit.kind;
+  return hit.kind === 'child' ? hit.child.childType : hit.kind === 'stairs' || hit.kind === 'entrance' ? 'door' : hit.kind;
 }
 
 /**

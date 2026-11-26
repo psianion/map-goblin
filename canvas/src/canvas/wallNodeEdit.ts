@@ -9,7 +9,7 @@ import {
   isClosedSpine,
   type WallNode,
 } from '@/engine/wallLayout';
-import { seedForPoints } from '@/engine/wallNodeRenderer';
+import { isContinuousSet, seedForPoints } from '@/engine/wallNodeRenderer';
 import {
   currentWallNodes,
   activeEditableRun,
@@ -226,6 +226,7 @@ function materialisedInserts(run: EditableRun, edits: WallEdits): WallNodeInsert
         wallWidth: run.width,
         seed: seedForPoints(run.points),
         cornerStyle: run.corner,
+        continuous: isContinuousSet(run.setId),
       }),
       e,
       undefined,

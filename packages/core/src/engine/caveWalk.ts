@@ -12,6 +12,7 @@
 // re-lays the whole cave, so treat them as measurements, not preferences.
 
 import type { CaveKitPiece, KitPlacement } from '../assets/caveWallKit';
+import { endTangents, MITRE_MOST_DEG, type PieceBend } from './bandBend';
 
 export type Vec = [number, number];
 /** A densely and evenly sampled closed curve. Index arithmetic wraps modulo length. */
@@ -261,6 +262,12 @@ export interface WalkPlacement {
   stretch?: number;
   /** Where the piece sits, with BAND_OUT and the nudge applied. */
   at: KitPlacement;
+  /** The size its stretch was laid at, where a narrow passage laid it smaller than the rest of its run. */
+  size?: number;
+  /** How its art is bent to meet its neighbours, or narrowed at an open end: drawing only (see bandBend.ts). */
+  bend?: PieceBend;
+  /** A piece narrowing into a sharp tip: the share of its rock's width left at its art's start and end (see PieceBend.narrow). */
+  narrow?: [number, number];
 }
 
 /** A joint the walk failed to cover: rock that was never laid. */
@@ -316,6 +323,12 @@ export interface WalkOptions {
    * rough rock; a missing one shows floor straight through to the void.
    */
   fill?: boolean;
+  /**
+   * Whether a piece laid from P to Q, nudged sideways so, may stand there at all, over and above
+   * the shape gate. A piece it turns down is passed over as one that misfits; a closing piece
+   * laid with `fill` falls back on one it turns down only when none passes.
+   */
+  accept?: (piece: CaveKitPiece, P: Vec, Q: Vec, nudge: number) => boolean;
 }
 
 export function walkSpan(
@@ -336,6 +349,7 @@ export function walkSpan(
   const overlap = kitOverlap(set);
   const out = kitOut(set);
   const gate = bendGate(set);
+  const measured = set.some((p) => p.exact);
   // A lapped ring closes onto a point a little way INTO its first piece.
   const lapBy = opts.lap && opts.ring ? Math.max(1, Math.round(overlap / spacing)) : 0;
   const iHome = i1 + lapBy;
@@ -372,6 +386,9 @@ export function walkSpan(
         loose = false,
       ): { piece: CaveKitPiece; sc: number; s: number; nudge: number } | null => {
         const d = dist(A, B);
+        // A measured kit's closing piece is held to the size every piece is, and to what may be laid at all.
+        const held = (piece: CaveKitPiece): boolean =>
+          !measured || (d / piece.chordCells >= MEASURED_SCALE[0] && d / piece.chordCells <= MEASURED_SCALE[1] && (!opts.accept || opts.accept(piece, A, B, fitArc(curve, iA, iB, A, B, piece).nudge)));
         // An open run filled live also holds its closer to the walk's family
         // rule (a bend for a real corner, a straight for a run that barely
         // turns), softly, as a cost: a short drawn run otherwise closed on two
@@ -383,14 +400,18 @@ export function walkSpan(
         const wrongFamily = (p: CaveKitPiece): boolean => wrongFamilyFor(p, turn, gate);
         let bestC: { piece: CaveKitPiece; sc: number; s: number; nudge: number } | null = null;
         for (const piece of set) {
+          if (!held(piece)) continue;
           const f = fitArc(curve, iA, iB, A, B, piece);
           // the closing piece answers to the same shape gate as every other one:
           // without it a 90° bend lands on a dead straight run and reads as a hinge
-          if (f.miss > BAND_FIT && !loose) continue;
+          if (f.miss > BAND_FIT && (!loose || measured)) continue;
+          const refused = !!opts.accept && !opts.accept(piece, A, B, f.nudge);
+          if (refused && !loose) continue;
           const sc =
             Math.abs(Math.log(d / piece.chordCells)) * 9 +
             f.miss * 4 +
-            (family && wrongFamily(piece) ? 6 : 0);
+            (family && wrongFamily(piece) ? 6 : 0) +
+            (refused ? 50 : 0);
           if (!bestC || sc < bestC.sc)
             bestC = { piece, sc, s: d / piece.chordCells, nudge: f.nudge };
         }
@@ -456,6 +477,32 @@ export function walkSpan(
           a ??= fit(P, i, split.mP, split.mI, true);
           b ??= fit(split.bP, split.bI, home, iHome, true);
         }
+        if (measured && !(a && b) && one) {
+          laid.push({ piece: one.piece, P, Q: home, i, stretch: one.s, nudge: one.nudge, branch: 'close-one' });
+          break;
+        }
+        if (measured && !(a && b)) {
+          // No one or two pieces close it at their size: as many as it takes, from as far back
+          // as a few laid pieces. Where nothing fills it at their size, the pieces taken back are
+          // put back and the stretch is filled with the nearest fit: bare wall is worse than rock
+          // a little off its size.
+          const taken: typeof laid = [];
+          let filled = fillClose(curve, set, i, iHome, opts.accept);
+          for (let back = 0; !filled && back < CLOSE_BACK && laid.length > 0; back++) {
+            const last = laid.pop()!;
+            taken.unshift(last);
+            filled = fillClose(curve, set, last.i, iHome, opts.accept);
+          }
+          if (!filled) {
+            // From the cursor, else from where each piece taken back began, latest first.
+            const starts = [i, ...taken.map((t) => t.i).reverse()];
+            const near = nearestClose(curve, set, starts, iHome, opts.accept);
+            laid.push(...taken.slice(0, near ? taken.length - near.from : taken.length));
+            filled = near?.fill ?? null;
+          }
+          if (filled) laid.push(...filled);
+          break;
+        }
         if (a) laid.push({ piece: a.piece, P, Q: split.mP, i, stretch: a.s, nudge: a.nudge, branch: 'close-a' });
         if (b)
           laid.push({ piece: b.piece, P: split.bP, Q: home, i: split.bI, stretch: b.s, nudge: b.nudge, branch: 'close-b' });
@@ -487,6 +534,7 @@ export function walkSpan(
       if (wrongFamilyFor(piece, turn, gate)) continue;
       const f = fitArc(curve, i, hit.i, P, hit.p, piece);
       if (f.miss > BAND_FIT) continue;
+      if (opts.accept && !opts.accept(piece, P, hit.p, f.nudge)) continue;
       // longest acceptable piece wins (a run of 2s where a 4 fits reads chopped);
       // the share term pushes back on whichever id is running away with the ring,
       // and the jitter breaks ties so mirrors and lengths alternate
@@ -542,6 +590,152 @@ export function walkSpan(
   };
 }
 
+/** The sizes a measured kit's piece is laid between, closing pieces included, as shares of its drawn size. */
+export const MEASURED_SCALE: [number, number] = [0.85, 1.25];
+/** How many laid pieces a measured kit's close may take back to find a fill. */
+const CLOSE_BACK = 3;
+
+/**
+ * The last stretch of a measured kit's walk, from `i0` to `i1`, filled with as many pieces as it
+ * takes: each between MEASURED_SCALE of its size, of the family the curve under it asks for (see
+ * {@link bendGate}), within the shape gate and passed by `accept`, each starting the kit's overlap
+ * back inside the one before, the last ending on `i1`. The fewest pieces, then the least stretched
+ * and best fitting. Null when no fill keeps to all of that.
+ */
+/**
+ * What {@link fillClose} worked out for each piece between two samples of a curve: a close is
+ * filled from several starts and at several sizes (`nearestClose`), and a ring from several
+ * starts, over the same samples. Pure, so what is kept is what would be worked out again.
+ */
+const keptFills = new WeakMap<Curve, Map<CaveKitPiece, Map<number, { f: ArcFit; by?: WalkOptions['accept']; ok?: boolean }>>>();
+
+function fillClose(
+  curve: Curve,
+  set: CaveKitPiece[],
+  i0: number,
+  i1: number,
+  accept: WalkOptions['accept'],
+  limits: [number, number] = MEASURED_SCALE,
+  spread = false,
+): Omit<WalkPlacement, 'at'>[] | null {
+  const n = curve.length;
+  const spacing = dist(curve[0], curve[1]) || 0.1;
+  const backOff = Math.max(1, Math.round(kitOverlap(set) / spacing));
+  const gate = bendGate(set);
+  const first = Math.round(i0);
+  const last = Math.round(i1);
+  if (last <= first) return null;
+  interface Step {
+    cost: number;
+    prev: number;
+    piece: CaveKitPiece;
+    nudge: number;
+    end: number;
+  }
+  // The cheapest way found to start a piece at each sample, and to end on the last.
+  const reach = new Map<number, Step | null>([[first, null]]);
+  const cost = new Map<number, number>([[first, 0]]);
+  let done: Step | null = null;
+  const pieces = set.filter((p, k) => set.findIndex((q) => q.key === p.key && !!q.flipY === !!p.flipY) === k);
+  let fits = keptFills.get(curve);
+  if (!fits) keptFills.set(curve, (fits = new Map()));
+  for (let s = first; s < last; s++) {
+    const c0 = cost.get(s);
+    if (c0 === undefined) continue;
+    const P = curve[s % n];
+    const tS = tangentAt(curve, s);
+    for (const piece of pieces) {
+      const lo = piece.chordCells * limits[0];
+      const hi = piece.chordCells * limits[1];
+      const span = Math.ceil((hi * 2.4) / spacing);
+      for (let e = s + 1; e <= Math.min(last, s + span); e++) {
+        const Q = curve[e % n];
+        const d = dist(P, Q);
+        if (d < lo || d > hi) continue;
+        if (e < last && e - backOff <= s) continue;
+        if (wrongFamilyFor(piece, turnDeg(tS, tangentAt(curve, e)), gate)) continue;
+        // The same piece between the same two samples fits the same, and is accepted or not the same.
+        let byPiece = fits.get(piece);
+        if (!byPiece) fits.set(piece, (byPiece = new Map()));
+        const key = (s % n) * 4 * n + (e - s);
+        let hit = byPiece.get(key);
+        if (!hit) byPiece.set(key, (hit = { f: fitArc(curve, s, e, P, Q, piece) }));
+        const f = hit.f;
+        if (f.miss > BAND_FIT) continue;
+        if (accept) {
+          if (hit.by !== accept) {
+            hit.by = accept;
+            hit.ok = accept(piece, P, Q, f.nudge);
+          }
+          if (!hit.ok) continue;
+        }
+        // Spread, the size error costs by its square, so it is shared out rather than put on one piece.
+        const off = Math.log(d / piece.chordCells);
+        const c = c0 + 1 + (spread ? 30 * off * off : 3 * Math.abs(off)) + f.miss;
+        const step: Step = { cost: c, prev: s, piece, nudge: f.nudge, end: e };
+        if (e === last) {
+          if (!done || c < done.cost) done = step;
+          continue;
+        }
+        const next = e - backOff;
+        if (c < (cost.get(next) ?? Infinity)) {
+          cost.set(next, c);
+          reach.set(next, step);
+        }
+      }
+    }
+  }
+  if (!done) return null;
+  const out: Omit<WalkPlacement, 'at'>[] = [];
+  for (let step: Step | null = done; step; step = reach.get(step.prev) ?? null) {
+    out.unshift({ piece: step.piece, P: curve[step.prev % n], Q: curve[step.end % n], i: step.prev, stretch: dist(curve[step.prev % n], curve[step.end % n]) / step.piece.chordCells, nudge: step.nudge, branch: 'close-fill' });
+  }
+  return out;
+}
+
+/** How far past MEASURED_SCALE, as a factor either way, a close no fill at their size can make is let go, step by step. */
+const NEAREST_STEP = 1.1;
+const NEAREST_MOST = 2;
+
+/**
+ * The last stretch of a measured kit's walk when no fill keeps every piece to MEASURED_SCALE
+ * (see {@link fillClose}): filled with the nearest fit instead, from the first of `starts` (the
+ * cursor, then where each laid piece taken back began) that has one. The sizes are let go a step
+ * at a time until a fill is found, so the pieces are as near their size as can be, and the error
+ * is spread over all of them. Last, what may be laid (`accept`) is let go too. The fill, and
+ * which start it runs from; null when even that finds none.
+ */
+function nearestClose(
+  curve: Curve,
+  set: CaveKitPiece[],
+  starts: number[],
+  i1: number,
+  accept: WalkOptions['accept'],
+): { fill: Omit<WalkPlacement, 'at'>[]; from: number } | null {
+  const tries: { limits: [number, number]; accept: WalkOptions['accept'] }[] = [];
+  for (let w = NEAREST_STEP; w <= NEAREST_MOST + 1e-9; w *= NEAREST_STEP) tries.push({ limits: [MEASURED_SCALE[0] / w, MEASURED_SCALE[1] * w], accept });
+  if (accept) tries.push({ limits: [MEASURED_SCALE[0] / NEAREST_MOST, MEASURED_SCALE[1] * NEAREST_MOST], accept: undefined });
+  for (const t of tries) {
+    for (let from = 0; from < starts.length; from++) {
+      const fill = fillClose(curve, set, starts[from], i1, t.accept, t.limits, true);
+      if (fill) return { fill, from };
+    }
+  }
+  return null;
+}
+
+/** The joints of a ring of placements turning further than a joint bends (MITRE_MOST_DEG): where one piece's art crosses the next's. */
+function sharpJoints(placed: WalkPlacement[]): number {
+  const most = Math.cos((MITRE_MOST_DEG * Math.PI) / 180);
+  let count = 0;
+  for (let k = 0; k < placed.length; k++) {
+    const ta = endTangents(placed[k])[1];
+    const tb = endTangents(placed[(k + 1) % placed.length])[0];
+    if (dot(ta, tb) < most - 1e-9) count++;
+  }
+  return count;
+}
+
 /** How many starting points a ring is walked from before the best closure is kept. */
 const RING_STARTS = 12;
 /** A closing piece within this of scale 1 is even enough to stop looking. */
@@ -563,24 +757,27 @@ const RING_EVEN = Math.log(1.04);
 export function walkClosed(
   curve: Curve,
   set: CaveKitPiece[],
-  opts: Pick<WalkOptions, 'lap' | 'splits' | 'fill'> = {},
+  opts: Pick<WalkOptions, 'lap' | 'splits' | 'fill' | 'accept'> = {},
 ): WalkResult {
   const n = curve.length;
   // The start is judged on open joints and stretch only: a plain close butts the first
-  // piece end to end (a seam on every start alike); the lap below is what closes it.
+  // piece end to end (a seam on every start alike); the lap below is what closes it. A measured
+  // kit's walk is held to its joints too: one turning further than its art bends crosses.
+  const measured = set.some((p) => p.exact);
   const cost = (r: WalkResult): number =>
-    jointHoles(r.placed, true, false).length * 100 + Math.max(0, ...r.placed.map((p) => Math.abs(Math.log(p.at.scale))));
+    jointHoles(r.placed, true, false).length * 100 + (measured ? sharpJoints(r.placed) * 10 : 0) + Math.max(0, ...r.placed.map((p) => Math.abs(Math.log(p.at.scale))));
   let best: WalkResult | null = null;
   let bestStart = 0;
   let bestCost = Infinity;
   // The start is chosen on the plain walk whatever the options: they only
   // change the closing move, so every piece the walk lays before it (every
-  // straight run and ordinary bend) comes out exactly as it always has.
+  // straight run and ordinary bend) comes out exactly as it always has. All but
+  // `accept`, which says what may be laid anywhere.
   for (let k = 0; k < RING_STARTS; k++) {
     const i0 = Math.round((k * n) / RING_STARTS);
     let r: WalkResult;
     try {
-      r = walkSpan(curve, set, i0, i0 + n, { ring: true });
+      r = walkSpan(curve, set, i0, i0 + n, { ring: true, accept: opts.accept });
     } catch {
       continue;
     }
@@ -600,6 +797,9 @@ export function walkClosed(
   try {
     const closed = walkSpan(curve, set, bestStart, bestStart + n, { ...opts, ring: true });
     if (closed.holes.length > best.holes.length) return best;
+    // A measured kit's close that turns a joint further than its art bends (one piece crossing the
+    // next) where the plain close did not is not kept either.
+    if (measured && best.holes.length === 0 && sharpJoints(closed.placed) > sharpJoints(best.placed)) return best;
     return closed.placed.length === best.placed.length || best.holes.length > 0 ? closed : best;
   } catch {
     return best;

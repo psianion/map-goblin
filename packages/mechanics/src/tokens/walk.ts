@@ -46,9 +46,9 @@ export const STANDABLE = 2
 const UNDER_ROCK = 3
 
 /** Bits of `WalkGrid.edge`: what blocks the step. */
-const BY_WALL = 1
-const BY_DOOR = 2
-const BY_CROSSING = 4
+export const BY_WALL = 1
+export const BY_DOOR = 2
+export const BY_CROSSING = 4
 
 /** The four forward steps; the other four are these read from the neighbour. */
 const FORWARD: readonly [number, number][] = [

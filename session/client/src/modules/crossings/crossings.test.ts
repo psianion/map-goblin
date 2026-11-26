@@ -89,6 +89,59 @@ describe('crossingTargetAt', () => {
     expect(crossingTargetAt(map(), undefined, 12, 10.2)).toMatchObject({ targetId: 'top', what: 'cliff', mapKindId: 'climb' });
     expect(crossingTargetAt(map(), undefined, 5, 5)).toBeNull();
   });
+
+  it('offers nothing on a flight of stairs, which is always free, and the cliff beside it as before', () => {
+    expect(crossingTargetAt(stairsMap(), undefined, 12, 10.2)).toBeNull();
+    expect(crossingTargetAt(stairsMap(), undefined, 14, 12)).toMatchObject({ targetId: 'top', what: 'cliff', mapKindId: 'climb' });
+  });
+});
+
+// The +3 with a flight of stairs down its north edge, x 11 to 13.
+const stairsMap = (): CrossingMap => ({
+  ...map(),
+  layers: [{ id: 'l1', type: 'dungeon', children: [children[0], { ...children[1], stairs: [{ id: 's1', ring: 0, from: 1, to: 3 }] }, children[2]], standaloneWalls: [], mergedFloor: null } as unknown as Layer],
+});
+
+describe('stairs at the table', () => {
+  it('crosses a flight of stairs freely with no chip, even with the plateau made Impassable live', () => {
+    const live = { edges: { top: 'impassable' }, blocks: {} };
+    expect(judgeHop(stairsMap(), undefined, [12, 8.5], [12, 11], live, 'player')).toEqual({ chips: [], refused: null });
+    // Beside the flight the same edge is the plateau's as ever.
+    expect(judgeHop(stairsMap(), undefined, [10.5, 8.5], [10.5, 11], NONE, 'player').chips.map((c) => c.kindId)).toEqual(['climb']);
+  });
+});
+
+// The +3 with a cave mouth in its north edge, x 11 to 13, its hollow 11.5 to 12.5; with `den`, a room on top behind it.
+const mouthMap = (den: boolean): CrossingMap => ({
+  ...map(),
+  layers: [
+    {
+      id: 'l1',
+      type: 'dungeon',
+      children: [children[0], { ...children[1], entrances: [{ id: 'm1', ring: 0, from: 1, to: 3, mouth: [1.5, 2.5] }] }, children[2], ...(den ? [rect('den', 10, 10, 13.5, 13.5)] : [])],
+      standaloneWalls: [],
+      mergedFloor: null,
+    } as unknown as Layer,
+  ],
+});
+
+describe('cave mouths at the table', () => {
+  it('crosses the cells its hollow covers freely with a room behind, even made Impassable live, and the cliff past them', () => {
+    const live = { edges: { top: 'impassable' }, blocks: {} };
+    expect(judgeHop(mouthMap(true), undefined, [12, 8.5], [12, 11], live, 'player')).toEqual({ chips: [], refused: null });
+    // The hollow covers half of each of the span's two cells: both are free to walk.
+    for (const x of [11.5, 12.5]) {
+      expect(judgeHop(mouthMap(true), undefined, [x, 8.5], [x, 11], live, 'player')).toEqual({ chips: [], refused: null });
+      expect(crossingTargetAt(mouthMap(true), undefined, x, 10.1)).toBeNull();
+    }
+    expect(judgeHop(mouthMap(true), undefined, [10.5, 8.5], [10.5, 11], NONE, 'player').chips.map((c) => c.kindId)).toEqual(['climb']);
+    expect(crossingTargetAt(mouthMap(true), undefined, 10.5, 10.1)).toMatchObject({ targetId: 'top', what: 'cliff', mapKindId: 'climb' });
+  });
+
+  it('stands as the cliff with nothing behind', () => {
+    expect(judgeHop(mouthMap(false), undefined, [12, 8.5], [12, 11], NONE, 'player').chips.map((c) => c.kindId)).toEqual(['climb']);
+    expect(crossingTargetAt(mouthMap(false), undefined, 12, 10.1)).toMatchObject({ targetId: 'top', what: 'cliff' });
+  });
 });
 
 describe('chips', () => {

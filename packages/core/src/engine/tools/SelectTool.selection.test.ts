@@ -113,6 +113,34 @@ describe('SelectTool — one selection path', () => {
     vi.restoreAllMocks();
   });
 
+  it('a click on stairs picks them, not the floor or plateau under them; a prop over them still wins', () => {
+    floor('f', 0, 0, 20, 20);
+    add({
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 2, edge: 'cliff',
+      stairs: [{ id: 's1', ring: 0, from: 1, to: 3 }],
+    } as unknown as AnyChild);
+    // The flight lies north of the edge y 10, x 11..13, two cells down to y 8.
+    click(tool, 12, 9);
+    expect(sel()).toEqual(['stairs:p1:s1']);
+    click(tool, 5, 5);
+    expect(sel()).toEqual(['f']);
+    asset('a', 12, 9);
+    click(tool, 12, 9);
+    expect(sel()).toEqual(['a']);
+  });
+
+  it('a click on a cave mouth picks it, not the floor or plateau under it', () => {
+    floor('f', 0, 0, 20, 20);
+    add({
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 2, edge: 'cliff',
+      entrances: [{ id: 'm1', ring: 0, from: 1, to: 3 }],
+    } as unknown as AnyChild);
+    click(tool, 12, 10.2);
+    expect(sel()).toEqual(['entrance:p1:m1']);
+    click(tool, 5, 5);
+    expect(sel()).toEqual(['f']);
+  });
+
   it('Shift+marquee adds to the selection instead of clearing it', () => {
     asset('a', 1, 1);
     asset('b', 6, 6);

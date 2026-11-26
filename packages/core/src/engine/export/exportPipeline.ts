@@ -19,7 +19,7 @@ import {
 } from './exportMath';
 import { computeContentBounds, computeMapFrame } from '../../shared/mapBounds';
 import { holdAuthoredLook } from '../editorDesk';
-import { bandScale, isBandSet } from '../../assets/packCatalog';
+import { bandSize, isBandSet } from '../../assets/packCatalog';
 import type { TimeOfDay } from '../../shared/prep';
 import { skyFrame } from '../../shared/sky';
 
@@ -96,7 +96,7 @@ function bandPad(layers: readonly Layer[]): number {
     if (layer.type !== 'dungeon' || !isBandSet(layer.style?.wallTextureSetId)) continue;
     const width = layer.style?.wallWidth;
     // The rock is laid at the size the wall width asks for, and reaches in proportion.
-    const reach = BAND_REACH * (width === undefined ? 1 : bandScale(width));
+    const reach = BAND_REACH * (width === undefined ? 1 : bandSize(layer.style?.wallTextureSetId, width));
     // computeContentBounds already padded half the wall width plus 0.05 of slack.
     pad = Math.max(pad, reach - ((width ?? 0) / 2 + 0.05));
   }

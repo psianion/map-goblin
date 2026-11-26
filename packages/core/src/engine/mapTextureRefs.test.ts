@@ -298,3 +298,17 @@ describe('resolveAssetSets', () => {
     expect(result.get('gg-forge')?.size).toBe(1)
   })
 })
+
+describe('collectMapTextureIds: stairs', () => {
+  it("collects the pieces of each plateau's stairs' kit, the default kit where a span names none", async () => {
+    const { seedPack } = await import('../testing/seedCatalog')
+    const piece = (kit: string, material: string, extra = {}) =>
+      ({ type: 'object', material, gridSize: '1x2', pieceType: 'object', variant: 'A', tags: ['stairs'], stairs: { kit, label: kit, wide: 1, run: 1, painted: [0, 0, 1, 1], ...extra } }) as ManifestEntry
+    seedPack('sp', { o_1x2_A: piece('overlay', 'o', { default: true }), s_1x2_A: piece('stone', 's', { colour: 'Earthy' }) })
+    const layer = createDungeonLayer('L')
+    layer.children.push({ id: 'p', name: 'p', childType: 'plateau', visible: true, contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]], height: 1, edge: 'none', stairs: [{ id: 'a', ring: 0, from: 1, to: 2 }, { id: 'b', ring: 0, from: 5, to: 6, kit: 'stone' }] })
+    const ids = collectMapTextureIds({ ...emptyMap(), layers: [layer] })
+    expect(ids).toContain('sp:o_1x2_A')
+    expect(ids).toContain('sp:s_1x2_A')
+  })
+})

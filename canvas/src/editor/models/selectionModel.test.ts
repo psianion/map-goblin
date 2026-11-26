@@ -312,6 +312,13 @@ describe('door fields', () => {
     expect(doorStyleChange(door({ style: 'double', width: 2.5 }), 'single', 2).after).toEqual({ style: 'single', width: 2 });
   });
 
+  it('lets an Opening be one cell wide, and an Archway still two', () => {
+    expect(doorModel(door({ style: 'archway', bare: true }), 5).width?.min).toBe(1);
+    expect(doorModel(door({ style: 'archway', width: 2 }), 5).width?.min).toBe(2);
+    expect(doorStyleChange(door(), 'archway', 5, true).after).toEqual({ style: 'archway', width: 1 });
+    expect(doorStyleChange(door(), 'archway', 5).after).toEqual({ style: 'archway', width: 2 });
+  });
+
   it('turns a joint into an open arch and back into a shut door', () => {
     expect(doorStyleChange(joint(), 'archway', Infinity).after).toEqual({ style: 'archway', kind: 'arch', state: 'open' });
     expect(doorStyleChange(joint({ kind: 'arch', state: 'open' }), 'single', Infinity).after).toEqual({

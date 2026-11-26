@@ -216,6 +216,40 @@ describe('selection shortcuts', () => {
     expect(vi.mocked(toast).mock.calls.at(-1)?.[0]).toBe('Deleted 3 objects');
   });
 
+  it('Delete and Backspace take picked stairs off their edge, each one undo step', () => {
+    const plateau = {
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+      stairs: [{ id: 's1', ring: 0, from: 1, to: 2 }],
+    } as unknown as AnyChild;
+    useStore.getState().addChild(layer().id, plateau);
+    const stairs = () => (find('p1') as { stairs?: unknown[] }).stairs;
+    for (const combo of ['delete', 'backspace']) {
+      useStore.getState().setSelectedIds(['stairs:p1:s1']);
+      handleShortcut(combo);
+      expect(stairs()).toBeUndefined();
+      expect(sel()).toEqual([]);
+      undoManager.undo();
+      expect(stairs()).toEqual([{ id: 's1', ring: 0, from: 1, to: 2 }]);
+    }
+  });
+
+  it('Delete and Backspace take a picked cave mouth out of its cliff, each one undo step', () => {
+    const plateau = {
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+      entrances: [{ id: 'm1', ring: 0, from: 1, to: 3 }],
+    } as unknown as AnyChild;
+    useStore.getState().addChild(layer().id, plateau);
+    const mouths = () => (find('p1') as { entrances?: unknown[] }).entrances;
+    for (const combo of ['delete', 'backspace']) {
+      useStore.getState().setSelectedIds(['entrance:p1:m1']);
+      handleShortcut(combo);
+      expect(mouths()).toBeUndefined();
+      expect(sel()).toEqual([]);
+      undoManager.undo();
+      expect(mouths()).toEqual([{ id: 'm1', ring: 0, from: 1, to: 3 }]);
+    }
+  });
+
   it('Delete skips locked members and says how many', () => {
     asset('a', 0, { locked: true });
     asset('b', 2);

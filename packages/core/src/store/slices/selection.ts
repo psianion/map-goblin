@@ -6,6 +6,8 @@ export interface SelectionActions {
   setHoveredId: (id: string | null) => void;
   /** How many objects stand under the pointer for the Select hint (`selection.hoverCount`). */
   setHoverCount: (n: number) => void;
+  /** The rock of the edge the Door tool's Opening last hovered, where it lays a mouth piece (`selection.hoverMouthKit`). */
+  setHoverMouthKit: (kit: string | undefined) => void;
   setSelectedRegion: (region: [number, number][][] | null) => void;
   setClipboard: (clipboard: ChildClipboard | null) => void;
 }
@@ -27,6 +29,10 @@ export const createSelectionSlice: StateCreator<
   setHoverCount: (n) =>
     set((state) => {
       state.selection.hoverCount = n;
+    }),
+  setHoverMouthKit: (kit) =>
+    set((state) => {
+      state.selection.hoverMouthKit = kit;
     }),
   setSelectedRegion: (region) =>
     set((state) => {

@@ -88,17 +88,18 @@ describe('cliffs as one-way occluders', () => {
     expect(sees(segs, [20, 12], [12, 12])).toBe(true)
   })
 
-  it('stops light at a one-cell cliff: a lamp below leaves the top dark, a lamp on top lights the ground', () => {
-    const layers = [layerOf([ground, plateau({ height: 1 })])]
-    const light = extractWallSegments(layers, 'light', { sightDropCells: 2 })
-    expect(light).toHaveLength(4)
-    expect(sees(light, [5, 12], [12, 12])).toBe(false)
-    expect(sees(light, [12, 12], [5, 12])).toBe(true)
-    expect(sees(light, [12, 12], [20, 12])).toBe(true)
-    // The eye keeps the DM's threshold: at 2 a ground viewer still sees the +1 top.
-    const sight = extractWallSegments(layers, 'sight', { sightDropCells: 2 })
-    expect(sight).toHaveLength(0)
-    expect(sees(sight, [5, 12], [12, 12])).toBe(true)
+  it('lights the top a lamp below can see: past a cliff lower than the map threshold, not past a taller one', () => {
+    // At 2, a lamp on the ground lights the +1 top, as a ground viewer sees it.
+    const low = [layerOf([ground, plateau({ height: 1 })])]
+    const light = extractWallSegments(low, 'light', { sightDropCells: 2 })
+    expect(light).toHaveLength(0)
+    expect(sees(light, [5, 12], [12, 12])).toBe(true)
+    expect(extractWallSegments(low, 'sight', { sightDropCells: 2 })).toHaveLength(0)
+    // A +2 top stays dark from below, and a lamp on it still lights the ground.
+    const high = extractWallSegments([layerOf([ground, plateau({ height: 2 })])], 'light', { sightDropCells: 2 })
+    expect(high).toHaveLength(4)
+    expect(sees(high, [5, 12], [12, 12])).toBe(false)
+    expect(sees(high, [12, 12], [5, 12])).toBe(true)
   })
 
   it('takes the drop it starts at from its caller', () => {
@@ -165,10 +166,16 @@ describe('scene lights cast from cliffs, as walls do', () => {
   const wallAt = (points: [number, number][]) =>
     ({ id: 'w', points, wallType: 'normal', direction: 'both', color: '#000', roughness: 0 }) as unknown as WallSegment
 
-  it('a lamp on the low side of a +1 cliff leaves its top and the ground beyond it in the dark', () => {
+  it('a lamp on the low side of a +1 cliff lights its top, as the floor round it is lit', () => {
+    const light = lamp(5, 12)
+    const raised = pool([ground, plateau({ height: 1 })], light)
+    for (const p of [[9.5, 12], [12, 12], [16, 12]] as [number, number][]) expect(inside(p[0], p[1], raised)).toBe(true)
+  })
+
+  it('a lamp on the low side of a +2 cliff leaves its top and the ground beyond it in the dark', () => {
     const light = lamp(5, 12)
     const flat = pool([ground], light)
-    const raised = pool([ground, plateau({ height: 1 })], light)
+    const raised = pool([ground, plateau({ height: 2 })], light)
     // The top, and the ground past the far cliff in the lamp's direction.
     for (const p of [[12, 12], [16, 12], [18, 12.5]] as [number, number][]) {
       expect(inside(p[0], p[1], flat)).toBe(true)

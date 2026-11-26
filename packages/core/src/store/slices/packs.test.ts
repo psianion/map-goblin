@@ -83,6 +83,14 @@ describe('updatePack', () => {
     expect(pack?.sizeBytes).toBe(8_500_000);
   });
 
+  it('re-lays every dungeon layer of the open map', async () => {
+    const dungeons = useStore.getState().layers.filter((l) => l.type === 'dungeon');
+    expect(dungeons.length).toBeGreaterThan(0);
+    const before = dungeons.map((l) => useStore.getState().floorTextureEpochs[l.id] ?? 0);
+    await useStore.getState().updatePack('dungeon-classic');
+    expect(dungeons.map((l) => useStore.getState().floorTextureEpochs[l.id] ?? 0)).toEqual(before.map((e) => e + 1));
+  });
+
   it('clears the pending-update row so the same update is not offered twice', async () => {
     await useStore.getState().updatePack('dungeon-classic');
     expect(useStore.getState().packs.availableUpdates).toEqual([]);
@@ -215,6 +223,18 @@ describe('installPackFromFile', () => {
     expect(calls).toEqual(['uninstall crates', 'register crates@1.1.0']);
     expect(useStore.getState().packs.installedPacks.map((p) => `${p.packId}@${p.version}`)).toEqual(['crates@1.1.0']);
     expect(useStore.getState().packs.availableUpdates).toEqual([]);
+  });
+
+  it('re-lays every dungeon layer of the open map when it replaces a pack', async () => {
+    const { manager } = fakeManager([{ packId: 'crates', version: '1.0.0', bundleSize: 3, bundled: false, installedAt: 1 }]);
+    setPackManagerFactory(() => manager);
+    const dungeons = useStore.getState().layers.filter((l) => l.type === 'dungeon');
+    expect(dungeons.length).toBeGreaterThan(0);
+    const before = dungeons.map((l) => useStore.getState().floorTextureEpochs[l.id] ?? 0);
+
+    await useStore.getState().installPackFromFile(packFile('crates', '1.1.0'));
+
+    expect(dungeons.map((l) => useStore.getState().floorTextureEpochs[l.id] ?? 0)).toEqual(before.map((e) => e + 1));
   });
 
   it('refuses the same id and version as already installed', async () => {

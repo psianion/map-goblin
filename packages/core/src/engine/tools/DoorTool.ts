@@ -1,10 +1,13 @@
-import { Container } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import type { DoorChild, DungeonLayer, WallSegment } from '../../store/types';
 import type { DoorStyle } from '../../shared/types';
 import { nextAuthoredName } from '../../shared/authoredName';
-import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
+import { projectPointOntoLineSegment, snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
+import { floorEdgeOpenSpans, mouthBridges } from '../../shared/caveFloor';
+import { bandSize, isMeasuredBandSet } from '../../assets/packCatalog';
+import { bandPiecesFor, kitRockWidth, nearestMouthWidth, wallMouths, wallMouthWidths } from '../../assets/caveWallKit';
 import {
   doorWallId,
   polylineLength,
@@ -34,6 +37,11 @@ import { findDoorway, overDoorway } from '../../shared/doorwaySeal';
 import { doorwayEditCommand, revertDoorwayLive, writeDoorwayLive } from '../../store/doorwayCommands';
 import { notify } from '../../shared/notify';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
+import { entranceAt, entranceFootprint, entranceSpanAt, stairSpanAt, stairsAt, type StairPlan } from '../../shared/stairPlace';
+import type { CliffEntrance, PlateauChild, StairSpan } from '../../shared/types';
+import { entrancePick, entranceSelectionId, stairsPick, stairsSelectionId } from '../../store/selectionResolve';
+import { stairKitFor } from '../../assets/stairKits';
+import { drawStairs, entranceVariants, entranceWidths, withMouth } from '../plateauRenderer';
 
 
 /**
@@ -75,7 +83,10 @@ function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): 
   if (settings.doorFreestanding) return { kind: 'free' };
   const at: [number, number] = [point.x, point.y];
   const style = settings.doorStyle ?? 'single';
-  const holds = walls.filter((w) => polylineLength(w.points) >= minDoorWidth(style) - WIDTH_EPSILON);
+  // Over an erased mouth, the door stands across it, edge to edge.
+  const mouth = mouthSpanAt(at, layer, walls, minDoorWidth(style, settings.doorBare), Math.max(MIN_SPAN, settings.doorWidth || 1));
+  if (mouth) return { kind: 'span', span: mouth };
+  const holds = walls.filter((w) => polylineLength(w.points) >= minDoorWidth(style, settings.doorBare) - WIDTH_EPSILON);
   const along = (list: ResolvedWall[], reach: number): Placement | null => {
     const snap = snapToNearestWall(at, list, reach);
     return snap ? { kind: 'along', snap } : null;
@@ -84,9 +95,108 @@ function placementAt(point: Point, walls: ResolvedWall[], layer: DungeonLayer): 
   const onWall = along(holds, ON_WALL_REACH) ?? along(holds.filter((w) => w.kind === 'cave'), CAVE_ROCK_REACH);
   if (onWall) return onWall;
   const maxSpan = Math.max(MIN_SPAN, settings.doorWidth || 1);
-  const span = spanBetweenWalls(at, walls, style, maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth));
+  const span = spanBetweenWalls(at, walls, style, maxSpan, (w) => wallWidthOf(w, layer.style.wallWidth), settings.doorBare);
   if (span) return { kind: 'span', span };
   return along(holds, ALONG_REACH) ?? along(holds.filter((w) => w.kind === 'standalone'), SNAP_THRESHOLD) ?? { kind: 'free' };
+}
+
+/** A pointer this near the line across an erased mouth is over it, cells. */
+const MOUTH_REACH = 0.75;
+
+/**
+ * The door across the erased mouth nearest `at` (`mouthBridges`), when `at` lies within
+ * MOUTH_REACH of the line across it and the mouth is as wide as the style allows, no wider
+ * than `maxSpan`: from the mouth's one edge to the other, so it fills the gap the rock left.
+ * Its wall is the one its first edge stops, whose look it takes.
+ */
+function mouthSpanAt(at: [number, number], layer: DungeonLayer, walls: ResolvedWall[], min: number, maxSpan: number): DoorSpan | null {
+  let best: { d: number; a: [number, number]; b: [number, number] } | null = null;
+  for (const [a, b] of mouthBridges(layer)) {
+    const v: [number, number] = [b[0] - a[0], b[1] - a[1]];
+    const L2 = v[0] * v[0] + v[1] * v[1];
+    if (L2 < 1e-12) continue;
+    const t = Math.max(0, Math.min(1, ((at[0] - a[0]) * v[0] + (at[1] - a[1]) * v[1]) / L2));
+    const d = Math.hypot(at[0] - a[0] - v[0] * t, at[1] - a[1] - v[1] * t);
+    if (d <= MOUTH_REACH && (!best || d < best.d)) best = { d, a, b };
+  }
+  if (!best) return null;
+  const { a, b } = best;
+  const width = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (width < min - WIDTH_EPSILON || width > maxSpan) return null;
+  // The wall the mouth's first edge stops: the solid one nearest it.
+  let wallA: ResolvedWall | null = null;
+  let near = Infinity;
+  for (const w of walls) {
+    for (let i = 0; i + 1 < w.points.length; i++) {
+      const p = projectPointOntoLineSegment(a, w.points[i], w.points[i + 1]);
+      if (p.distance < near - 1e-9 && !overMouth(w, layer)) {
+        near = p.distance;
+        wallA = w;
+      }
+    }
+  }
+  if (!wallA) return null;
+  return { centre: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], angle: Math.atan2(b[1] - a[1], b[0] - a[0]), width, wallA };
+}
+
+/** A floor edge lying wholly in an erased region: no wall the rock stops at. */
+function overMouth(w: ResolvedWall, layer: DungeonLayer): boolean {
+  if (w.kind !== 'floor') return false;
+  const spans = floorEdgeOpenSpans(w.points[0], w.points[1], layer.caveOpenings);
+  return spans.some(([t0, t1]) => t0 < 1e-9 && t1 > 1 - 1e-9);
+}
+
+/** How far past a gap's drawn edges a door looks for the rock it meets, cells. */
+const ROCK_FACE_REACH = 1;
+
+/**
+ * A door across a gap in a measured kit's rock (`span`, the wall set `setId`), carried or cut
+ * back at each end to the rock's face: where its line first meets a saved rock line (`rockLines`,
+ * the rock's centre) within ROCK_FACE_REACH of the drawn edge, less half the rock's width as laid.
+ * So its frame meets the rock, which may stand in over the drawn edge or out from it. As given
+ * where no rock line is found at an end, or the kit is not measured.
+ */
+export function toRockFaces(span: DoorSpan, layer: DungeonLayer, setId: string | undefined): DoorSpan {
+  const lines = (layer.rockLines ?? []).filter((l) => l.kind !== 'cliff');
+  if (lines.length === 0 || !isMeasuredBandSet(setId)) return span;
+  const half = (kitRockWidth(bandPiecesFor(setId)) * bandSize(setId!, layerDrawStyle(layer).wallWidth)) / 2;
+  const u: [number, number] = [Math.cos(span.angle), Math.sin(span.angle)];
+  const c = span.centre;
+  // Along ±u from the centre, the nearest crossing of a rock line.
+  const meet = (sign: number): number | null => {
+    const far = span.width / 2 + ROCK_FACE_REACH;
+    const b: [number, number] = [c[0] + u[0] * sign * far, c[1] + u[1] * sign * far];
+    let best: number | null = null;
+    for (const l of lines) {
+      for (const run of l.runs) {
+        for (let i = 0; i + 1 < run.length; i++) {
+          const [p, q] = [run[i], run[i + 1]];
+          const d = (b[0] - c[0]) * (q[1] - p[1]) - (b[1] - c[1]) * (q[0] - p[0]);
+          if (Math.abs(d) < 1e-12) continue;
+          const t = ((p[0] - c[0]) * (q[1] - p[1]) - (p[1] - c[1]) * (q[0] - p[0])) / d;
+          const s = ((p[0] - c[0]) * (b[1] - c[1]) - (p[1] - c[1]) * (b[0] - c[0])) / d;
+          if (t <= 0 || t > 1 || s < 0 || s > 1) continue;
+          const at = t * far - half;
+          if (at > 0 && (best === null || at < best)) best = at;
+        }
+      }
+    }
+    return best;
+  };
+  const a = meet(-1) ?? span.width / 2;
+  const b = meet(1) ?? span.width / 2;
+  const mid = (b - a) / 2;
+  return { ...span, centre: [c[0] + u[0] * mid, c[1] + u[1] * mid], width: a + b };
+}
+
+/** The wall set a wall draws with: a floor ring's or edge's look, else its own pin. */
+function wallSetOf(wall: ResolvedWall, layer: DungeonLayer): Pick<WallSegment, 'textureSetId' | 'textureTint'> {
+  if (wall.kind === 'floor' && wall.ring !== undefined) {
+    const look = layerLevelLook(layer);
+    const s = (wall.edge !== undefined ? edgeStyles(layer, look)?.[wall.ring]?.[wall.edge] : undefined) ?? ringStyles(layer, look)[wall.ring] ?? layer.style;
+    return { textureSetId: s.wallTextureSetId, textureTint: s.wallTextureTint };
+  }
+  return { textureSetId: wall.textureSetId, textureTint: wall.textureTint };
 }
 
 /**
@@ -166,10 +276,11 @@ export { minDoorWidth };
  *
  * A wall too short even for the style's minimum keeps the minimum — there is no
  * legal width to be had there, and going narrower only trades one invalid door
- * for another. Pass `Infinity` for a detached door, which has no opening to fit.
+ * for another. Pass `Infinity` for a detached door, which has no opening to fit. `bare`
+ * is whether the door is an Opening, which may be one cell (`minDoorWidth`).
  */
-export function clampDoorWidth(width: number, style: DoorStyle, wallLength: number): number {
-  return Math.max(minDoorWidth(style), Math.min(width, wallLength));
+export function clampDoorWidth(width: number, style: DoorStyle, wallLength: number, bare = false): number {
+  return Math.max(minDoorWidth(style, bare), Math.min(width, wallLength));
 }
 
 export { nextAuthoredName };
@@ -184,6 +295,39 @@ function newDoorLook(style: DoorStyle): Pick<DoorChild, 'kit' | 'bare'> {
     ...(doorKit && isKitStyle(style) ? { kit: doorKit } : {}),
     ...(doorBare && style === 'archway' ? { bare: true } : {}),
   };
+}
+
+/**
+ * The kit new stairs on `plateau` are laid with: the dock's pick, Stone taken as the stone kit of
+ * the plateau's cliff colour at the moment they are laid. Absent = the packs' default.
+ */
+function newStairKit(plateau: PlateauChild): string | undefined {
+  const pick = useStore.getState().tools.settings.stairKit;
+  return pick ? (stairKitFor(pick, plateau.edgeArt)?.id ?? undefined) : undefined;
+}
+
+/** `plateau`'s stairs with `span` in place of the one of its id (or added), none left = absent. */
+function withSpan(plateau: PlateauChild, span: StairSpan | null, without?: string): StairSpan[] | undefined {
+  const kept = (plateau.stairs ?? []).filter((s) => s.id !== (span?.id ?? without));
+  const next = span ? [...kept, span] : kept;
+  return next.length > 0 ? next : undefined;
+}
+
+/** `plateau`'s cave mouths with `span` in place of the one of its id (or added), none left = absent. */
+export function withEntrance(plateau: PlateauChild, span: CliffEntrance | null, without?: string): CliffEntrance[] | undefined {
+  const kept = (plateau.entrances ?? []).filter((s) => s.id !== (span?.id ?? without));
+  const next = span ? [...kept, span] : kept;
+  return next.length > 0 ? next : undefined;
+}
+
+/**
+ * How wide a cave mouth in `plateau`'s cliff is made when `asked` cells are: the nearest width its
+ * kit has entrance pieces for (the wider on a tie), any whole width for a kit with none.
+ */
+export function entranceWidth(plateau: Pick<PlateauChild, 'edgeArt'>, asked: number): number {
+  const widths = entranceWidths(plateau.edgeArt);
+  if (widths.length === 0) return Math.max(1, Math.round(asked));
+  return widths.reduce((best, w) => (Math.abs(w - asked) <= Math.abs(best - asked) ? w : best));
 }
 
 /** What a click would place, and whether it would be allowed to. */
@@ -273,6 +417,14 @@ export class DoorTool implements DrawingTool {
   private pendingLeaf: DoorPlan | null = null;
   /** Layer the placement press started on — see RectangleTool for why. */
   private placeLayerId: string | null = null;
+  /** Stairs under the cursor with the Stairs style: the Delete target when nothing is picked. */
+  private hoveredStairs: string | null = null;
+  /** Stairs under a held pointer: where the press started, and the plateau's stairs before any slide. */
+  private stairsPress: { layerId: string; plateauId: string; span: StairSpan; before: StairSpan[] | undefined; point: Point; moved: boolean } | null = null;
+  /** A cave mouth under the cursor: the Delete target when nothing is picked. */
+  private hoveredEntrance: string | null = null;
+  /** A cave mouth under a held pointer: where the press started, and the plateau's mouths before any slide. */
+  private entrancePress: { layerId: string; plateauId: string; span: CliffEntrance; before: CliffEntrance[] | undefined; point: Point; moved: boolean } | null = null;
 
   constructor(previewContainer: Container) {
     this.ghost = new Container();
@@ -303,9 +455,28 @@ export class DoorTool implements DrawingTool {
     }
     const locked = reason === 'Layer is locked';
 
+    // A cave mouth under the pointer is picked whatever the style, unless a door stands there.
+    const at = raw ?? point;
+    const mouth = entranceAt(activeLayer, [at.x, at.y]);
+    if (mouth && !doorAt(at, activeLayer)) {
+      store.setSelectedIds([entranceSelectionId(mouth.plateau.id, mouth.span.id)]);
+      if (!locked) this.entrancePress = { layerId: activeLayer.id, plateauId: mouth.plateau.id, span: mouth.span, before: mouth.plateau.entrances, point, moved: false };
+      return;
+    }
+
+    if (store.tools.settings.doorStairs) {
+      this.stairsDown(activeLayer, raw ?? point, point, locked);
+      return;
+    }
+
     // A placed door is found under the pointer itself: one on a freehand cave wall
     // sits off the grid, where the snapped point can miss it.
     const hit = doorAt(raw ?? point, activeLayer);
+    // Stairs under the pointer are picked whatever the style: no door lands on them.
+    if (!hit && stairsAt(activeLayer, [(raw ?? point).x, (raw ?? point).y])) {
+      this.stairsDown(activeLayer, raw ?? point, point, locked);
+      return;
+    }
     if (hit) {
       // Second click of a double flips the state; the first already selected the
       // door, and selection is idempotent, so nothing fires twice.
@@ -359,6 +530,9 @@ export class DoorTool implements DrawingTool {
 
     store.setSelectedIds([]);
 
+    // The Opening style on a cliff edge makes a cave mouth there, before any wall along it is opened.
+    if (this.placeEntrance(activeLayer, point)) return;
+
     // The ghost the pointer has been showing *is* the placement — same snap at
     // the same point, so what was previewed is exactly what lands, invalidity
     // included.
@@ -380,6 +554,170 @@ export class DoorTool implements DrawingTool {
       return;
     }
     this.placeLayerId = activeLayerId;
+  }
+
+  /**
+   * A press with the Stairs style: on stairs it picks them (and may slide them along their edge);
+   * on a plateau's or pit's edge it lays a flight there, as wide as the dock's Width, picked.
+   */
+  private stairsDown(layer: DungeonLayer, raw: Point, point: Point, locked: boolean): void {
+    const store = useStore.getState();
+    const hit = stairsAt(layer, [raw.x, raw.y]);
+    if (hit) {
+      store.setSelectedIds([stairsSelectionId(hit.plateau.id, hit.span.id)]);
+      if (!locked) this.stairsPress = { layerId: layer.id, plateauId: hit.plateau.id, span: hit.span, before: hit.plateau.stairs, point, moved: false };
+      return;
+    }
+    if (locked) {
+      notify.warning('Layer is locked');
+      return;
+    }
+    const plan = stairSpanAt(layer, [point.x, point.y], store.tools.settings.doorWidth || 1);
+    if (!plan || !plan.valid) {
+      if (plan?.why) notify.warning(plan.why);
+      store.setSelectedIds([]);
+      return;
+    }
+    const kit = newStairKit(plan.plateau);
+    const span: StairSpan = { id: crypto.randomUUID(), ...plan.span, ...(kit && { kit }) };
+    undoManager.execute(new UpdateChildCommand('Place stairs', layer.id, plan.plateau.id, { stairs: plan.plateau.stairs }, { stairs: withSpan(plan.plateau, span) }));
+    this.clearGhost();
+    useStore.getState().setSelectedIds([stairsSelectionId(plan.plateau.id, span.id)]);
+  }
+
+  /** A held press on stairs, past the drag slop: the flight slides along the edge under the pointer, keeping its width. */
+  private stairsSlide(layer: DungeonLayer, point: Point): void {
+    const press = this.stairsPress!;
+    if (!press.moved && Math.hypot(point.x - press.point.x, point.y - press.point.y) <= DRAG_SLOP) return;
+    if (layer.locked) {
+      notify.warning('Layer is locked');
+      this.stairsPress = null;
+      return;
+    }
+    press.moved = true;
+    const plan = stairSpanAt(layer, [point.x, point.y], press.span.to - press.span.from, press.span.id);
+    if (!plan || !plan.valid || plan.plateau.id !== press.plateauId) return;
+    const plateau = layer.children.find((c): c is PlateauChild => c.id === press.plateauId && c.childType === 'plateau');
+    if (!plateau) return;
+    useStore.getState().updateChild(layer.id, plateau.id, { stairs: withSpan(plateau, { ...press.span, ...plan.span }) });
+  }
+
+  /** The release of a stairs slide: put back, then replayed as one undo step. */
+  private stairsRelease(): void {
+    const press = this.stairsPress!;
+    this.stairsPress = null;
+    if (!press.moved) return;
+    const pick = stairsPick(useStore.getState(), stairsSelectionId(press.plateauId, press.span.id));
+    if (!pick) return;
+    const after = pick.plateau.stairs;
+    useStore.getState().updateChild(press.layerId, press.plateauId, { stairs: press.before });
+    undoManager.execute(new UpdateChildCommand('Move stairs', press.layerId, press.plateauId, { stairs: press.before }, { stairs: after }));
+  }
+
+  /** The ghost of the flight a click would lay with the Stairs style, red where it may not. */
+  private updateStairsGhost(layer: DungeonLayer, point: Point): void {
+    const plan: StairPlan | null = this.hoveredStairs || layer.locked ? null : stairSpanAt(layer, [point.x, point.y], useStore.getState().tools.settings.doorWidth || 1);
+    if (!plan?.flight) {
+      this.clearGhost();
+      return;
+    }
+    const kit = newStairKit(plan.plateau);
+    const key = ['stairs', plan.plateau.id, plan.span.ring, plan.span.from, plan.span.to, kit, plan.valid].join(':');
+    if (key === this.ghostKey) return;
+    this.clearGhost();
+    this.ghostKey = key;
+    this.ghost.tint = plan.valid ? 0xffffff : INVALID_TINT;
+    drawStairs(this.ghost, [{ ...plan.flight, span: { ...plan.flight.span, ...(kit && { kit }) } }]);
+  }
+
+  /** Whether the Door tool's style is Opening: a bare archway, not Stairs. */
+  private openingStyle(): boolean {
+    const s = useStore.getState().tools.settings;
+    return !s.doorStairs && s.doorBare === true && (s.doorStyle ?? 'single') === 'archway';
+  }
+
+  /** The cave mouth a click with the Opening style would make at `point`, or null off every cliff edge. */
+  private entrancePlan(layer: DungeonLayer, point: Point) {
+    if (!this.openingStyle()) return null;
+    const asked = useStore.getState().tools.settings.doorWidth || 1;
+    return entranceSpanAt(layer, [point.x, point.y], (p) => entranceWidth(p, asked));
+  }
+
+  /**
+   * A press with the Opening style on a cliff edge: a cave mouth there, its piece the dock's pick
+   * among the kit's of that width, picked. True when the press was on a cliff edge (taken, laid or
+   * not); false where it falls to the walls as an Opening.
+   */
+  private placeEntrance(layer: DungeonLayer, point: Point): boolean {
+    const plan = this.entrancePlan(layer, point);
+    if (!plan) return false;
+    if (!plan.valid) return true;
+    const variants = entranceVariants(plan.plateau.edgeArt, plan.span.to - plan.span.from);
+    const pick = variants[useStore.getState().tools.settings.entranceVariant ?? 0] ?? variants[0];
+    const span = withMouth(layer, plan.plateau, { id: crypto.randomUUID(), ...plan.span, ...(pick && { piece: pick.key }) });
+    undoManager.execute(new UpdateChildCommand('Place cave mouth', layer.id, plan.plateau.id, { entrances: plan.plateau.entrances }, { entrances: withEntrance(plan.plateau, span) }));
+    this.clearGhost();
+    useStore.getState().setSelectedIds([entranceSelectionId(plan.plateau.id, span.id)]);
+    return true;
+  }
+
+  /** A held press on a cave mouth, past the drag slop: it slides along its edge under the pointer, keeping its width. */
+  private entranceSlide(layer: DungeonLayer, point: Point): void {
+    const press = this.entrancePress!;
+    if (!press.moved && Math.hypot(point.x - press.point.x, point.y - press.point.y) <= DRAG_SLOP) return;
+    if (layer.locked) {
+      notify.warning('Layer is locked');
+      this.entrancePress = null;
+      return;
+    }
+    press.moved = true;
+    const width = press.span.to - press.span.from;
+    const plan = entranceSpanAt(layer, [point.x, point.y], () => width, press.span.id);
+    if (!plan || !plan.valid || plan.plateau.id !== press.plateauId) return;
+    const plateau = layer.children.find((c): c is PlateauChild => c.id === press.plateauId && c.childType === 'plateau');
+    if (!plateau) return;
+    useStore.getState().updateChild(layer.id, plateau.id, { entrances: withEntrance(plateau, withMouth(layer, plateau, { ...press.span, ...plan.span })) });
+  }
+
+  /** The release of a cave mouth's slide: put back, then replayed as one undo step. */
+  private entranceRelease(): void {
+    const press = this.entrancePress!;
+    this.entrancePress = null;
+    if (!press.moved) return;
+    const pick = entrancePick(useStore.getState(), entranceSelectionId(press.plateauId, press.span.id));
+    if (!pick) return;
+    const after = pick.plateau.entrances;
+    useStore.getState().updateChild(press.layerId, press.plateauId, { entrances: press.before });
+    undoManager.execute(new UpdateChildCommand('Move cave mouth', press.layerId, press.plateauId, { entrances: press.before }, { entrances: after }));
+  }
+
+  /** The outline of the cave mouth a click with the Opening style would make, red where it may not. True while there is one. */
+  private updateEntranceGhost(layer: DungeonLayer, point: Point): boolean {
+    const plan = layer.locked ? null : this.entrancePlan(layer, point);
+    if (!plan) return false;
+    const art = plan.plateau.edgeArt;
+    this.hoverMouth(art && entranceWidths(art).length > 0 ? art : undefined);
+    if (!plan.info) {
+      this.clearGhost();
+      return true;
+    }
+    const key = ['entrance', plan.plateau.id, plan.span.ring, plan.span.from, plan.span.to, plan.valid].join(':');
+    if (key === this.ghostKey) return true;
+    this.clearGhost();
+    this.ghostKey = key;
+    this.ghost.tint = plan.valid ? 0xffffff : INVALID_TINT;
+    this.ghost.addChild(new Graphics().poly(entranceFootprint(plan.info).flat(), true).fill({ color: 0x2b2420, alpha: 0.35 }).stroke({ color: 0x2b2420, width: 0.06, alpha: 0.9 }));
+    return true;
+  }
+
+  /**
+   * Tells the dock the rock of the edge under the pointer where an Opening there lays a mouth piece
+   * (`selection.hoverMouthKit`); an edge that lays none clears it, and open floor leaves it, so the
+   * dock still shows the last edge when the pointer goes to it.
+   */
+  private hoverMouth(kit: string | undefined): void {
+    const store = useStore.getState();
+    if (store.selection.hoverMouthKit !== kit) store.setHoverMouthKit(kit);
   }
 
   /** The release of a placement press that stayed a click: the leaf the ghost showed. */
@@ -427,12 +765,10 @@ export class DoorTool implements DrawingTool {
     this.snapResult = placement.kind === 'along' ? placement.snap : null;
     if (placement.kind === 'along') return this.plan(layer, walls);
     if (placement.kind === 'span') {
-      const { span } = placement;
-      // The door matches the walls it joins: the near wall's set and tint pins.
-      return this.freePlan(layer, { x: span.centre[0], y: span.centre[1] }, span.angle, span.width, {
-        textureSetId: span.wallA.textureSetId,
-        textureTint: span.wallA.textureTint,
-      });
+      // The door matches the walls it joins: the near wall's set and tint, as it draws, and meets their rock's face.
+      const pins = wallSetOf(placement.span.wallA, layer);
+      const span = toRockFaces(placement.span, layer, pins.textureSetId);
+      return this.freePlan(layer, { x: span.centre[0], y: span.centre[1] }, span.angle, span.width, pins);
     }
     return this.freePlan(layer, point);
   }
@@ -450,6 +786,11 @@ export class DoorTool implements DrawingTool {
     const settings = useStore.getState().tools.settings;
     const wallLength = polylineLength(wall.points);
     const style = settings.doorStyle ?? 'single';
+    // An Opening in rock whose kit has mouth pieces is as wide as one of them, laid with the dock's pick.
+    const mouthWidths = this.openingStyle() ? wallMouthWidths(wallSetOf(wall, layer).textureSetId) : [];
+    const mouthWidth = nearestMouthWidth(mouthWidths, settings.doorWidth || 1);
+    const mouths = mouthWidths.length > 0 ? wallMouths(wallSetOf(wall, layer).textureSetId, mouthWidth) : [];
+    const mouth = mouths[settings.entranceVariant ?? 0] ?? mouths[0];
     const draft: DoorChild = {
       id: '',
       name: '',
@@ -462,12 +803,13 @@ export class DoorTool implements DrawingTool {
       angle: snap.angle,
       // The width the DM asked for, fitted to the wall: a shorter wall takes a
       // narrower door. Only a wall shorter than the style's minimum is left too
-      // short, and `isPlaceable`'s width-vs-wall check previews that red.
-      width: clampDoorWidth(settings.doorWidth || 1, style, wallLength),
+      // short, and `isPlaceable`'s width-vs-wall check previews that red. A mouth keeps its width.
+      width: mouthWidths.length > 0 ? mouthWidth : clampDoorWidth(settings.doorWidth || 1, style, wallLength, settings.doorBare),
       style,
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
       ...newDoorLook(style),
+      ...(mouth && { piece: mouth.key }),
     };
 
     // Anchor it the way a render will, so a door as wide as its wall — hence
@@ -496,7 +838,7 @@ export class DoorTool implements DrawingTool {
   ): DoorPlan {
     const settings = useStore.getState().tools.settings;
     const style = settings.doorStyle ?? 'single';
-    const width = spanWidth ?? Math.max(settings.doorWidth || 1, minDoorWidth(style));
+    const width = spanWidth ?? Math.max(settings.doorWidth || 1, minDoorWidth(style, settings.doorBare));
     const angle = spanAngle ?? ((settings.doorAngle ?? 0) * Math.PI) / 180;
     const piece = freePiece([point.x, point.y], angle, width, {
       wallType: settings.wallType,
@@ -570,6 +912,11 @@ export class DoorTool implements DrawingTool {
       this.clearGhost();
       return;
     }
+    // On a wall (not open floor, nor across a gap) the dock follows the wall's rock.
+    if (this.openingStyle() && !plan.piece) {
+      const setId = wallSetOf(plan.wall, layer).textureSetId;
+      this.hoverMouth(wallMouthWidths(setId).length > 0 ? setId : undefined);
+    }
 
     const { door } = plan;
     const key = [
@@ -610,6 +957,24 @@ export class DoorTool implements DrawingTool {
     const activeLayer = activeDungeonLayer();
     if (!activeLayer) return;
 
+    if (this.stairsPress) {
+      this.stairsSlide(activeLayer, point);
+      return;
+    }
+    if (this.entrancePress) {
+      this.entranceSlide(activeLayer, point);
+      return;
+    }
+    const mouth = entranceAt(activeLayer, [(raw ?? point).x, (raw ?? point).y]);
+    this.hoveredEntrance = mouth ? entranceSelectionId(mouth.plateau.id, mouth.span.id) : null;
+    const over = stairsAt(activeLayer, [(raw ?? point).x, (raw ?? point).y]);
+    this.hoveredStairs = over ? stairsSelectionId(over.plateau.id, over.span.id) : null;
+    if (useStore.getState().tools.settings.doorStairs) {
+      this.hoveredDoorId = null;
+      this.updateStairsGhost(activeLayer, point);
+      return;
+    }
+
     if (this.pressedDoorId && this.pressPoint) {
       const moved = Math.hypot(point.x - this.pressPoint.x, point.y - this.pressPoint.y);
       if (this.dragFrom || moved > DRAG_SLOP) {
@@ -632,7 +997,16 @@ export class DoorTool implements DrawingTool {
     if (this.pendingLeaf) return;
 
     this.hoveredDoorId = doorAt(raw ?? point, activeLayer)?.id ?? null;
+    // Over stairs or a cave mouth a click picks them: no door ghost there.
+    if (!this.hoveredDoorId && (this.hoveredStairs || this.hoveredEntrance)) {
+      this.clearGhost();
+      return;
+    }
+    this.hoveredStairs = null;
+    this.hoveredEntrance = null;
 
+    // On a cliff edge the Opening style shows the cave mouth a click would make.
+    if (!this.hoveredDoorId && this.updateEntranceGhost(activeLayer, point)) return;
     this.updateGhost(activeLayer, point);
   }
 
@@ -690,6 +1064,14 @@ export class DoorTool implements DrawingTool {
   }
 
   onPointerUp(_point?: Point): void {
+    if (this.stairsPress) {
+      this.stairsRelease();
+      return;
+    }
+    if (this.entrancePress) {
+      this.entranceRelease();
+      return;
+    }
     if (this.pendingLeaf) {
       const leaf = this.pendingLeaf;
       const layerId = this.placeLayerId;
@@ -740,6 +1122,34 @@ export class DoorTool implements DrawingTool {
     const store = useStore.getState();
     const layer = activeDungeonLayer();
     if (!layer) return;
+    // Picked stairs, else the stairs under the cursor: the flight comes off its plateau's edge.
+    const stairsId = store.selection.selectedIds.find((id) => id.startsWith('stairs:')) ?? this.hoveredStairs;
+    const stairs = stairsId ? stairsPick(store, stairsId) : null;
+    if (stairs && stairs.layer.id === layer.id) {
+      const reason = blockedLayerReason(layer);
+      if (reason) {
+        notify.warning(reason);
+        return;
+      }
+      undoManager.execute(new UpdateChildCommand('Delete stairs', layer.id, stairs.plateau.id, { stairs: stairs.plateau.stairs }, { stairs: withSpan(stairs.plateau, null, stairs.span.id) }));
+      store.setSelectedIds([]);
+      this.hoveredStairs = null;
+      return;
+    }
+    // A picked cave mouth, else the one under the cursor: the cliff closes again.
+    const mouthId = store.selection.selectedIds.find((id) => id.startsWith('entrance:')) ?? this.hoveredEntrance;
+    const mouth = mouthId ? entrancePick(store, mouthId) : null;
+    if (mouth && mouth.layer.id === layer.id) {
+      const reason = blockedLayerReason(layer);
+      if (reason) {
+        notify.warning(reason);
+        return;
+      }
+      undoManager.execute(new UpdateChildCommand('Delete cave mouth', layer.id, mouth.plateau.id, { entrances: mouth.plateau.entrances }, { entrances: withEntrance(mouth.plateau, null, mouth.span.id) }));
+      store.setSelectedIds([]);
+      this.hoveredEntrance = null;
+      return;
+    }
     // Delete removes the selection; hover stays the target when nothing is
     // selected, which is how the tool worked before it could select.
     const selected = store.selection.selectedIds.find((id) =>
@@ -770,14 +1180,22 @@ export class DoorTool implements DrawingTool {
 
   /** A placed door is draggable, so say so before the user finds out by accident. */
   getHoverCursor(): string | null {
-    if (this.dragFrom) return 'grabbing';
-    return this.hoveredDoorId ? 'move' : null;
+    if (this.dragFrom || this.stairsPress?.moved || this.entrancePress?.moved) return 'grabbing';
+    return this.hoveredDoorId || this.hoveredStairs || this.hoveredEntrance ? 'move' : null;
   }
 
   cancel(): void {
     // Escape mid-slide puts the door back where it was picked up; the tool exit
     // that Escape also means then has nothing half-applied behind it.
     const layer = this.dragFrom ? activeDungeonLayer() : undefined;
+    // Escape mid-slide puts stairs back where they were picked up too.
+    if (this.stairsPress?.moved) useStore.getState().updateChild(this.stairsPress.layerId, this.stairsPress.plateauId, { stairs: this.stairsPress.before });
+    this.stairsPress = null;
+    this.hoveredStairs = null;
+    // And a cave mouth.
+    if (this.entrancePress?.moved) useStore.getState().updateChild(this.entrancePress.layerId, this.entrancePress.plateauId, { entrances: this.entrancePress.before });
+    this.entrancePress = null;
+    this.hoveredEntrance = null;
     if (this.dragLayerFrom && this.sealAt && this.pressedDoorId) {
       revertDoorwayLive(this.dragLayerFrom, this.pressedDoorId);
     } else if (layer && this.dragFrom && this.pressedDoorId) {
@@ -799,6 +1217,6 @@ export class DoorTool implements DrawingTool {
   }
 
   isActive(): boolean {
-    return this.dragFrom !== null || this.pendingLeaf !== null;
+    return this.dragFrom !== null || this.pendingLeaf !== null || this.stairsPress?.moved === true || this.entrancePress?.moved === true;
   }
 }

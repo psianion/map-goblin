@@ -49,6 +49,11 @@ export interface MapDeltaLayer {
   rooms: Room[];
   children: AnyChild[];
   standaloneWalls: WallSegment[];
+  /**
+   * The layer's rock lines (`DungeonLayer.rockLines`) for every room the seat now holds; absent
+   * on a layer with none. Spelled out as `lockMask` is, to keep clear of the store's module.
+   */
+  rockLines?: { kind?: 'cliff'; edge: [number, number][]; closed: boolean; runs: [number, number][][] }[];
 }
 
 /**

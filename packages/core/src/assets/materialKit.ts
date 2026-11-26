@@ -19,9 +19,18 @@ export function isTextureMaterial(id: string): boolean {
   return id.includes(':');
 }
 
-/** The installed floor textures tagged `outdoor`: the ground the brushes paint plain. */
+/**
+ * True for the floor a cave band fills with: a floor tagged `cave` that is not a slope face
+ * tile. Painted on its own it is plain ground, as an outdoor floor is.
+ */
+function isCaveGround(entry: Pick<CatalogEntry, 'tags'>): boolean {
+  return entry.tags.includes('cave') && !entry.tags.includes('face');
+}
+
+/** The installed floor textures tagged `outdoor`, then the cave floors: the ground the brushes paint plain. */
 export function outdoorFloorIds(): string[] {
-  return getEntriesByType('floor').filter((e) => e.tags.includes('outdoor')).map((e) => e.id);
+  const floors = getEntriesByType('floor');
+  return [...floors.filter((e) => e.tags.includes('outdoor')), ...floors.filter((e) => !e.tags.includes('outdoor') && isCaveGround(e))].map((e) => e.id);
 }
 
 /** True for a slope face tile: a floor tagged `face`, offered by the slope's Face picker and nowhere else. */
@@ -129,14 +138,15 @@ export function pieceNameOf(material: string): string {
 export const GROUND_SOFT_EDGE = 0.5;
 
 /**
- * The edge softness a new piece of `textureId` takes: outdoor ground soft, so a trail runs
- * into the grass with nothing to set; water crisp (its shore is its edge); anything else,
- * a cave floor or a dungeon floor among them, crisp.
+ * The edge softness a new piece of `textureId` takes: outdoor ground and the cave floor soft,
+ * so a trail runs into the grass with nothing to set; water crisp (its shore is its edge);
+ * anything else, a dungeon floor among them, crisp.
  */
 export function defaultSoftOf(textureId: string | undefined): number | undefined {
   if (!textureId || !isTextureMaterial(textureId)) return undefined;
-  const tags = getCatalogEntry(textureId)?.tags ?? [];
-  return tags.includes('outdoor') && !tags.includes('water') ? GROUND_SOFT_EDGE : undefined;
+  const entry = getCatalogEntry(textureId);
+  const tags = entry?.tags ?? [];
+  return (tags.includes('outdoor') && !tags.includes('water')) || (entry && isCaveGround(entry)) ? GROUND_SOFT_EDGE : undefined;
 }
 
 /** The installed water textures: floors tagged `water`. */
@@ -144,9 +154,10 @@ export function waterTextureIds(): string[] {
   return getEntriesByType('floor').filter((e) => e.tags.includes('water')).map((e) => e.id);
 }
 
-/** The installed outdoor ground textures that are not water: what the Terrain entry of the brush lists first. */
+/** The installed outdoor ground textures that are not water, then the cave floors: what the Terrain entry of the brush lists first. */
 export function groundTextureIds(): string[] {
-  return getEntriesByType('floor').filter((e) => e.tags.includes('outdoor') && !e.tags.includes('water')).map((e) => e.id);
+  const floors = getEntriesByType('floor');
+  return [...floors.filter((e) => e.tags.includes('outdoor') && !e.tags.includes('water')), ...floors.filter((e) => !e.tags.includes('outdoor') && isCaveGround(e))].map((e) => e.id);
 }
 
 /** The installed water texture an older map's water mask is filled with: still water before deep. */

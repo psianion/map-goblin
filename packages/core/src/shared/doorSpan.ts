@@ -16,10 +16,11 @@ const WIDE_STYLES = new Set<DoorStyle>(['double', 'portcullis', 'archway']);
 
 /**
  * Narrowest a door of this style may be, in world units — grid cells, the same
- * units `door.width` and the door tool's snap reach are in.
+ * units `door.width` and the door tool's snap reach are in. A bare archway (the Opening)
+ * has no jambs to fit, so it may be one cell.
  */
-export function minDoorWidth(style: DoorStyle): number {
-  return WIDE_STYLES.has(style) ? 2 : 1;
+export function minDoorWidth(style: DoorStyle, bare = false): number {
+  return WIDE_STYLES.has(style) && !(bare && style === 'archway') ? 2 : 1;
 }
 
 export interface DoorSpan {
@@ -106,7 +107,8 @@ function meetsSquarely(wall: ResolvedWall, run: number, at: Pt): (d: Pt) => bool
  * (standalone) wall's end is pulled in by half its drawn width (`widthOf`) so the door sits
  * between the faces; a floor edge has none. Where the faces leave less than the style's
  * narrowest door but the centres do not, it spans centre to centre. Null when there is no
- * far side, or the gap is narrower than the style allows or wider than `maxSpan`.
+ * far side, or the gap is narrower than the style allows or wider than `maxSpan`. `bare`
+ * is whether the door is an Opening (`minDoorWidth`).
  */
 export function spanBetweenWalls(
   point: Pt,
@@ -114,6 +116,7 @@ export function spanBetweenWalls(
   style: DoorStyle,
   maxSpan: number,
   widthOf: (wall: ResolvedWall) => number,
+  bare = false,
 ): DoorSpan | null {
   let near: { wall: ResolvedWall; run: number; at: Pt; distance: number } | null = null;
   for (const wall of walls) {
@@ -145,7 +148,7 @@ export function spanBetweenWalls(
   const gap = Math.hypot(far.at[0] - A[0], far.at[1] - A[1]);
   if (gap < ON_WALL) return null;
   const u: Pt = [(far.at[0] - A[0]) / gap, (far.at[1] - A[1]) / gap];
-  const min = minDoorWidth(style);
+  const min = minDoorWidth(style, bare);
   const face = (w: ResolvedWall) => (w.kind === 'standalone' ? widthOf(w) / 2 : 0);
   let pullA = face(near.wall);
   let pullB = face(far.wall);

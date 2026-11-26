@@ -3,7 +3,7 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { Point } from '../../types/geometry';
 import type { AssetChild, DungeonLayer, ScatterBrushSettings } from '../../store/types';
 import { useStore } from '../../store/store';
-import { familyVariants, lightPropOf, nextAssetName, siblingOf } from '../../assets/packCatalog';
+import { familyVariants, getCatalogEntry, GRID_CELL_PX, lightPropOf, nextAssetName, siblingOf } from '../../assets/packCatalog';
 import { resolveTexture } from '../../assets/textureLoader';
 import { mulberry32 } from '../../geometry/seededRng';
 import { CompositeCommand, createChildRemovalCommand } from '../../store/commands';
@@ -628,6 +628,17 @@ export class StampScatterTool implements DrawingTool {
   }
 }
 
+/**
+ * What a prop the pack marks as blocking (tagged `blocking`, with a round `footprint`) is placed
+ * with: Blocks light and sight on, and its footprint's radius at the width it is placed at, cells.
+ * Nothing for any other prop.
+ */
+export function blockingFields(assetId: string, width: number): Pick<AssetChild, 'blocksLight' | 'footprintRadius'> {
+  const e = getCatalogEntry(assetId);
+  if (!e?.footprint || !e.tags.includes('blocking')) return {};
+  return { blocksLight: true, footprintRadius: +((e.footprint.radius * width) / (e.naturalWidth / GRID_CELL_PX)).toFixed(3) };
+}
+
 /** A new prop child: size in width/height, `scale` 1. */
 function makeChild(
   name: string,
@@ -654,5 +665,6 @@ function makeChild(
     tint,
     flipX,
     flipY: false,
+    ...blockingFields(assetId, width),
   };
 }

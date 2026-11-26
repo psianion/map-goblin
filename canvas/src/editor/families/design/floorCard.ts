@@ -1,4 +1,4 @@
-// The floor card (frame D): Size, Layer, Walls with their width and Height, then Look (Colour with Reset, Texture with
+// The floor card (frame D): Size, Layer, Walls (a brush piece's own Rock instead) with their width and Height, then Look (Colour with Reset, Texture with
 // Change, Tint, Opacity, the Fill fold), then Edge (Edge band, and a painted border's texture
 // and width). Colour shows for floors
 // without a texture, Tint and Fill for textured ones: each row only where it changes something.
@@ -18,7 +18,7 @@ import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/sel
 import { editChildren, editKey } from './cardWrites';
 import { FLOOR_VERBS, openOutlineNodes } from './verbs';
 import { edgeBandOf, fillOf, layerBandOf, pickedFloors, state, type FillValue } from './floorModel';
-import { ColourField, EdgePaintField, FillField, FloorEdgeField, LayerField, PAINTED_EDGE, PLAIN_WALLS as LAYER_WALLS, TextureField, WallsField } from './FloorFields';
+import { ColourField, EdgePaintField, FillField, FloorEdgeField, LayerField, PAINTED_EDGE, PLAIN_WALLS as LAYER_WALLS, RockField, TextureField, WallsField } from './FloorFields';
 import { ShoreField } from '@/editor/families/terrain/MaterialsColumn';
 import { defaultShoreId, isWaterMaterial } from '@dnd/core/src/assets/materialKit';
 import { SHORE_DEFAULT_WIDTH, SHORE_MAX_WIDTH, SHORE_MIN_WIDTH, shoreWidthOf } from '@dnd/core/src/shared/materialPatch';
@@ -77,6 +77,11 @@ const height = defineCardField<'shape', number>({
   write: (_store, ids, h) => editChildren('Floor height', ids, () => ({ height: groundHeightOf(h) || undefined })),
 });
 
+/** A piece the brush gave rock of its own (`edgeMaterial`): a cave, or a ground piece's rim. */
+const hasOwnRock = (o: ShapeChild): boolean => !!o.edgeMaterial;
+/** A brush cave: its rock is its wall, so it has one rock choice and no Walls or Edge band. */
+const isBrushCave = (o: ShapeChild): boolean => !!o.edgeMaterial && !o.ground;
+
 /**
  * Walls: None turns the piece into ground (no wall, no room, out of the floor union); a wall
  * set turns it into a walled floor with that set pinned on it.
@@ -89,6 +94,7 @@ const walls = defineCardField<'shape', string | null>({
   home: 'card',
   control: 'custom',
   render: WallsField,
+  visibleWhen: (o) => !isBrushCave(o),
   read: (o) => {
     if (o.ground) return null;
     const pin = o.styleOverrides?.wallTextureSetId;
@@ -102,6 +108,22 @@ const walls = defineCardField<'shape', string | null>({
       if (v === LAYER_WALLS) return c.ground ? { ground: undefined } : null;
       return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v } };
     }),
+});
+
+/** The rock a brush cave or a brush ground piece's rim is laid with: any cave or cliff kit. */
+const rock = defineCardField<'shape', string>({
+  id: 'card.floor.rock',
+  label: 'Rock',
+  schema: z.string(),
+  default: '',
+  home: 'card',
+  control: 'custom',
+  render: RockField,
+  visibleWhen: hasOwnRock,
+  read: (o) => o.edgeMaterial ?? '',
+  write: (_store, ids, v) => {
+    if (v) editChildren('Rock', ids, (c) => (c.childType === 'shape' && c.edgeMaterial ? { edgeMaterial: v } : null));
+  },
 });
 
 const dungeonLayerOf = (o: ShapeChild): DungeonLayer | null => {
@@ -339,6 +361,8 @@ const edgeBand = defineCardField<'shape', string | null>({
   control: 'custom',
   section: 'Edge',
   render: FloorEdgeField,
+  // A piece with rock of its own draws that rock on its edge, never a band.
+  visibleWhen: (o) => !hasOwnRock(o),
   read: (o) => (o.edgePaint ? PAINTED_EDGE : edgeBandOf(o)),
   write: (_store, ids, v) =>
     editChildren('Edge band', ids, (c) => {
@@ -392,5 +416,5 @@ export const floorCard = defineCard<'shape'>({
   kind: 'shape',
   title: () => 'Floor',
   verbs: FLOOR_VERBS,
-  fields: [size, layer, walls, wallWidth, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth],
+  fields: [size, layer, walls, rock, wallWidth, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth],
 });

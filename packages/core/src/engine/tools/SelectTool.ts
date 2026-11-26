@@ -138,7 +138,7 @@ const KIND_NAME: Record<AnyChild['childType'], string> = {
 export function pickName(hit: PickHit): string {
   if (hit.kind === 'child') return hit.child.name || KIND_NAME[hit.child.childType];
   if (hit.kind === 'room') return hit.room.name || 'Room';
-  return 'Wall';
+  return hit.kind === 'stairs' ? 'Stairs' : hit.kind === 'entrance' ? 'Cave mouth' : 'Wall';
 }
 
 /** What a box over hidden lights and nothing else says. */
@@ -148,7 +148,7 @@ export function hiddenLightsNote(n: number): string {
 
 /** A pick's kind, as a word. */
 export function pickKind(hit: PickHit): string {
-  return hit.kind === 'child' ? KIND_NAME[hit.child.childType] : hit.kind === 'room' ? 'Room' : 'Wall';
+  return hit.kind === 'child' ? KIND_NAME[hit.child.childType] : hit.kind === 'room' ? 'Room' : hit.kind === 'stairs' ? 'Stairs' : hit.kind === 'entrance' ? 'Cave mouth' : 'Wall';
 }
 
 const isResizeHandle = (h: HandleType): h is ResizeHandle => h !== 'move' && h !== 'rotate';
@@ -509,6 +509,20 @@ export class SelectTool implements DrawingTool {
       if (again && sel.length === 1) {
         const picked = pickHereAt([raw.x, raw.y], { zoom: this.engine.stage().scale.x }).find((e) => e.hit.id === sel[0]);
         if (picked) hit = picked.hit;
+      }
+    }
+
+    // Stairs and cave mouths are picked alone and never dragged here (the Door tool slides them).
+    // Shift or Ctrl build selections they cannot join: those clicks take what lies under them.
+    if (hit?.kind === 'stairs' || hit?.kind === 'entrance') {
+      if (event?.shiftKey || event?.ctrlKey || event?.metaKey) {
+        hit = pickStackAtPoint([raw.x, raw.y], { zoom: this.engine.stage().scale.x }).find((h) => h.kind !== 'stairs' && h.kind !== 'entrance') ?? null;
+      } else if (!event?.altKey) {
+        store.setSelectedIds([hit.id]);
+        store.setActiveLayerId(hit.layerId);
+        this.destroyGizmo();
+        this.state = 'SELECTED';
+        return;
       }
     }
 

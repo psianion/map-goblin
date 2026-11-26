@@ -6,6 +6,7 @@ import { useStore } from './store/store'
 import { initRecentAssets } from './io/recentAssets'
 import { initFavouriteAssets } from './io/favouriteAssets'
 import { initSnapPref } from './io/snapPref'
+import { initDoorStylePref } from './io/doorStylePref'
 
 // Expose store for E2E tests (dev only)
 if (import.meta.env.DEV) {
@@ -15,6 +16,7 @@ if (import.meta.env.DEV) {
 initRecentAssets()
 initFavouriteAssets()
 initSnapPref()
+initDoorStylePref()
 
 // The editor used to live at `/v2` beside the old one at `/`. Old links and bookmarks land
 // on `/`, keeping the query (`?e2e=1`) and hash.

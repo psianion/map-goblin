@@ -103,7 +103,7 @@ export function MaterialField({ def, value, onChange }: SettingProps<string>) {
     return JSON.stringify(doorKitSwatches(s, host?.wallSetId));
   });
   const swatches = useMemo(() => JSON.parse(key) as Swatch[], [key]);
-  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value} onPick={onChange} />;
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value} onPick={onChange} compact={def.home === 'dock'} twoLines />;
 }
 
 /** The Door tool's Kit column: Auto and the installed kits, as pictures. No pack with a door kit, no column. */
@@ -120,7 +120,8 @@ export function DoorKitColumn() {
   if (swatches.length < 2) return null;
   return (
     <DockColumn title="Kit" data-column="door-kit" data-testid="design-door-kit">
-      <SwatchPicker name="Door kit" swatches={swatches} value={value} onPick={pickDoorKit} />
+      {/* As the Walls picker: the picked tile, opening a wrapping grid of every kit above it. */}
+      <SwatchPicker name="Door kit" swatches={swatches} value={value} onPick={pickDoorKit} compact twoLines />
     </DockColumn>
   );
 }

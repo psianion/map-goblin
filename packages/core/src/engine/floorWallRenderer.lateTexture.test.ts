@@ -1,6 +1,6 @@
 // Art that lands after the map was drawn: a floor bake that drew a stand-in bakes again when
-// the manager reports the texture decoded, however long that took, and the rock round a
-// walled cave is laid again with its art. The manager here answers a timed wait with null,
+// the manager reports the texture decoded, however long that took, once the art landing has
+// settled, and the rock round a walled cave shows its art in place. The manager here answers a timed wait with null,
 // as it does once the wait has given up, so only its texture signal can bring the art in.
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { BufferImageSource, Container, Sprite, Texture, TilingSprite } from 'pixi.js';
@@ -77,9 +77,15 @@ beforeAll(async () => {
 }, 30_000);
 
 /** The textures decode, and the manager says so. */
-function land(...ids: string[]): void {
+function decode(...ids: string[]): void {
   for (const id of ids) textures.set(id, art);
   for (const cb of [...subs]) cb();
+}
+
+/** The textures decode, and the frames after the last of them pass (lateArt.ts). */
+async function land(...ids: string[]): Promise<void> {
+  decode(...ids);
+  await new Promise((r) => setTimeout(r, 100));
 }
 
 function epoch(): number {
@@ -108,11 +114,12 @@ function draw(shape: ShapeChild): Container {
   return into;
 }
 
-function count(c: Container, kind: typeof Sprite | typeof TilingSprite): number {
+/** How many of `kind` `c` holds; with `shown`, only those that show. */
+function count(c: Container, kind: typeof Sprite | typeof TilingSprite, shown = false): number {
   let n = 0;
   for (const ch of c.children) {
-    if (ch instanceof kind) n++;
-    else if (ch instanceof Container) n += count(ch, kind);
+    if (ch instanceof kind) n += shown && !ch.visible ? 0 : 1;
+    else if (ch instanceof Container) n += count(ch, kind, shown);
   }
   return n;
 }
@@ -127,61 +134,64 @@ describe('armLateTextureRebuild', () => {
     armLateTextureRebuild(LAYER, 'gg-demo:floor_small_8x8_floor_A');
     await Promise.resolve();
     expect(epoch()).toBe(0);
-    land('gg-demo:floor_small_8x8_floor_A');
+    await land('gg-demo:floor_small_8x8_floor_A');
     expect(epoch()).toBe(1);
   });
 
-  it('bakes once however many times a bake repeats on the stand-in, and arms again after', () => {
+  it('bakes once however many times a bake repeats on the stand-in or the art lands, and arms again after', async () => {
     armLateTextureRebuild(LAYER, 'gg-demo:floor_small_8x8_floor_A');
     armLateTextureRebuild(LAYER, 'gg-demo:floor_small_8x8_floor_A');
-    land('gg-demo:floor_small_8x8_floor_A');
-    land('gg-demo:floor_small_8x8_floor_A');
+    decode('gg-demo:floor_small_8x8_floor_A');
+    await land('gg-demo:floor_small_8x8_floor_A');
     expect(epoch()).toBe(1);
     armLateTextureRebuild(LAYER, 'gg-demo:floor_B');
-    land('gg-demo:floor_B');
+    await land('gg-demo:floor_B');
     expect(epoch()).toBe(2);
   });
 
-  it('stays quiet while its own texture has not landed', () => {
+  it('stays quiet while its own texture has not landed', async () => {
     armLateTextureRebuild(LAYER, 'gg-demo:never_ships');
-    land('gg-demo:something_else');
+    await land('gg-demo:something_else');
     expect(epoch()).toBe(0);
   });
 
-  it('ignores ids that never arrive late (imported images, data urls)', () => {
+  it('ignores ids that never arrive late (imported images, data urls)', async () => {
     armLateTextureRebuild(LAYER, 'my-imported-image');
     armLateTextureRebuild(LAYER, 'data:image/png;base64,xyz');
     armLateTextureRebuild(LAYER, 'blob:http://x/abc');
-    land('my-imported-image', 'data:image/png;base64,xyz', 'blob:http://x/abc');
+    await land('my-imported-image', 'data:image/png;base64,xyz', 'blob:http://x/abc');
     expect(epoch()).toBe(0);
   });
 });
 
 describe('art that lands after the map was drawn', () => {
-  it('a ground piece drawn without its texture shows it once the texture lands', () => {
+  it('a ground piece drawn without its texture shows it once the texture lands', async () => {
     const grass = piece({ ground: true, textureId: GRASS, soft: 0.25 });
     expect(count(draw(grass), TilingSprite)).toBe(0);
-    land(GRASS);
+    await land(GRASS);
     expect(epoch()).toBe(1);
     expect(count(draw(grass), TilingSprite)).toBeGreaterThan(0);
   });
 
-  it('a cave floor drawn without its texture shows it once the texture lands', () => {
+  it('a cave floor drawn without its texture shows it once the texture lands', async () => {
     const cave = piece({ textureId: CAVE_FLOOR, edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } });
     expect(count(draw(cave), TilingSprite)).toBe(0);
-    land(CAVE_FLOOR);
+    await land(CAVE_FLOOR);
     expect(epoch()).toBe(1);
     expect(count(draw(cave), TilingSprite)).toBeGreaterThan(0);
   });
 
-  it('the rock round a walled cave is laid with its art once the art lands', async () => {
+  it('the rock round a walled cave shows its art in place once the art lands', async () => {
     const layer = layerOf([piece({ textureId: CAVE_FLOOR, edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } })], [square]);
     useStore.setState({ layers: [layer] });
     drawLayerMaterials(layer);
-    expect(count(host, Sprite)).toBe(0);
+    // Laid, but nothing shows until its art is in.
+    const laid = count(host, Sprite);
+    expect(laid).toBeGreaterThan(0);
+    expect(count(host, Sprite, true)).toBe(0);
     // The waits the first draw armed give up before the art arrives.
     await new Promise((r) => setTimeout(r, 0));
-    land(CAVE_FLOOR, ...INK);
-    expect(count(host, Sprite)).toBeGreaterThan(0);
+    decode(...INK);
+    expect(count(host, Sprite, true)).toBe(laid);
   });
 });

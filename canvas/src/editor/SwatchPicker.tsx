@@ -14,6 +14,8 @@ export interface Swatch {
   art?: string;
   /** Multiplied into the picture: a door kit's slices are grey masters, told apart by their tint. */
   tint?: string;
+  /** The tile's tip, where its name is cut short: the full name. */
+  title?: string;
 }
 
 interface SwatchPickerProps {
@@ -29,7 +31,13 @@ interface SwatchPickerProps {
    * that would not fit beside the others as a full row.
    */
   compact?: boolean;
+  /** Names wrap onto a second line under their tiles rather than being cut off: choices whose names run long. */
+  twoLines?: boolean;
 }
+
+/** A tile's name on up to two lines, broken between words. */
+const TWO_LINES =
+  '[&_[data-slot=tile-name]]:line-clamp-2 [&_[data-slot=tile-name]]:whitespace-normal [&_[data-slot=tile-name]]:break-words [&_[data-slot=tile-name]]:text-center [&_[data-slot=tile-name]]:leading-[1.2]';
 
 /** A swatch's picture, or nothing for a plain named tile. */
 function Thumb({ swatch }: { swatch: Swatch }) {
@@ -41,7 +49,7 @@ function Thumb({ swatch }: { swatch: Swatch }) {
   );
 }
 
-export function SwatchPicker({ label, name, swatches, value, onPick, compact = false }: SwatchPickerProps) {
+export function SwatchPicker({ label, name, swatches, value, onPick, compact = false, twoLines = false }: SwatchPickerProps) {
   const [open, setOpen] = useState(false);
   const tiles = (
     <div role="group" aria-label={name} data-composite="swatches" className="flex flex-wrap gap-1.5">
@@ -49,7 +57,8 @@ export function SwatchPicker({ label, name, swatches, value, onPick, compact = f
         <Tile
           key={s.value}
           name={s.label}
-          title={s.label}
+          title={s.title ?? s.label}
+          className={twoLines ? TWO_LINES : undefined}
           aria-label={s.label}
           active={s.value === value}
           data-swatch={s.value}
@@ -69,7 +78,7 @@ export function SwatchPicker({ label, name, swatches, value, onPick, compact = f
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
-            <Tile name={picked.label} title={`${name}: ${picked.label}`} aria-label={`${name}: ${picked.label}`} data-swatch-picked={picked.value}>
+            <Tile name={picked.label} title={`${name}: ${picked.title ?? picked.label}`} className={twoLines ? TWO_LINES : undefined} aria-label={`${name}: ${picked.label}`} data-swatch-picked={picked.value}>
               <Thumb swatch={picked} />
             </Tile>
           }

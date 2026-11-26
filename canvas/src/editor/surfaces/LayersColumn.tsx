@@ -141,7 +141,7 @@ function SortableLayerTile(props: TileProps) {
 }
 
 /** The layer as the canvas draws it, framed to its content, or a flat swatch until one exists. */
-function Thumb({ thumbKey, fallback }: { thumbKey: string; fallback: ReactNode }) {
+export function Thumb({ thumbKey, fallback }: { thumbKey: string; fallback: ReactNode }) {
   const url = useLayerThumb(thumbKey);
   if (!url) return <>{fallback}</>;
   return <img className="absolute inset-0 size-full object-cover" src={url} alt="" draggable={false} data-testid="shell-layer-thumb" />;

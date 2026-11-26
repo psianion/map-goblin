@@ -7,7 +7,7 @@ import { doorStyleLabel } from '@dnd/core/src/engine/tools/DoorTool';
 import { doorOpeningLimit, resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { doorwayRoom } from '@dnd/core/src/shared/doorwaySeal';
 import { doorWallLook } from '@dnd/core/src/engine/doorRenderer';
-import { DOOR_KIT_IDS, doorKitKey, doorKitById, doorKitOf, isKitStyle, type DoorKitId } from '@dnd/core/src/assets/doorKits';
+import { doorKitIds, doorKitKey, doorKitById, doorKitOf, isKitStyle, type DoorKit, type DoorKitId } from '@dnd/core/src/assets/doorKits';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { edgeStyles, ringStyles } from '@dnd/core/src/shared/wallLook';
 import { layerDrawStyle, layerLevelLook } from '@dnd/core/src/engine/levelLook';
@@ -18,19 +18,20 @@ import { editChildren } from './cardWrites';
 export const state = () => useStore.getState() as MapBuilderStore;
 
 /**
- * What a Style control offers: the door styles, and "Opening", which is stored as an archway
- * flagged bare (`DoorChild.bare`): a gap in the wall or the cave's rock with nothing drawn in it.
+ * What a Style control offers: the door styles, "Opening", which is stored as an archway
+ * flagged bare (`DoorChild.bare`): a gap in the wall or the cave's rock with nothing drawn in it;
+ * and, in the Door tool only, "Stairs", a flight laid on a plateau's or pit's edge (`PlateauChild.stairs`).
  */
-export type DoorStyleChoice = DoorStyle | 'opening';
+export type DoorStyleChoice = DoorStyle | 'opening' | 'stairs';
 
-export const doorStyleChoice = (style: DoorStyle, bare: boolean | undefined): DoorStyleChoice =>
-  bare && style === 'archway' ? 'opening' : style;
+export const doorStyleChoice = (style: DoorStyle, bare: boolean | undefined, stairs = false): DoorStyleChoice =>
+  stairs ? 'stairs' : bare && style === 'archway' ? 'opening' : style;
 
-/** The style a choice is stored as. */
-export const choiceStyle = (choice: DoorStyleChoice): DoorStyle => (choice === 'opening' ? 'archway' : choice);
+/** The style a choice is stored as; Stairs is no door's. */
+export const choiceStyle = (choice: DoorStyleChoice): DoorStyle => (choice === 'opening' || choice === 'stairs' ? 'archway' : choice);
 
 export const doorStyleChoiceLabel = (choice: DoorStyleChoice): string =>
-  choice === 'opening' ? 'Opening' : doorStyleLabel(choice);
+  choice === 'opening' ? 'Opening' : choice === 'stairs' ? 'Stairs' : doorStyleLabel(choice);
 
 export interface DoorHost {
   layer: DungeonLayer;
@@ -58,12 +59,20 @@ export function doorHost(s: MapBuilderStore, doorId: string): DoorHost | null {
   };
 }
 
+/** The entry a kit's swatch pictures: a pack kit's whole leaf, else a slice of its leaf from the first installed pack that ships it. */
+function kitArt(kit: DoorKit, packs: readonly { packId: string }[]): string | undefined {
+  if (kit.whole) return getCatalogEntry(kit.whole.leaf) ? kit.whole.leaf : undefined;
+  const key = doorKitKey(kit, 'tile-a');
+  const pack = packs.find((p) => getCatalogEntry(`${p.packId}:${key}`) !== undefined);
+  return pack ? `${pack.packId}:${key}` : undefined;
+}
+
 /** The door kits an installed pack ships the leaf art for. */
 export function installedDoorKits(s: Pick<MapBuilderStore, 'packs'> = state()): DoorKitId[] {
   const packs = s.packs.installedPacks;
-  return DOOR_KIT_IDS.filter((id) => {
+  return doorKitIds().filter((id) => {
     const kit = doorKitById(id);
-    return kit !== null && packs.some((p) => getCatalogEntry(`${p.packId}:${doorKitKey(kit, 'tile-a')}`) !== undefined);
+    return kit !== null && kitArt(kit, packs) !== undefined;
   });
 }
 
@@ -78,21 +87,33 @@ export function liveKit(o: DoorChild): DoorKitId | null {
 export const doorDeg = (rad: number) => ((Math.round((rad * 180) / Math.PI) % 180) + 180) % 180;
 
 /**
+ * Kit names as their tiles show them: the words every one of them starts with dropped, so the
+ * tiles tell the kits apart. A name that is nothing but those words, and a lone name, keep all of it.
+ */
+export function kitTileLabels(labels: readonly string[]): string[] {
+  if (labels.length < 2) return [...labels];
+  const words = labels.map((l) => l.split(/\s+/));
+  let shared = 0;
+  while (words.every((w) => w.length > shared + 1 && w[shared] === words[0][shared])) shared++;
+  return words.map((w, i) => (shared > 0 ? w.slice(shared).join(' ') : labels[i]));
+}
+
+/**
  * The kit swatches: Auto (the wall's kit, a plain tile), then each kit an installed pack
- * ships, pictured by a slice of its leaf. The slices are grey masters, so the kit's tint is
- * laid over the picture: without it stone and wood look the same.
+ * ships, pictured by a slice of its leaf (a pack's kit by its whole leaf). The slices are grey
+ * masters, so the kit's tint is laid over the picture: without it stone and wood look the same.
+ * Each kit's tile is named as `kitTileLabels` shortens it, its full name in the tip.
  */
 export function doorKitSwatches(s: Pick<MapBuilderStore, 'packs'>, wallSetId: string | undefined): Swatch[] {
   const kits = installedDoorKits(s);
-  return doorMaterialOptions(wallSetId)
-    .filter((o) => o.value === 'auto' || kits.includes(o.value as DoorKitId))
-    .map((o) => {
-      const kit = doorKitById(o.value);
-      if (!kit) return { value: o.value, label: o.label };
-      const key = doorKitKey(kit, 'tile-a');
-      const pack = s.packs.installedPacks.find((p) => getCatalogEntry(`${p.packId}:${key}`) !== undefined);
-      return { value: o.value, label: o.label, art: pack ? `${pack.packId}:${key}` : undefined, tint: kit.tint };
-    });
+  const options = doorMaterialOptions(wallSetId).filter((o) => o.value === 'auto' || kits.includes(o.value as DoorKitId));
+  const short = kitTileLabels(options.filter((o) => o.value !== 'auto').map((o) => o.label));
+  let k = 0;
+  return options.map((o) => {
+    const kit = doorKitById(o.value);
+    if (!kit) return { value: o.value, label: o.label };
+    return { value: o.value, label: short[k++], title: o.label, art: kitArt(kit, s.packs.installedPacks), tint: kit.tint };
+  });
 }
 
 /** The picked doors a kit can build (single and double), as the Kit column writes them. */

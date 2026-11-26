@@ -18,17 +18,19 @@
 // crisp piece with fades has its edge channel full, and is cut to its outline the way a
 // crisp fill is, so its edge stays as sharp.
 //
-// Without GL (a test, a lost context) the piece is painted by `paintSoftTiled` in even steps,
-// and its fades are not drawn.
+// The engine's other fades (rampMask.ts) are drawn here too, by `paintRamp`: the same mesh
+// over the same kind of mask, its ramp read as it is, with no luminance.
+//
+// Without GL (a test, a lost context) the texture is tiled as a floor is and masked by a sprite
+// of the same ramp, and a piece's fades are not drawn.
 
 import { BufferImageSource, Container, Graphics, Mesh, MeshGeometry, RenderTexture, Shader, Sprite, Texture } from 'pixi.js';
 import type { Polygon } from '../types/geometry';
 import type { PieceFade } from '../store/types';
 import type { RenderEngine } from './RenderEngine';
-import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { fillPolygonsWithHoles, paintTiled, type TiledLook } from './floorWallRenderer';
-import { paintSoftTiled, softEdgeLayers, type SoftLayer } from './softEdge';
-import { maskGridFor, movedBy, softMaskPixels } from './softMask';
+import { maskGridFor, movedBy, softMaskPixels, type MaskGrid } from './softMask';
+import type { Ramp, RampField } from './rampMask';
 
 /**
  * Mask texels per cell, at most. A distance ramp is smooth, so it filters up cleanly; at this
@@ -57,7 +59,8 @@ const VERTEX = `
 
 // The alpha is the terrain shader's: a ramp steepest at nothing, then `ragged`, which lets
 // the bright texels through first. Full inside for any texel, nothing at the outline. Then
-// times the fades' channel as it is: no luminance, no curve.
+// times the fades' channel as it is: no luminance, no curve. A plain ramp (`uPlain`) is the
+// edge channel as it is.
 const FRAGMENT = `
   in vec2 vWorld;
   out vec4 finalColor;
@@ -66,6 +69,7 @@ const FRAGMENT = `
   uniform vec4 uMaskRect;
   uniform vec4 uTile;
   uniform float uRot;
+  uniform float uPlain;
   uniform vec4 uColor;
   uniform vec4 uWorldColorAlpha;
 
@@ -87,7 +91,7 @@ const FRAGMENT = `
     float r = 1.0 - min(edge, 1.0);
     float ramp = 1.0 - r * r;
     float ragged = clamp((ramp - (1.0 - lum(col)) * 0.5) * 2.0, 0.0, 1.0);
-    float a = ragged * min(fade, 1.0);
+    float a = mix(ragged, min(edge, 1.0), uPlain) * min(fade, 1.0);
     finalColor = vec4(col * a, a) * uColor * uWorldColorAlpha;
   }
 `;
@@ -112,7 +116,7 @@ export function setSoftPieceEngine(next: RenderEngine | null, onRestored?: () =>
   }
 }
 
-/** Whether a piece's mask can be drawn now: false paints it in steps, with no fades. */
+/** Whether a piece's mask can be drawn now: false paints it through a sprite mask, with no fades. */
 export function softPieceReady(): boolean {
   return glReady();
 }
@@ -161,11 +165,6 @@ function tileOf(texture: Texture): RenderTexture {
   return rt;
 }
 
-/** The steps of a soft edge `soft` cells wide inside `outline`: the outline shrunk less and less, out to itself. */
-export function softPieceLayers(outline: Polygon[], soft: number): SoftLayer[] {
-  return softEdgeLayers((d) => (d >= soft ? outline : clipper2Engine.inflate(outline, d - soft)), soft);
-}
-
 /**
  * Works out a piece's mask (softMask.ts) and uploads it: its edge ramp in red (full throughout
  * with no `soft`), what its fades leave in green, filtered linearly and clamped at its sides.
@@ -173,17 +172,27 @@ export function softPieceLayers(outline: Polygon[], soft: number): SoftLayer[] {
 function buildMask(outline: Polygon[], soft: number, fades: readonly PieceFade[]): Pick<MaskEntry, 'texture' | 'rect'> | null {
   const grid = maskGridFor(outline, MASK_PAD, MASK_TEXELS_PER_CELL, MASK_MAX_DIM);
   if (!grid) return null;
+  return { texture: texelTexture(softMaskPixels(outline, soft, fades, grid), grid, false), rect: rectOf(grid) };
+}
+
+/** RGBA bytes on `grid` as a texture filtered linearly and clamped at its sides; `premultiplied` for a sprite's own colour. */
+function texelTexture(pixels: Uint8Array, grid: MaskGrid, premultiplied: boolean): Texture {
   const source = new BufferImageSource({
-    resource: softMaskPixels(outline, soft, fades, grid),
+    resource: pixels,
     width: grid.width,
     height: grid.height,
     format: 'rgba8unorm',
-    alphaMode: 'no-premultiply-alpha',
+    alphaMode: premultiplied ? 'premultiplied-alpha' : 'no-premultiply-alpha',
     scaleMode: 'linear',
     addressMode: 'clamp-to-edge',
     autoGenerateMipmaps: false,
   });
-  return { texture: new Texture({ source }), rect: { x: grid.x, y: grid.y, w: grid.width / grid.res, h: grid.height / grid.res } };
+  return new Texture({ source });
+}
+
+/** The box a grid covers, cells. */
+function rectOf(grid: MaskGrid): { x: number; y: number; w: number; h: number } {
+  return { x: grid.x, y: grid.y, w: grid.width / grid.res, h: grid.height / grid.res };
 }
 
 function maskFor(layerId: string, pieceId: string, shape: readonly unknown[], outline: Polygon[], soft: number, fades: readonly PieceFade[]): MaskEntry | null {
@@ -242,8 +251,8 @@ export interface SoftPieceKey {
 /**
  * Paints `texture` over `outline` (Clipper rings: outers one way, holes the other) with a
  * natural soft edge `soft` cells wide and `fades` (in the outline's space) faded out, laid as
- * `look` lays a floor's. True when the mesh drew it; false when it fell back to the stepped
- * fade, or a crisp fill with no soft edge, without the fades (no GL).
+ * `look` lays a floor's. True when the mesh drew it; false when it fell back to a fill masked
+ * by a sprite of its edge's ramp, or a crisp fill with no soft edge, without the fades (no GL).
  */
 export function paintSoftPiece(
   parent: Container,
@@ -255,7 +264,8 @@ export function paintSoftPiece(
   fades: readonly PieceFade[] = [],
 ): boolean {
   const fallback = () => {
-    if (soft > 0) paintSoftTiled(parent, softPieceLayers(outline, soft), texture, look);
+    const grid = soft > 0 ? maskGridFor(outline, MASK_PAD, MASK_TEXELS_PER_CELL, MASK_MAX_DIM) : null;
+    if (grid) maskedBySprite(parent, outline, texelTexture(softMaskPixels(outline, soft, [], grid), grid, false), grid, texture, look);
     else paintTiled(parent, outline, texture, { ...look, holes: true });
   };
   if (!glReady()) {
@@ -268,12 +278,29 @@ export function paintSoftPiece(
     mask = maskFor(key.layerId, key.pieceId, key.shape, outline, soft, fades);
     tile = tileOf(texture);
   } catch (err) {
-    console.warn('[softPiece] edge mask failed, painting in steps:', err);
+    console.warn('[softPiece] edge mask failed, masking by sprite:', err);
     fallback();
     return false;
   }
   if (!mask) return true;
-  const { x, y, w, h } = mask.rect;
+  const mesh = maskedMesh(mask.texture, mask.rect, tile, texture, look, false);
+  mesh.label = 'piece-soft';
+  if (soft > 0) {
+    parent.addChild(mesh);
+    return true;
+  }
+  // Crisp, with fades: cut to the outline as `paintTiled` cuts a crisp fill, not by the mask.
+  clipped(parent, outline, mesh);
+  return true;
+}
+
+/**
+ * A mesh over `rect` (cells) that tiles `texture` (its tile on a target of its own, `tile`) as
+ * `look` lays a floor's and shows it through `mask`: shaped by the texture's luminance, or with
+ * `plain`, by the mask's ramp as it is.
+ */
+function maskedMesh(mask: Texture, rect: { x: number; y: number; w: number; h: number }, tile: RenderTexture, texture: Texture, look: TiledLook, plain: boolean): Mesh<MeshGeometry, Shader> {
+  const { x, y, w, h } = rect;
   const geometry = new MeshGeometry({
     positions: new Float32Array([x, y, x + w, y, x + w, y + h, x, y + h]),
     uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
@@ -287,30 +314,162 @@ export function paintSoftPiece(
         uMaskRect: { value: new Float32Array([x, y, w, h]), type: 'vec4<f32>' },
         uTile: { value: new Float32Array([texture.width * scale, texture.height * scale, look.offsetX ?? 0, look.offsetY ?? 0]), type: 'vec4<f32>' },
         uRot: { value: look.rotation ?? 0, type: 'f32' },
+        uPlain: { value: plain ? 1 : 0, type: 'f32' },
       },
       uTexture: tile.source,
-      uMask: mask.texture.source,
+      uMask: mask.source,
     },
   });
   const mesh = new Mesh({ geometry, shader });
-  mesh.label = 'piece-soft';
   if (look.tint !== undefined) mesh.tint = look.tint;
   if (look.alpha !== undefined) mesh.alpha = look.alpha;
   mesh.once('destroyed', () => {
     geometry.destroy();
     shader.destroy();
   });
-  if (soft > 0) {
-    parent.addChild(mesh);
-    return true;
-  }
-  // Crisp, with fades: cut to the outline as `paintTiled` cuts a crisp fill, not by the mask.
+  return mesh;
+}
+
+/** `child` into `parent`, cut to `rings` (Clipper rings: holes cut out) by a crisp mask. */
+function clipped(parent: Container, rings: Polygon[], child: Container): void {
   const cut = new Graphics();
-  fillPolygonsWithHoles(cut, outline, { color: 0xffffff });
+  fillPolygonsWithHoles(cut, rings, { color: 0xffffff });
   const holder = new Container();
-  holder.addChild(mesh);
+  holder.addChild(child);
   holder.addChild(cut);
   holder.mask = cut;
   parent.addChild(holder);
-  return true;
+}
+
+/** `texture` tiled over `rings` as `look` lays a floor, shown through a sprite of `mask` (its ramp in red) laid over `grid`. */
+function maskedBySprite(parent: Container, rings: Polygon[], mask: Texture, grid: MaskGrid, texture: Texture, look: TiledLook): void {
+  const holder = new Container();
+  paintTiled(holder, rings, texture, { ...look, holes: true });
+  const sprite = new Sprite(mask);
+  sprite.position.set(grid.x, grid.y);
+  sprite.scale.set(1 / grid.res);
+  sprite.once('destroyed', () => mask.destroy(true));
+  holder.addChild(sprite);
+  holder.mask = sprite;
+  parent.addChild(holder);
+}
+
+/** A ramp's field as mask texels: its opacity in red (the edge channel, blue the same), green full (nothing faded), alpha full. */
+function rampPixels(field: RampField): Uint8Array {
+  const out = new Uint8Array(field.alpha.length * 4);
+  for (let k = 0; k < field.alpha.length; k++) {
+    const v = Math.round(255 * field.alpha[k]);
+    out[k * 4] = v;
+    out[k * 4 + 1] = 255;
+    out[k * 4 + 2] = v;
+    out[k * 4 + 3] = 255;
+  }
+  return out;
+}
+
+/** A ramp's field as a sprite's own texels: white, premultiplied by its opacity. */
+function colorPixels(field: RampField): Uint8Array {
+  const out = new Uint8Array(field.alpha.length * 4);
+  for (let k = 0; k < field.alpha.length; k++) out.fill(Math.round(255 * field.alpha[k]), k * 4, k * 4 + 4);
+  return out;
+}
+
+/** The box a grid covers, as a ring. */
+function boxRing(grid: MaskGrid): Polygon {
+  const { x, y, w, h } = rectOf(grid);
+  return [
+    [x, y],
+    [x + w, y],
+    [x + w, y + h],
+    [x, y + h],
+  ];
+}
+
+/** What a ramp is painted with: a texture laid as a floor's, or a plain colour at an opacity. */
+export type RampFill = { texture: Texture; look: TiledLook } | { color: number; alpha?: number };
+
+/**
+ * Paints `fill` through `ramp` (rampMask.ts) into `parent`: over its field's box at the field's
+ * opacity, cut to its clip. A texture is drawn through the piece mesh with the ramp read
+ * plainly (with no GL, tiled and masked by a sprite of the ramp); a colour as a sprite of the
+ * ramp, tinted. Never in steps.
+ */
+export function paintRamp(parent: Container, ramp: Ramp, fill: RampFill): void {
+  const { field, clip } = ramp;
+  const { grid } = field;
+  if ('texture' in fill) {
+    let tile: RenderTexture | null = null;
+    if (glReady()) {
+      try {
+        tile = tileOf(fill.texture);
+      } catch (err) {
+        console.warn('[softPiece] ramp tile failed, masking by sprite:', err);
+      }
+    }
+    if (!tile) {
+      maskedBySprite(parent, clip ?? [boxRing(grid)], texelTexture(rampPixels(field), grid, false), grid, fill.texture, fill.look);
+      return;
+    }
+    const mesh = maskedMesh(fieldTexture(field, 'mask'), rectOf(grid), tile, fill.texture, fill.look, true);
+    mesh.label = 'ramp';
+    heldBy(field, 'mask', mesh);
+    if (clip) clipped(parent, clip, mesh);
+    else parent.addChild(mesh);
+    return;
+  }
+  const sprite = new Sprite(fieldTexture(field, 'color'));
+  sprite.label = 'ramp';
+  sprite.position.set(grid.x, grid.y);
+  sprite.scale.set(1 / grid.res);
+  sprite.tint = fill.color;
+  sprite.alpha = fill.alpha ?? 1;
+  heldBy(field, 'color', sprite);
+  if (clip) clipped(parent, clip, sprite);
+  else parent.addChild(sprite);
+}
+
+
+/** A sprite of a ramp's field laid over its box, for a container to be masked by: it shows that much of what it masks. */
+export function rampMaskSprite(field: RampField): Sprite {
+  const sprite = new Sprite(fieldTexture(field, 'mask'));
+  sprite.label = 'ramp-mask';
+  sprite.position.set(field.grid.x, field.grid.y);
+  sprite.scale.set(1 / field.grid.res);
+  heldBy(field, 'mask', sprite);
+  return sprite;
+}
+
+/**
+ * Each ramp's textures, while something draws them: a rebuild draws a kept ramp (rampMask.ts's
+ * `keptRamp`) again, and it is uploaded once, not on every rebuild. A texture nothing draws any
+ * more is let go once the rebuild that dropped it is over.
+ */
+const fieldTextures = new WeakMap<RampField, Partial<Record<'mask' | 'color', { texture: Texture; users: number }>>>();
+
+/** A ramp's field as mask texels (`mask`) or as a sprite's own colour (`color`), kept with it. */
+function fieldTexture(field: RampField, kind: 'mask' | 'color'): Texture {
+  let byKind = fieldTextures.get(field);
+  if (!byKind) fieldTextures.set(field, (byKind = {}));
+  let held = byKind[kind];
+  if (!held || held.texture.destroyed) {
+    held = { texture: kind === 'mask' ? texelTexture(rampPixels(field), field.grid, false) : texelTexture(colorPixels(field), field.grid, true), users: 0 };
+    byKind[kind] = held;
+  }
+  return held.texture;
+}
+
+/** `user` draws `field`'s texture of `kind` until it is destroyed. */
+function heldBy(field: RampField, kind: 'mask' | 'color', user: Container): void {
+  const byKind = fieldTextures.get(field)!;
+  const held = byKind[kind]!;
+  held.users++;
+  user.once('destroyed', () => {
+    held.users--;
+    if (held.users > 0) return;
+    queueMicrotask(() => {
+      if (held.users > 0 || byKind[kind] !== held) return;
+      held.texture.destroy(true);
+      delete byKind[kind];
+    });
+  });
 }

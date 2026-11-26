@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import { useStore } from '@/store/store';
-import { TERRAIN_PANEL_ID, type Layer, type TerrainData } from '@/store/types';
+import { TERRAIN_PANEL_ID, type Layer, type Level, type TerrainData } from '@/store/types';
 import { layerContentBounds } from '@dnd/core/src/store/layerCommands';
+import { levelDungeons } from './roomModel';
+import { heightThumbKey, levelHeights, parseHeightThumbKey } from './heightModel';
 
 /**
  * Filmstrip thumbnails: which tile wants a picture, when to paint it, and where the
@@ -55,7 +57,23 @@ export const THUMB_PAD = 0.08;
  */
 export function thumbFrame(layer: Layer | undefined, map: WorldRect): WorldRect {
   const own = layer && layer.type === 'dungeon' ? layerContentBounds(layer) : null;
-  if (!own) return map;
+  return own ? padded(own) : map;
+}
+
+/** A height card's frame: its level's layers' content together (padded), else the whole map. */
+export function levelThumbFrame(layers: readonly Layer[], map: WorldRect): WorldRect {
+  let own: WorldRect | null = null;
+  for (const layer of layers) {
+    const b = layerContentBounds(layer);
+    if (!b) continue;
+    own = own
+      ? { minX: Math.min(own.minX, b.minX), minY: Math.min(own.minY, b.minY), maxX: Math.max(own.maxX, b.maxX), maxY: Math.max(own.maxY, b.maxY) }
+      : b;
+  }
+  return own ? padded(own) : map;
+}
+
+function padded(own: WorldRect): WorldRect {
   const w = Math.max(own.maxX - own.minX, 1);
   const h = Math.max(own.maxY - own.minY, 1);
   const cx = (own.minX + own.maxX) / 2;
@@ -71,6 +89,9 @@ export interface ThumbSnapshot {
   layers: Layer[];
   terrain: TerrainData | undefined;
   splatRev: number;
+  /** The levels and the one being edited, for the Heights cards; without them there are none. */
+  levels?: readonly Level[];
+  activeLevelId?: string;
 }
 
 type StoreState = ReturnType<typeof useStore.getState>;
@@ -81,21 +102,28 @@ export function snapshotOf(s: StoreState): ThumbSnapshot {
     layers: s.layers,
     terrain: s.mapSettings.terrain,
     splatRev: s.terrainSplats?.rev ?? 0,
+    levels: s.levels,
+    activeLevelId: s.ui.activeLevelId,
   };
 }
 
 /**
  * The tiles that show a picture. Dungeon layers always do (an empty layer is a blank tile);
  * the Background only with a texture (a flat colour keeps its swatch); Terrain only once
- * something is painted (otherwise it keeps its icon).
+ * something is painted (otherwise it keeps its icon); each Heights card of the level being
+ * edited.
  */
-export function thumbKeys(snap: Pick<ThumbSnapshot, 'layers' | 'terrain'>): string[] {
+export function thumbKeys(snap: Pick<ThumbSnapshot, 'layers' | 'terrain' | 'levels' | 'activeLevelId'>): string[] {
   const keys: string[] = [];
   for (const layer of snap.layers) {
     if (layer.type === 'dungeon') keys.push(layer.id);
     else if (layer.type === 'background' && layer.backgroundTexture) keys.push(layer.id);
   }
   if (snap.terrain?.bounds) keys.push(TERRAIN_THUMB);
+  const level = snap.activeLevelId;
+  if (level !== undefined) {
+    for (const h of levelHeights(levelDungeons(snap.layers, snap.levels ?? [], level))) keys.push(heightThumbKey(level, h));
+  }
   return keys;
 }
 
@@ -126,6 +154,13 @@ export function diffThumbs(prev: ThumbSnapshot | null, next: ThumbSnapshot): Thu
   const dirty = nextKeys.filter((key) => {
     if (!prevSet.has(key)) return true;
     if (key === TERRAIN_THUMB) return prev.terrain !== next.terrain || prev.splatRev !== next.splatRev;
+    const height = parseHeightThumbKey(key);
+    if (height) {
+      // A height card shows its whole level: any of the level's layers changed repaints it.
+      const before = levelDungeons(prev.layers, prev.levels ?? [], height.levelId);
+      const after = levelDungeons(next.layers, next.levels ?? [], height.levelId);
+      return before.length !== after.length || after.some((l, i) => l !== before[i]);
+    }
     return prevById.get(key) !== nextById.get(key);
   });
   return { opened, dirty, drop };
@@ -324,6 +359,8 @@ export function startLayerThumbs(paint: ThumbPainter, clock: ThumbClock = browse
     if (
       s.layers !== p.layers ||
       s.activeMapId !== p.activeMapId ||
+      s.levels !== p.levels ||
+      s.ui.activeLevelId !== p.ui.activeLevelId ||
       s.mapSettings.terrain !== p.mapSettings.terrain ||
       s.terrainSplats?.rev !== p.terrainSplats?.rev
     ) {

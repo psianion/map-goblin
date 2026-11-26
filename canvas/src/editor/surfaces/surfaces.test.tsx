@@ -40,7 +40,7 @@ describe('ToolPanel', () => {
     const panel = getByTestId('shell-tool-panel');
     const captions = [...panel.querySelectorAll<HTMLElement>('[data-section]')].map((el) => el.dataset.section);
     expect(captions).toEqual(['Mode', 'Placement', 'Edge', 'Defaults for new floors']);
-    expect(shown(panel)).toEqual(ids('panel'));
+    expect(shown(panel)).toEqual(ids('panel').filter((id) => id !== 'floor.rockOnCut'));
   });
 
   it('renders none of the dock settings', () => {
@@ -168,6 +168,55 @@ describe('Card', () => {
     const verbs = [...card.querySelectorAll('[data-composite="action-row"] button')];
     expect(verbs).toHaveLength(8);
     expect(verbs.at(-1)?.getAttribute('aria-label')).toBe('Delete');
+  });
+});
+
+describe('picked stairs', () => {
+  it('show the Stairs card with Kit, Width and Delete under Select and under the Door tool; a picked door keeps the Door panel', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const plateau = {
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+      stairs: [{ id: 's1', ring: 0, from: 1, to: 2 }],
+    } as unknown as AnyChild;
+    act(() => state.addChild(layer.id, plateau));
+    const { getByTestId, queryByTestId } = withRegistry(<Slot />);
+    for (const tool of ['select', 'door'] as const) {
+      act(() => {
+        useStore.getState().setActiveTool(tool);
+        useStore.getState().setSelectedIds(['stairs:p1:s1']);
+      });
+      const card = getByTestId('shell-card');
+      expect(card.dataset.kind).toBe('stairs');
+      expect(shown(card)).toEqual(['card.stairs.kit', 'card.stairs.width']);
+      expect([...card.querySelectorAll('[data-composite="action-row"] button')].map((b) => b.getAttribute('aria-label'))).toEqual(['Delete']);
+    }
+    act(() => useStore.getState().setSelectedIds(['p1']));
+    expect(queryByTestId('shell-card')).toBeNull();
+    expect(getByTestId('shell-tool-panel').dataset.tool).toBe('door');
+  });
+});
+
+describe('a picked cave mouth', () => {
+  it('shows the Cave mouth card with Kit, Width and Delete under Select and under the Door tool', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const plateau = {
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+      entrances: [{ id: 'm1', ring: 0, from: 1, to: 3 }],
+    } as unknown as AnyChild;
+    act(() => state.addChild(layer.id, plateau));
+    const { getByTestId } = withRegistry(<Slot />);
+    for (const tool of ['select', 'door'] as const) {
+      act(() => {
+        useStore.getState().setActiveTool(tool);
+        useStore.getState().setSelectedIds(['entrance:p1:m1']);
+      });
+      const card = getByTestId('shell-card');
+      expect(card.dataset.kind).toBe('entrance');
+      expect(shown(card)).toEqual(['card.entrance.kit', 'card.entrance.width']);
+      expect([...card.querySelectorAll('[data-composite="action-row"] button')].map((b) => b.getAttribute('aria-label'))).toEqual(['Delete']);
+    }
   });
 });
 

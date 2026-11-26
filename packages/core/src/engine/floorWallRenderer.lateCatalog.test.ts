@@ -1,6 +1,6 @@
 // A floor baked while the catalogue lists some packs but not yet the one its texture comes
 // from paints flat, its texture judged retired. Once that pack is read, the floors must bake
-// again, or the flat fill stays for good.
+// again, or the flat fill stays for good: once, when the packs being read have settled.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import { useStore } from '../store/store';
@@ -28,7 +28,7 @@ beforeEach(() => {
 afterEach(() => resetAssetPackManager());
 
 describe('a floor baked before its pack is read', () => {
-  it('bakes again once the pack lands in the catalogue', () => {
+  it('bakes again once the pack lands in the catalogue', async () => {
     seedPack('pack-a', { stone_8x8_floor_A: floorEntry('stone') } as never);
     const fill = shapeFloorFill(piece, dungeon().style);
     // Pack B is not read yet: the texture reads as retired and the piece paints flat.
@@ -36,6 +36,8 @@ describe('a floor baked before its pack is read', () => {
     const before = epoch();
     seedPack('pack-b', { wild_grass_8x8_floor_A: floorEntry('wild_grass') } as never);
     const armed = fill.kind === 'solid' && fill.waitFor !== undefined;
+    // A frame after the last pack is read (lateArt.ts).
+    await new Promise((r) => setTimeout(r, 100));
     expect(armed || epoch() > before).toBe(true);
   });
 });

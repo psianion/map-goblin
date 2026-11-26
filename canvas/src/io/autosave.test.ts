@@ -55,6 +55,13 @@ describe('isDocumentChange', () => {
     expect(isDocumentChange(next, prev)).toBe(false);
   });
 
+  it('is false when only the rock lines were laid again', () => {
+    const prev = base();
+    const rockLines = [{ edge: [[0, 0], [2, 0], [2, 2]], closed: true, runs: [[[0, 0.1], [2, 0.1]]] }];
+    const next = { ...prev, layers: [{ ...prev.layers[0], rockLines }] };
+    expect(isDocumentChange(next, prev)).toBe(false);
+  });
+
   it('counts a room edit as a prompt change: rooms are authored now', () => {
     const prev = base();
     const renamed = { ...prev.layers[0].rooms[0], name: 'Great Hall' };

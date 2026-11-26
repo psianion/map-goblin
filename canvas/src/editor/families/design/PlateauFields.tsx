@@ -7,7 +7,7 @@
 import { useStore } from '@/store/store';
 import { selectLayerForChild } from '@/store/selectors';
 import { defaultCrossingId, edgeOf, shapeDrop } from '@dnd/core/src/shared/plateaus';
-import { borderTextureChoices, cliffArt, cliffArtChoices, defaultBorderTexture, PAINTED_BORDER } from '@dnd/core/src/engine/plateauKit';
+import { borderTextureChoices, canonicalEdgeArt, cliffArt, cliffArtChoices, defaultBorderTexture, PAINTED_BORDER } from '@dnd/core/src/engine/plateauKit';
 import { faceTiles, materialLabel } from '@dnd/core/src/assets/materialKit';
 import { SelectRow, SettingRow, Stepper } from '@dnd/ui';
 import type { SettingProps } from '@/editor/registry/types';
@@ -45,7 +45,8 @@ export function CliffArtField({ def, value, onChange }: SettingProps<string>) {
     // A painted border is pictured by the texture it takes until one is picked.
     art: c.value === PAINTED_BORDER ? defaultBorderTexture() : cliffArt(c.value).values().next().value?.id,
   }));
-  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={value} onPick={onChange} compact={def.home === 'dock'} />;
+  // A set a pack has since renamed shows as the set it became.
+  return <SwatchPicker label={swatchLabel(def)} name={def.label} swatches={swatches} value={canonicalEdgeArt(value) ?? value} onPick={onChange} compact={def.home === 'dock'} />;
 }
 
 /** The outdoor floors the Material brush lists, read live; a floor stored that is no longer offered still shows as what it is. */

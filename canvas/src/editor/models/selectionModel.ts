@@ -4,10 +4,10 @@ import { clampDoorWidth, doorStyleLabel, minDoorWidth, PLACEABLE_DOOR_STYLES } f
 import { connectorKindForStyle, connectorStyle } from '@dnd/core/src/shared/authoredRooms';
 import {
   DEFAULT_OPEN_ANGLE,
-  DOOR_KIT_IDS,
   MAX_OPEN_ANGLE,
   doorKitById,
   doorKitFor,
+  doorKitIds,
   doorKitOf,
   doorShowsHinges,
   isKitStyle,
@@ -261,7 +261,10 @@ export interface DoorModel {
 /** A door's kit pick as the card holds it: 'auto' follows the wall's set. */
 export type DoorMaterial = 'auto' | DoorKitId;
 
-const KIT_LABEL: Record<DoorKitId, string> = { stone: 'Stone', wood: 'Wood', cave: 'Cave' };
+const KIT_LABEL: Record<string, string> = { stone: 'Stone', wood: 'Wood', cave: 'Cave' };
+
+/** A kit's name on the card: the built-in kits' own, a pack's as it declares it. */
+const kitLabel = (id: string): string => KIT_LABEL[id] ?? doorKitById(id)?.label ?? id;
 
 /**
  * The Material choices. Auto names what it comes to on this wall, so picking the kit the
@@ -270,8 +273,8 @@ const KIT_LABEL: Record<DoorKitId, string> = { stone: 'Stone', wood: 'Wood', cav
 export function doorMaterialOptions(wallSetId: string | undefined): { value: DoorMaterial; label: string }[] {
   const wallKit = doorKitFor(wallSetId);
   return [
-    { value: 'auto', label: `Auto (${wallKit ? KIT_LABEL[wallKit.id] : 'plain'})` },
-    ...DOOR_KIT_IDS.map((id) => ({ value: id, label: KIT_LABEL[id] })),
+    { value: 'auto', label: `Auto (${wallKit ? kitLabel(wallKit.id) : 'plain'})` },
+    ...doorKitIds().map((id) => ({ value: id, label: kitLabel(id) })),
   ];
 }
 
@@ -352,7 +355,7 @@ export function doorModel(door: DoorLike, room: number, wallSetId?: string): Doo
   // A wall door can also be a portal (it draws from pack art); the menu offers it too.
   const base: DoorStyle[] = door.childType === 'door' ? [...PLACEABLE_DOOR_STYLES, 'portal'] : [...PLACEABLE_DOOR_STYLES];
   if (!base.includes(style)) base.push(style);
-  const min = minDoorWidth(style);
+  const min = minDoorWidth(style, door.childType === 'door' && door.bare);
   return {
     style,
     state: door.state,
@@ -386,17 +389,19 @@ export function doorWidthValue(v: number, span: { min: number; max: number }): n
  * On a wall door the width follows both ways: up so a double has room for two leaves,
  * back down so a width only the old style needed cannot overhang the opening. On a joint
  * the style is the authored truth and `kind` follows it, and so does the state: an arch
- * is open, and a door that was an arch a moment ago reads shut. `room` is as `doorModel`'s.
+ * is open, and a door that was an arch a moment ago reads shut. `room` is as `doorModel`'s;
+ * `bare` is whether the new style is the Opening.
  */
 export function doorStyleChange(
   door: DoorLike,
   next: DoorStyle,
   room: number,
+  bare = false,
 ): { before: Partial<DoorLike>; after: Partial<DoorLike> } {
   if (door.childType === 'door') {
     return {
       before: { style: door.style, width: door.width },
-      after: { style: next, width: clampDoorWidth(door.width, next, room) },
+      after: { style: next, width: clampDoorWidth(door.width, next, room, bare) },
     };
   }
   const style = connectorStyle(door);

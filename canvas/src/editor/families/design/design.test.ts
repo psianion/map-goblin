@@ -10,7 +10,7 @@ import { SHARED_SETTINGS } from '@/editor/registry/shared';
 import { validateRegistry } from '@/editor/registry/validate';
 import { createSettings } from '@/editor/registry/settings';
 import { design, DESIGN_CARDS } from './index';
-import { doorKitSwatches, installedDoorKits, pickDoorKit } from './doorModel';
+import { doorKitSwatches, installedDoorKits, kitTileLabels, pickDoorKit } from './doorModel';
 import { directionAt, directionWords, snapDirection } from './plateauModel';
 
 vi.mock('@dnd/core/src/assets/packCatalog', async (importOriginal) => {
@@ -159,7 +159,7 @@ describe('the Design family', () => {
   it('splits Floor into dock and panel as plan 6.1 has it', () => {
     const ids = (home: 'dock' | 'panel') => reg.settingsByHome('floor', home).map((s) => s.id);
     expect(ids('dock')).toEqual(['floor.shape', 'floor.sides', 'floor.walls', 'edit.curve', 'edit.nodeMode', 'floor.height']);
-    expect(ids('panel')).toEqual(['floor.mode', 'grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
+    expect(ids('panel')).toEqual(['floor.mode', 'floor.rockOnCut', 'grid.snap', 'grid.snapStep', 'floor.edgeBand', 'floor.blend', 'floor.opacity']);
   });
 
   it('gives new floors the dock’s Height, in half steps, 0 stored as nothing', () => {
@@ -425,6 +425,73 @@ describe('tool settings', () => {
     expect(settings.getSetting('door.style')).toBe('single');
   });
 
+  it('door Style offers Stairs, which keeps the door style for later and any door style clears', () => {
+    settings.setSetting('door.style', 'double');
+    settings.setSetting('door.style', 'stairs');
+    expect(st().tools.settings).toMatchObject({ doorStyle: 'double', doorStairs: true });
+    expect(settings.getSetting('door.style')).toBe('stairs');
+    settings.setSetting('door.style', 'opening');
+    expect(st().tools.settings).toMatchObject({ doorStyle: 'archway', doorBare: true, doorStairs: false });
+  });
+
+  it('the stairs card resizes and deletes the picked stairs, each one undo step', () => {
+    useStore.setState((s) => {
+      (s.layers.find((l) => l.type === 'dungeon') as DungeonLayer).children.push({
+        id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+        stairs: [{ id: 's1', ring: 0, from: 1, to: 2 }],
+      } as PlateauChild);
+    });
+    const plateau = () => st().layers.flatMap((l) => (l.type === 'dungeon' ? (l as DungeonLayer).children : [])).find((c) => c.id === 'p1') as PlateauChild;
+    expect(read('stairs', 'card.stairs.width', plateau().stairs![0])).toBe(1);
+    write('stairs', 'card.stairs.width', ['stairs:p1:s1'], 3);
+    expect(plateau().stairs).toEqual([{ id: 's1', ring: 0, from: 1, to: 4 }]);
+    undoManager.undo();
+    expect(plateau().stairs).toEqual([{ id: 's1', ring: 0, from: 1, to: 2 }]);
+    st().setSelectedIds(['stairs:p1:s1']);
+    DESIGN_CARDS.find((c) => c.kind === 'stairs')!.verbs[0].run(useStore);
+    expect(plateau().stairs).toBeUndefined();
+    expect(st().selection.selectedIds).toEqual([]);
+  });
+
+  it('the dock Width reads and resizes picked stairs in whole cells, one undo step, and the next door’s width otherwise', () => {
+    useStore.setState((s) => {
+      (s.layers.find((l) => l.type === 'dungeon') as DungeonLayer).children.push({
+        id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+        stairs: [{ id: 's1', ring: 0, from: 1, to: 2 }],
+      } as PlateauChild);
+    });
+    const plateau = () => st().layers.flatMap((l) => (l.type === 'dungeon' ? (l as DungeonLayer).children : [])).find((c) => c.id === 'p1') as PlateauChild;
+    settings.setSetting('door.width', 1);
+    st().setSelectedIds(['stairs:p1:s1']);
+    expect(settings.getSetting('door.width')).toBe(1);
+    settings.setSetting('door.width', 2);
+    expect(plateau().stairs).toEqual([{ id: 's1', ring: 0, from: 1, to: 3 }]);
+    expect(settings.getSetting('door.width')).toBe(2);
+    expect(st().tools.settings.doorWidth).toBe(1);
+    undoManager.undo();
+    expect(plateau().stairs).toEqual([{ id: 's1', ring: 0, from: 1, to: 2 }]);
+    st().setSelectedIds([]);
+    settings.setSetting('door.width', 3);
+    expect(st().tools.settings.doorWidth).toBe(3);
+  });
+
+  it('door Width steps by whole cells for every style, an Opening from 1 to 2', () => {
+    expect(reg.settingById('door.width')!.range?.step).toBe(1);
+    settings.setSetting('door.style', 'opening');
+    settings.setSetting('door.width', 1);
+    const { step } = reg.settingById('door.width')!.range!;
+    settings.setSetting('door.width', st().tools.settings.doorWidth + step);
+    expect(st().tools.settings.doorWidth).toBe(2);
+  });
+
+  it('door Width lets an Opening down to one cell, and Archway takes it back to two', () => {
+    settings.setSetting('door.style', 'opening');
+    settings.setSetting('door.width', 1);
+    expect(st().tools.settings.doorWidth).toBe(1);
+    settings.setSetting('door.style', 'archway');
+    expect(st().tools.settings.doorWidth).toBe(2);
+  });
+
   it('Elevation height is never flat, and edge lands beside it', () => {
     expect(settings.setSetting('elevation.height', 0)).toBe(false);
     settings.setSetting('elevation.height', -2);
@@ -443,6 +510,67 @@ describe('Carve out', () => {
     expect(hint()).toBe('Carve out · drag a rectangle · Alt carves while in Draw');
     settings.setSetting('floor.mode', 'draw');
     expect(st().tools.floorMode).toBe('draw');
+  });
+
+  it('says what a carve does to the rock on a layer with a cave-edged room, as the brush does', () => {
+    const room: ShapeChild = {
+      id: 'cave-room',
+      name: 'Cave room',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[0, 0], [10, 0], [10, 8], [0, 8]]],
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+      styleOverrides: { wallTextureSetId: 'GG_Cave_Ink' },
+    };
+    seed([room], []);
+    settings.setSetting('floor.mode', 'carve');
+    expect(hint()).toBe('Erase across the rock to open the cave · drag a rectangle · Alt carves while in Draw');
+    useStore.setState((s) => {
+      s.tools.settings.material.rockOnCut = true;
+    });
+    expect(hint()).toBe('Carve the floor · drag a rectangle · Alt carves while in Draw');
+    useStore.setState((s) => {
+      s.tools.settings.material.rockOnCut = undefined;
+      (s.layers[0] as DungeonLayer).children = [];
+    });
+    expect(hint()).toBe('Carve out · drag a rectangle · Alt carves while in Draw');
+    settings.setSetting('floor.mode', 'draw');
+  });
+
+  it('shows the brush’s Rock on cut edge only in Carve out on a layer with a cave, one value with the brush’s', () => {
+    const def = reg.settingById('floor.rockOnCut')!;
+    const shown = () => def.visibleWhen!((k) => settings.getSetting(k));
+    expect(def).toMatchObject({ label: 'Rock on cut edge', control: 'switch', section: 'Mode', default: false, persist: false });
+    const cave: ShapeChild = {
+      id: 'cave',
+      name: 'Cave 1',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'polygon',
+      contours: [[[0, 0], [6, 0], [6, 6], [0, 6]]],
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+      edgeMaterial: 'GG_Cave_Ink',
+    };
+    seed([cave], []);
+    expect(shown()).toBe(false);
+    settings.setSetting('floor.mode', 'carve');
+    expect(shown()).toBe(true);
+    expect(settings.setSetting('floor.rockOnCut', true)).toBe(true);
+    expect(st().tools.settings.material.rockOnCut).toBe(true);
+    settings.setSetting('floor.rockOnCut', false);
+    expect(st().tools.settings.material.rockOnCut).toBeUndefined();
+    seed([], []);
+    expect(shown()).toBe(false);
+    settings.setSetting('floor.mode', 'draw');
   });
 
   it('never flips the erase switch the brushes share', () => {
@@ -590,6 +718,45 @@ describe('the floor card', () => {
     write('shape', 'card.floor.edgeBand', ['b'], '__paint__');
     expect(child<ShapeChild>('b').edgePaint).toBe('p:dirt');
     expect(child<ShapeChild>('b')).not.toHaveProperty('edgeBand', null);
+  });
+
+  it("shows a brush cave one rock choice, its own, and changes it in one undo step", () => {
+    seed([shape('c', { edgeMaterial: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: '' } })], ['c']);
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).style.wallTextureSetId = 'stone';
+    });
+    const c = () => child<ShapeChild>('c');
+    const shown = (id: string) => { const f = field('shape', id); return !f.visibleWhen || f.visibleWhen(c()); };
+    // The rock it has, picked; no Walls or Edge band beside it to disagree.
+    expect(shown('card.floor.rock')).toBe(true);
+    expect(shown('card.floor.walls')).toBe(false);
+    expect(shown('card.floor.edgeBand')).toBe(false);
+    expect(read('shape', 'card.floor.rock', c())).toBe('GG_Cave_Ink');
+    write('shape', 'card.floor.rock', ['c'], 'GG_Cave_Moss');
+    expect(c().edgeMaterial).toBe('GG_Cave_Moss');
+    expect(c().styleOverrides?.wallTextureSetId).toBe('');
+    expect(c().ground).toBeUndefined();
+    expect(read('shape', 'card.floor.rock', c())).toBe('GG_Cave_Moss');
+    expect(undoManager.size()).toBe(1);
+    undoManager.undo();
+    expect(c().edgeMaterial).toBe('GG_Cave_Ink');
+    // Wall width keeps writing the cave's own pin.
+    write('shape', 'card.floor.wallWidth', ['c'], 0.75);
+    expect(c().styleOverrides?.wallWidth).toBe(0.75);
+  });
+
+  it("a brush ground piece's rock rim is changed by its rock choice, not by an Edge band it never reads", () => {
+    seed([shape('g', { ground: true, edgeMaterial: 'GG_Cave_Ink' }), shape('plain')], ['g']);
+    const g = () => child<ShapeChild>('g');
+    const shown = (id: string, o: ShapeChild) => { const f = field('shape', id); return !f.visibleWhen || f.visibleWhen(o); };
+    expect(shown('card.floor.rock', g())).toBe(true);
+    expect(shown('card.floor.edgeBand', g())).toBe(false);
+    write('shape', 'card.floor.rock', ['g'], 'GG_Cave_Moss');
+    expect(g().edgeMaterial).toBe('GG_Cave_Moss');
+    expect(g().ground).toBe(true);
+    // A floor with no rock of its own has no rock choice.
+    expect(shown('card.floor.rock', child<ShapeChild>('plain'))).toBe(false);
+    expect(shown('card.floor.edgeBand', child<ShapeChild>('plain'))).toBe(true);
   });
 
   it('sets a floor’s Height in half steps, undoably, 0 stored as nothing', () => {
@@ -764,6 +931,22 @@ describe('the door card', () => {
     expect(d1().kit).toBeUndefined();
     pickDoorKit('auto');
     expect(st().tools.settings.doorKit).toBeUndefined();
+    useStore.setState((s) => {
+      s.packs.installedPacks = [];
+    });
+  });
+
+  it('names each kit tile without the start every kit shares, the full name in its tip', () => {
+    expect(kitTileLabels(['FA Earthy stone', 'FA Slate stone', 'FA Light wood'])).toEqual(['Earthy stone', 'Slate stone', 'Light wood']);
+    expect(kitTileLabels(['Earthy stone', 'Sandstone stone', 'Gray metal'])).toEqual(['Earthy stone', 'Sandstone stone', 'Gray metal']);
+    // A name that is all shared start keeps itself; one kit alone is named in full.
+    expect(kitTileLabels(['Stone', 'Stone cave'])).toEqual(['Stone', 'Stone cave']);
+    expect(kitTileLabels(['FA Earthy stone'])).toEqual(['FA Earthy stone']);
+    useStore.setState((s) => {
+      s.packs.installedPacks = [{ packId: 'p', name: 'P', version: '1', sizeBytes: 0, bundled: true, installedAt: 0 }];
+    });
+    const [, stone] = doorKitSwatches(st(), undefined);
+    expect(stone).toMatchObject({ value: 'stone', label: 'Stone', title: 'Stone' });
     useStore.setState((s) => {
       s.packs.installedPacks = [];
     });

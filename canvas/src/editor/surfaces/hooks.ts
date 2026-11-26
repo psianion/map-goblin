@@ -5,7 +5,7 @@ import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { useStore } from '@/store/store';
-import { resolveSelection } from '@dnd/core/src/store/selectionResolve';
+import { entrancePick, resolveSelection, stairsPick } from '@dnd/core/src/store/selectionResolve';
 import { soleRoomTarget } from '@/editor/models/selectionModel';
 import { bindingOf, type CardDef, type EditorState, type FamilyDef, type ObjectKind, type Registry, type SettingDef, type ToolDef } from '@/editor/registry';
 import { useRegistry } from '@/editor/shell/registryContext';
@@ -106,8 +106,13 @@ function cardTarget(registry: Registry, state: EditorState): { kind: ObjectKind;
   if (ids.length === 0) return null;
   const sel = resolveSelection(state, ids);
   const kinds = Object.keys(sel.kinds) as ObjectKind[];
-  // An area (the rooms list's group header) or a level (Level settings) is picked by its id.
+  // An area (the rooms list's group header) or a level (Level settings) is picked by its id; a
+  // flight of stairs or a cave mouth by its own (`stairsSelectionId`, `entranceSelectionId`).
   if (kinds.length === 0) {
+    const stairs = ids.length === 1 ? stairsPick(state, ids[0]) : null;
+    if (stairs && registry.cardForKind('stairs')) return { kind: 'stairs', layer: stairs.layer.name || 'Unnamed layer' };
+    const mouth = ids.length === 1 ? entrancePick(state, ids[0]) : null;
+    if (mouth && registry.cardForKind('entrance')) return { kind: 'entrance', layer: mouth.layer.name || 'Unnamed layer' };
     const scope = soleRoomTarget(state, ids);
     if (scope && scope.kind !== 'room' && registry.cardForKind(scope.kind)) {
       return { kind: scope.kind, layer: scope.kind === 'area' ? scope.layer.name || 'Unnamed layer' : '' };
@@ -135,7 +140,7 @@ export function useCardTarget(): CardTarget | null {
     if (!key) return null;
     const sel = resolveSelection(s, s.selection.selectedIds);
     const scope = soleRoomTarget(s, s.selection.selectedIds);
-    const own = scope?.kind === 'area' ? scope.area : scope?.kind === 'level' ? scope.level : null;
+    const own = scope?.kind === 'area' ? scope.area : scope?.kind === 'level' ? scope.level : (stairsPick(s, s.selection.selectedIds[0] ?? '')?.span ?? entrancePick(s, s.selection.selectedIds[0] ?? '')?.span ?? null);
     return sel.children[0]?.child ?? sel.walls[0]?.wall ?? sel.rooms[0]?.room ?? own;
   });
   if (!key || !object) return null;

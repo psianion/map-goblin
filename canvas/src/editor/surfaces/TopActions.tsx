@@ -49,6 +49,7 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
   const lightIcons = useLightIcons();
   const [theme, toggleTheme] = useTheme();
   const openSheet = useShell((s) => s.openSheet);
+  const walkView = useShell((s) => s.walkView);
   return (
     <FloatBox
       className="absolute top-3 right-3 flex h-11 items-center gap-1 px-2 py-0"
@@ -110,6 +111,9 @@ export function TopActions({ actions, onOpenSettings }: { actions: EditorChromeA
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={outlines} onCheckedChange={(v) => useStore.getState().setRoomOverlayVisible(v)}>
               Room outlines
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={walkView} onCheckedChange={(v) => useShell.getState().setWalkView(v)}>
+              Walkable cells
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={lightIcons} onCheckedChange={(v) => setLightIcons(v)} data-testid="view-light-icons">
               Light icons

@@ -238,6 +238,24 @@ export interface DungeonLayer extends BaseLayer {
    * beside one carries no rock and is no wall (caveFloor.ts). Absent = closed all round.
    */
   caveOpenings?: Polygon[];
+  /**
+   * Where a pack-measured kit's rock was laid: one entry per floor ring or painted cave ring the
+   * editor laid it round, and one per plateau cliff run laid with a measured kit of its own,
+   * written after each rebuild. Light, sight and movement block along a wall's line instead of
+   * along the drawn edge it was laid for (raycaster.ts). Absent = none.
+   */
+  rockLines?: RockLine[];
+}
+
+/** One ring's laid rock (`DungeonLayer.rockLines`). Coordinates in cells, to 2 decimals. */
+export interface RockLine {
+  /** `cliff`: a plateau cliff run's own rock, which never carries a wall. Absent: a wall's line. */
+  kind?: 'cliff';
+  /** The drawn outline the rock was laid for, as the walk was given it. */
+  edge: [number, number][];
+  closed: boolean;
+  /** The rock's centre line, one open polyline per laid run; a ring laid whole is one run that ends where it starts. */
+  runs: [number, number][][];
 }
 
 export interface BackgroundLayer extends BaseLayer {
@@ -496,6 +514,12 @@ export interface ToolSettings {
   doorBare?: boolean;
   /** The kit new single and double doors are built from (`DoorChild.kit`). Absent = their wall's. */
   doorKit?: DoorChild['kit'];
+  /** The Style choice "Stairs": a click on a plateau's or pit's edge lays a flight of stairs there. Absent = off. */
+  doorStairs?: boolean;
+  /** The kit new stairs are laid with (`StairSpan.kit`). Absent = the packs' default. */
+  stairKit?: string;
+  /** The entrance piece new cave mouths are laid with, by its place among its kit's of that width. Absent = the first. */
+  entranceVariant?: number;
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
   material: MaterialToolSettings;
@@ -574,6 +598,12 @@ export interface SelectionSlice {
    * "4 here, right-click to pick" past one. Absent or 0 when nothing is counted.
    */
   hoverCount?: number;
+  /**
+   * The rock (a cliff's art, or a wall's set) of the edge the Door tool's Opening last hovered, when
+   * an Opening there lays a cave-mouth piece: the dock's Kit tiles and Width follow it. Absent once
+   * the pointer is on an edge that lays none.
+   */
+  hoverMouthKit?: string;
   clipboard: ChildClipboard | null;
   selectedRegion: [number, number][][] | null;
 }
@@ -1014,6 +1044,7 @@ export interface MapBuilderStore {
   setSelectedIds: (ids: string[]) => void;
   setHoveredId: (id: string | null) => void;
   setHoverCount: (n: number) => void;
+  setHoverMouthKit: (kit: string | undefined) => void;
   setSelectedRegion: (region: [number, number][][] | null) => void;
   setClipboard: (clipboard: ChildClipboard | null) => void;
 

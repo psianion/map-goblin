@@ -18,6 +18,7 @@ import {
   leafPoses,
   leafSlices,
   wallRockDepth,
+  wholeDoorFrame,
   type CavePortPiece,
   type DoorJamb,
   type DoorKit,
@@ -73,12 +74,9 @@ export function renderResolvedDoor(
 ): void {
   const { door, position, angle: wallAngle } = resolved;
   if (!door.visible) return;
-  // A plain opening is the gap it cuts and nothing else (the editor's door marks show it),
-  // but for a cave's jambs, which close its rock either side.
-  if (door.bare && !resolved.detached) {
-    renderCaveDoorway(container, resolved, style, ringStyles, edgeStyles);
-    return;
-  }
+  // A plain opening is the gap it cuts and nothing else (the editor's door marks show it): in
+  // cave rock the rock's own ends close it, as at a carved mouth.
+  if (door.bare && !resolved.detached) return;
 
   // Fresh Graphics per door to avoid PixiJS v8 path accumulation
   const g = new Graphics();
@@ -338,6 +336,22 @@ const SLICE_SEAM = 0.003;
 const LEAF_SHADOW_ALPHA = 0.32;
 const LEAF_SHADOW_OFFSET: [number, number] = [0.05, 0.06];
 const LEAF_PIECES: LeafPiece[] = ['hinge', 'tile-a', 'tile-b', 'latch'];
+/**
+ * A whole-leaf door's leaf and posts each lie on a dark rim of their own shape, this much past
+ * their every side, cells: at normal zoom (about 15 px a cell) the painted leaf, a quarter of a
+ * cell thick, and its posts read as a door against the floor and the rock. Their paint keeps its
+ * painted size; an offset drop shadow lay under a pixel away and did not show.
+ */
+const WHOLE_DOOR_RIM = 0.07;
+const WHOLE_DOOR_RIM_ALPHA = 0.6;
+/** How far across its one-cell tile a whole-leaf frame's post is painted, cells: what its rim grows from. */
+const POST_PAINT = 0.35;
+
+/** A sprite turned into the dark rim drawn under the art it copies. */
+function rimmed(sprite: Sprite): void {
+  sprite.tint = 0x000000;
+  sprite.alpha = WHOLE_DOOR_RIM_ALPHA;
+}
 
 /**
  * A single or double door built from its wall kit (assets/doorKits.ts): jambs
@@ -361,6 +375,8 @@ function renderKitDoor(
   const wallKit = doorKitFor(look.setId);
   const kit = doorKitOf(door, look.setId);
   if (!kit) return false;
+  // A pack's painted leaf is drawn whole, in its own frame.
+  if (kit.whole) return renderWholeDoor(container, resolved, kit, kit.whole, look.width, wallKit);
   // A kit closes the opening with its own set's end caps, whatever the wall is.
   const setId = kit === wallKit && look.setId ? look.setId : kitWallSet(kit);
 
@@ -399,6 +415,77 @@ function renderKitDoor(
 
 function hexColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
+}
+
+/** A pack entry's texture by its full id; null, and the art marked missed, until it has decoded. */
+function entryTexture(entryId: string): Texture | null {
+  const tex = getAssetPackManager().getTextureOrNull(entryId);
+  if (tex && tex.width > 1) return tex;
+  if (getCatalogEntry(entryId)) doorArtMissed = true;
+  return null;
+}
+
+/**
+ * A pack's whole-leaf door (`DoorKit.whole`): its frame's two posts first, each cut from the
+ * frame's tile with its inner face on an edge of the opening and the rest of it in the wall or
+ * rock beside, so the frame meets the rock's face; then each leaf, the whole painted tile along
+ * the leaf's length (hinge at the hinge end), on its drop shadow. False when the leaf's art is
+ * not in, so the caller falls back as it does for a kit whose slices are not installed.
+ */
+function renderWholeDoor(
+  container: Container,
+  resolved: ResolvedDoor,
+  kit: DoorKit,
+  art: NonNullable<DoorKit['whole']>,
+  wallWidth: number,
+  wallKit: DoorKit | null,
+): boolean {
+  const { door, position, angle } = resolved;
+  const leaf = entryTexture(art.leaf);
+  if (!leaf) return false;
+  const frame = wholeDoorFrame(art, door.width);
+  const frameTex = frame ? entryTexture(frame.entryId) : null;
+  const dir: [number, number] = [Math.cos(angle), Math.sin(angle)];
+  if (frame && frameTex) {
+    // A frame's tile is one cell deep.
+    const perCell = frameTex.height;
+    const [inner, outer] = frame.post;
+    const mid = frameTex.width / 2;
+    const base = frameTex.frame ?? { x: 0, y: 0 };
+    // Each post on its rim first, then the posts.
+    for (const rim of [WHOLE_DOOR_RIM, 0]) {
+      for (const s of [-1, 1] as const) {
+        // The post's own stretch of the frame's tile, on its side of the tile's centre.
+        const x0 = s < 0 ? mid - outer * perCell : mid + inner * perCell;
+        const post = new Texture({ source: frameTex.source, frame: new Rectangle(base.x + x0, base.y, (outer - inner) * perCell, frameTex.height) });
+        const sprite = new Sprite(post);
+        sprite.anchor.set(s < 0 ? 1 : 0, 0.5);
+        // The rim reaches `rim` past the post's every side: its inner face moved into the opening.
+        const edge = (s * door.width) / 2 - s * rim;
+        sprite.position.set(position[0] + dir[0] * edge, position[1] + dir[1] * edge);
+        sprite.rotation = angle;
+        sprite.width = outer - inner + 2 * rim;
+        sprite.height = 1 + (2 * rim) / POST_PAINT;
+        if (rim > 0) rimmed(sprite);
+        container.addChild(sprite);
+      }
+    }
+  }
+  for (const pose of leafPoses(door, position, angle, kit, wallWidth, wallKit)) {
+    for (const rim of [WHOLE_DOOR_RIM, 0]) {
+      const sprite = new Sprite(leaf);
+      // The art's hinge is at its right end: that end on the hinge, the rim reaching past both ends.
+      sprite.anchor.set(1, 0.5);
+      const along: [number, number] = [Math.cos(pose.rotation), Math.sin(pose.rotation)];
+      sprite.position.set(pose.origin[0] - along[0] * rim, pose.origin[1] - along[1] * rim);
+      sprite.rotation = pose.rotation;
+      // The leaf's tile is one cell deep, its paint (the kit's thickness) across the middle of it.
+      sprite.scale.set(-(pose.length + 2 * rim) / leaf.width, ((pose.flip ? -1 : 1) * (1 + (2 * rim) / kit.thickness)) / leaf.height);
+      if (rim > 0) rimmed(sprite);
+      container.addChild(sprite);
+    }
+  }
+  return true;
 }
 
 function buildLeaf(
@@ -484,7 +571,7 @@ function renderKitJambs(
     return;
   }
 
-  if (jamb === 'none') return;
+  if (jamb === 'none' || kit.jamb.kind !== 'art') return;
   // A pack from before the one-rock jamb has the fitted pair only.
   const hit = (jamb === 'one' ? doorSpriteTexture(doorKitKey(kit, 'jamb-one')) : null) ?? doorSpriteTexture(doorKitKey(kit, 'jamb'));
   if (!hit) return;
@@ -503,10 +590,10 @@ function renderKitJambs(
 }
 
 /**
- * A portcullis, archway or opening in a cave wall, in the door kit's ink: a
+ * A portcullis or archway in a cave wall, in the door kit's ink: a
  * portcullis's iron gate (its floor slot and sockets when raised), or an
  * archway's rock carried across overhead, see-through; then the jambs either
- * side, as the door's `jamb` says. An opening is the jambs alone.
+ * side, as the door's `jamb` says.
  *
  * False when the wall is not a cave's or a portcullis's pieces are not
  * installed, so the caller falls back to the sprite or glyph as before.
@@ -527,7 +614,7 @@ function renderCaveDoorway(
   if (door.style === 'portcullis') {
     const rock = wallRockDepth(look.width, kit);
     if (!renderCavePortcullis(container, position, angle, door.width, rock, s, door.state !== 'open')) return false;
-  } else if (!door.bare) {
+  } else {
     renderRockOverhead(container, look.setId, position, angle, door.width, s);
   }
   renderKitJambs(container, kit, look.setId, position, angle, door.width, look.width, 0xffffff, s, door.jamb);

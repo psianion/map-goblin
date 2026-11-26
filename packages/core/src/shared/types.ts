@@ -315,6 +315,44 @@ export interface PlateauChild extends LayerChild, RingGeometry {
   sightOverride?: 'hide' | 'show';
   /** Map crossing kind. Absent = the edge kind's default (cliff Climb, slope Difficult, none Free). */
   crossingId?: string;
+  /** Flights of stairs down this plateau's edge, placed with the Door tool. Absent = none. */
+  stairs?: StairSpan[];
+  /** Cave mouths in this plateau's cliff, placed with the Door tool. Absent = none. */
+  entrances?: CliffEntrance[];
+}
+
+/**
+ * A cave mouth in a plateau's or pit's cliff: the stretch of one of its rings it covers, measured
+ * as a stair span's is. Its cliff kit's entrance piece lies across it; a kit with none leaves a
+ * plain gap. With a walled floor just behind it on the high side, its mouth is crossed freely,
+ * hides nothing and opens that floor's wall; with none, it is art only and stands as the cliff.
+ */
+export interface CliffEntrance {
+  id: string;
+  /** The ring: 0 the outline, k the plateau's hole k. */
+  ring: number;
+  from: number;
+  to: number;
+  /** The entrance piece (`CaveKitPiece.key` of its plain art). Absent = the kit's first of this width. */
+  piece?: string;
+  /** The hollow, as lengths along the ring like `from` and `to`. Absent = the span's middle third. */
+  mouth?: [number, number];
+}
+
+/**
+ * A flight of stairs on a plateau's edge: the stretch of one of its rings it covers, by length
+ * along that ring as drawn (curves flattened, transform applied) from its first point, `from` <
+ * `to`. The flight stands on the low ground, its top on the edge, `|drop|` cells long. Crossing
+ * there is always free, and the edge hides nothing there.
+ */
+export interface StairSpan {
+  id: string;
+  /** The ring: 0 the outline, k the plateau's hole k. */
+  ring: number;
+  from: number;
+  to: number;
+  /** The stair kit's id (assets/stairKits.ts). Absent = the default. */
+  kit?: string;
 }
 
 /**
@@ -373,6 +411,11 @@ export interface AssetChild extends LayerChild {
   standHeight?: number;
   /** Blocks light and sight along the four edges of its footprint. Absent = false. */
   blocksLight?: boolean;
+  /**
+   * A round footprint's radius, cells at scale 1 (a rock pillar): it blocks round that ring
+   * instead of its four edges, and blocks movement too. Absent = the square footprint.
+   */
+  footprintRadius?: number;
   /** Stored for table movement, not read yet. Absent = false. */
   blocksMovement?: boolean;
   /** Its own sprite reads lit in the dark, never the cells around it. Absent = false. */
@@ -493,10 +536,10 @@ export interface DoorChild extends LayerChild {
   jamb?: 'fit' | 'one' | 'none';
   /**
    * The door kit a single or double door is built from, whatever its wall is:
-   * 'stone' (Fieldstone), 'wood' (Palisade) or 'cave' (Cave Ink). Absent = the
-   * kit of the wall's own set, or no kit when that set has none.
+   * 'stone' (Fieldstone), 'wood' (Palisade), 'cave' (Cave Ink), or a kit a pack declares,
+   * by its id. Absent = the kit of the wall's own set, or no kit when that set has none.
    */
-  kit?: 'stone' | 'wood' | 'cave';
+  kit?: 'stone' | 'wood' | 'cave' | (string & {});
   /**
    * Placed free rather than on a wall: the door stands on a piece of wall of its own, its
    * width, at its own angle (see `shared/freestandingDoor.ts`). Absent = false.
@@ -508,6 +551,11 @@ export interface DoorChild extends LayerChild {
    * stops either side. Absent = false.
    */
   bare?: boolean;
+  /**
+   * An Opening in a wall whose rock is a kit with cave-mouth pieces: the one laid across it, by its
+   * key. Absent = the kit's first of the opening's width. Ignored on any other wall.
+   */
+  piece?: string;
   /**
    * Table only, never in a file: where the referee resolved this door on the full map, baked into
    * a player's partial copy by the server. A player's copy lacks the walls, floors and rooms the

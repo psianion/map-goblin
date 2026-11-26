@@ -17,7 +17,7 @@ import {
   type WallNode,
   type WallPieceSpec,
 } from './wallLayout';
-import { buildPieceSpecs, seedForPoints } from './wallNodeRenderer';
+import { buildPieceSpecs, isContinuousSet, seedForPoints } from './wallNodeRenderer';
 import { isBandSet } from '../assets/packCatalog';
 import { blockedLayerReason } from './tools/layerGuard';
 import { notify } from '../shared/notify';
@@ -239,6 +239,7 @@ export function wallStoneCount(layer: DungeonLayer, wall: WallSegment): number |
     wallWidth: look.width,
     seed: seedForPoints(wall.points),
     cornerStyle: look.corner,
+    continuous: isContinuousSet(look.setId),
   });
   return applyWallEdits(auto, wall, undefined, { pieces: specs, wallWidth: look.width, cornerStyle: look.corner }).length;
 }
@@ -344,6 +345,7 @@ export function currentWallNodes(): WallNode[] {
     wallWidth: run.width,
     seed: seedForPoints(run.points),
     cornerStyle: run.corner,
+    continuous: isContinuousSet(run.setId),
   });
   // The same fill the renderer applies, or the handles would not sit on the
   // stones the wall actually shows.

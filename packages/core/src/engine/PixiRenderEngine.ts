@@ -79,7 +79,10 @@ export class PixiRenderEngine implements RenderEngine {
     if (!this.app) return;
     try {
       const canvas = this.app.canvas;
-      this.app.destroy(true, { children: true, texture: true });
+      // The scene only: not the textures it drew, which are the packs' (cached and handed to the
+      // next map's engine) or let go by their own owners, nor Pixi's global pools (mask effects,
+      // pooled render targets), which the next engine on the page draws with too.
+      this.app.destroy({ removeView: true }, { children: true });
       canvas?.parentElement?.removeChild(canvas);
     } catch {
       // PixiJS v8 may throw if init hasn't fully completed (Strict Mode)

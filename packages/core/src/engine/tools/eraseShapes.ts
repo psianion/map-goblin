@@ -33,7 +33,9 @@ import { flattenRing, ringHasCurves } from '../../shared/bezier';
 import { applyShapeTransform } from '../../shared/plateaus';
 import { notify } from '../../shared/notify';
 import { floorPieces } from '../../shared/floorPieces';
-import { CAVE_ROCK_REACH, openCaveAt } from '../../shared/caveFloor';
+import { CAVE_ROCK_REACH, caveEdges, closeCaveOpenings, openCaveAt, openingsNear } from '../../shared/caveFloor';
+import { isBandSet } from '../../assets/packCatalog';
+import { layerDrawStyle } from '../levelLook';
 import { patchArea } from '../../shared/materialPatch';
 import { pieceShowsAt } from '../../shared/pieces';
 import { bakedFades, fadesReaching } from '../../shared/pieceFades';
@@ -77,6 +79,79 @@ export function shownRegion(layer: Pick<DungeonLayer, 'mergedFloor'>, shape: Sha
 /** A walled painted cave: its rock is a wall, and the eraser opens it. */
 const isCave = (shape: ShapeChild): boolean => !!shape.edgeMaterial && !shape.ground;
 
+/**
+ * The wall set a walled floor's own outline is laid with, by `ringStyles`' rule for a ring it
+ * owns: its edge band (None is no band), else its outline's pin, else the layer's.
+ */
+function outlineSet(shape: ShapeChild, layerSet: string | undefined): string | undefined {
+  if (shape.edgeBand !== undefined) return shape.edgeBand ?? undefined;
+  const pin = shape.styleOverrides?.wallTextureSetId;
+  return typeof pin === 'string' ? pin : layerSet;
+}
+
+/**
+ * The layer's cave-edged rooms: visible walled floors (not ground, not a painted cave) whose
+ * outline is laid with a band set. Only the pack catalog knows which sets are bands, so the
+ * editor decides this and the shared code only honours the openings it records.
+ */
+export function caveEdgedRooms(layer: DungeonLayer): ShapeChild[] {
+  const layerSet = layerDrawStyle(layer).wallTextureSetId;
+  return layer.children.filter(
+    (c): c is ShapeChild => c.childType === 'shape' && c.visible !== false && !c.ground && !c.edgeMaterial && isBandSet(outlineSet(c, layerSet)),
+  );
+}
+
+/** Whether the layer has a painted cave or a cave-edged room: an erase there may open rock. */
+export function layerHasCaves(layer: DungeonLayer): boolean {
+  return caveEdges(layer).length > 0 || caveEdgedRooms(layer).length > 0;
+}
+
+/**
+ * The last step of an erase or a floor commit: drops the opening regions no longer within the
+ * rock's reach of a painted cave's edge or a cave-edged room's edge (`openingsNear`), read off
+ * the layer as the steps before it in the same undo step left it.
+ */
+class SettleOpeningsCommand implements Command {
+  readonly label: string;
+  private readonly layerId: string;
+  private change: { before: Polygon[] | undefined; after: Polygon[] | undefined } | null | undefined;
+
+  constructor(label: string, layerId: string) {
+    this.label = label;
+    this.layerId = layerId;
+  }
+
+  execute(): void {
+    if (this.change === undefined) {
+      const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.id === this.layerId && l.type === 'dungeon');
+      const before = layer?.caveOpenings;
+      const edges = layer ? [...caveEdges(layer).flatMap((c) => c.rings), ...caveEdgedRooms(layer).flatMap(pieceRegion)] : [];
+      const after = openingsNear(before, edges);
+      this.change = after === before ? null : { before, after };
+    }
+    if (this.change) useStore.getState().updateLayer(this.layerId, { caveOpenings: this.change.after } as Partial<DungeonLayer>);
+  }
+
+  undo(): void {
+    if (this.change) useStore.getState().updateLayer(this.layerId, { caveOpenings: this.change.before } as Partial<DungeonLayer>);
+  }
+}
+
+/**
+ * `commands` for a walled floor drawn over `drawn` on `layer`, with the layer's openings
+ * brought up to date in the same step: closed where the floor went (`closeCaveOpenings`, as
+ * painting cave floor closes them), then settled. `commands` itself on a layer with none.
+ */
+export function closingOpenings(layer: DungeonLayer, layerId: string, label: string, drawn: Polygon[], commands: Command[]): Command[] {
+  if (!layer.caveOpenings || layer.caveOpenings.length === 0 || commands.length === 0) return commands;
+  const openings = closeCaveOpenings(layer.caveOpenings, drawn);
+  return [
+    ...commands,
+    ...(openings !== layer.caveOpenings ? [new PropertyCommand(label, { type: 'layer', layerId }, { caveOpenings: layer.caveOpenings }, { caveOpenings: openings })] : []),
+    new SettleOpeningsCommand(label, layerId),
+  ];
+}
+
 /** One piece's share of an erase. */
 export interface PieceCut {
   shape: ShapeChild;
@@ -117,12 +192,14 @@ export function softCuts(cuts: readonly PieceCut[], soft: SoftErase): PieceCut[]
  * selection) each of those pieces loses the whole area; without, the pieces are walked top
  * down and each point of the area comes off the topmost visible, unlocked piece alone.
  * `caveArea` is the area as the layer's caves meet it (what no piece above them took), for
- * recording an opening; null when no cave is reached.
+ * recording an opening; null when no cave is reached. A cave-edged room (`caveEdgedRooms`)
+ * counts once the erase cuts it, with no reach beyond its floor.
  */
 export function planErase(layer: DungeonLayer, area: Polygon[], only?: ReadonlySet<string>): { cuts: PieceCut[]; caveArea: Polygon[] | null } {
   const cuts: PieceCut[] = [];
   let caveArea: Polygon[] | null = null;
   let remaining = area;
+  const rooms = new Set(caveEdgedRooms(layer));
   for (let i = layer.children.length - 1; i >= 0 && remaining.length > 0; i--) {
     const c = layer.children[i];
     if (c.childType !== 'shape' || c.locked || c.visible === false) continue;
@@ -133,6 +210,7 @@ export function planErase(layer: DungeonLayer, area: Polygon[], only?: ReadonlyS
     if (isCave(c)) caveArea ??= from;
     const cut = clipper2Engine.intersection(region, from);
     const hit = patchArea(cut) > MIN_CUT;
+    if (hit && rooms.has(c)) caveArea ??= from;
     if (hit) cuts.push({ shape: c, cut });
     if (only) continue;
     if (isCave(c)) {
@@ -273,22 +351,31 @@ export function carveFloors(layer: DungeonLayer, layerId: string, carvePolys: Po
   const state = useStore.getState();
   const only = selectedPieceIds(layer, state.selection.selectedIds);
   const plan = planErase(layer, carvePolys, only);
-  const cuts = soft ? softCuts(plan.cuts, soft) : plan.cuts;
   // A soft erase opens a cave only where it cuts: its core, at full strength.
   let caveArea = plan.caveArea;
   if (soft && caveArea) {
     const core = soft.strength < 1 || soft.core.length === 0 ? [] : clipper2Engine.intersection(caveArea, soft.core);
     caveArea = patchArea(core) > MIN_CUT ? core : null;
   }
-  const { commands, flattened } = cutCommands(layer, layerId, cuts, label);
-  // Where the cut crosses a cave's rock its area is kept as an opening, so the cut stays open
-  // to the ground outside instead of the rock closing round it. With Rock on cut edge on
-  // nothing is kept and the rock re-forms, for reshaping a cave.
+  // Where the cut crosses a cave's rock, or the edge of a cave-edged room, its area is kept as
+  // an opening, so the cut stays open to the ground outside instead of the rock closing round
+  // it. With Rock on cut edge on nothing is kept and the rock re-forms, for reshaping a cave.
   const rockOnCut = state.tools.settings.material.rockOnCut === true;
-  const opened = rockOnCut || !caveArea ? null : openCaveAt(layer, tidyRings(caveArea));
+  const rooms = caveEdgedRooms(layer);
+  const opened = rockOnCut || !caveArea ? null : openCaveAt(layer, tidyRings(caveArea), rooms.flatMap(pieceRegion));
+  // A cut the rock closes round (a hole inside a cave, or any cut with Rock on cut edge) is
+  // taken whole and crisp from a cave or a cave-edged room: the floor meets the rock there as
+  // everywhere else, with no fade under it. Anything else a soft erase cuts as it always did.
+  const rocky = (shape: ShapeChild): boolean => isCave(shape) || rooms.includes(shape);
+  const cuts = !soft
+    ? plan.cuts
+    : softCuts(plan.cuts, soft).map((c, i) => (!opened && soft.strength >= 1 && rocky(c.shape) ? plan.cuts[i] : c));
+  const { commands, flattened } = cutCommands(layer, layerId, cuts, label);
   if (opened) commands.push(new PropertyCommand(label, { type: 'layer', layerId }, { caveOpenings: layer.caveOpenings }, { caveOpenings: opened }));
   commands.push(...also);
   if (commands.length === 0) return false;
+  // Openings the erase left beside no cave or cave-edged room go, in the same step.
+  if (opened || (layer.caveOpenings?.length ?? 0) > 0) commands.push(new SettleOpeningsCommand(label, layerId));
   undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand(label, commands));
   if (flattened) notify.subtle('Curved edges were flattened to carve');
   return true;

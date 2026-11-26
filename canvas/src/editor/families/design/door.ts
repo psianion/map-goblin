@@ -7,11 +7,13 @@ import { z } from 'zod';
 import { DOOR_ANGLE_STEP, minDoorWidth, PLACEABLE_DOOR_STYLES } from '@dnd/core/src/engine/tools/DoorTool';
 import { choiceStyle, doorStyleChoice, doorStyleChoiceLabel, type DoorStyleChoice } from './doorModel';
 import { defineSetting, defineTool } from '@/editor/registry/define';
-import { DOOR_WIDTH_MAX, DOOR_WIDTH_STEP } from '@/editor/models/selectionModel';
+import { DOOR_WIDTH_MAX } from '@/editor/models/selectionModel';
 import { DoorAngleControl } from './controls';
-import { DoorKitColumn } from './DoorFields';
+import { DoorSelectionPanel, KitColumn } from './StairsFields';
+import { pickedStairs, resizePickedStairs } from './stairsModel';
+import { dockMouth, pickedEntrance, resizePickedEntrance, resizePickedMouthDoor } from './entranceModel';
 
-const STYLE_CHOICES: DoorStyleChoice[] = [...PLACEABLE_DOOR_STYLES, 'opening'];
+const STYLE_CHOICES: DoorStyleChoice[] = [...PLACEABLE_DOOR_STYLES, 'opening', 'stairs'];
 
 export const doorStyle = defineSetting<DoorStyleChoice>({
   id: 'door.style',
@@ -23,15 +25,21 @@ export const doorStyle = defineSetting<DoorStyleChoice>({
   section: 'Style',
   options: STYLE_CHOICES.map((value) => ({ value, label: doorStyleChoiceLabel(value) })),
   bind: {
-    read: (s) => doorStyleChoice(s.tools.settings.doorStyle ?? 'single', s.tools.settings.doorBare),
-    // A wider style takes the width up with it. Opening is an archway placed bare.
+    read: (s) => doorStyleChoice(s.tools.settings.doorStyle ?? 'single', s.tools.settings.doorBare, s.tools.settings.doorStairs),
+    // A wider style takes the width up with it. Opening is an archway placed bare. Stairs lay
+    // flights on plateau and pit edges, keeping the door style for when doors come back.
     write: (store, choice) => {
       const st = store.getState();
+      if (choice === 'stairs') {
+        st.updateToolSettings({ doorStairs: true });
+        return;
+      }
       const style = choiceStyle(choice);
       st.updateToolSettings({
         doorStyle: style,
         doorBare: choice === 'opening',
-        doorWidth: Math.max(st.tools.settings.doorWidth, minDoorWidth(style)),
+        doorStairs: false,
+        doorWidth: Math.max(st.tools.settings.doorWidth, minDoorWidth(style, choice === 'opening')),
       });
     },
   },
@@ -45,13 +53,28 @@ export const doorWidth = defineSetting<number>({
   home: 'dock',
   control: 'stepper',
   section: 'Width',
-  range: { min: 1, max: DOOR_WIDTH_MAX, step: DOOR_WIDTH_STEP, unit: 'sq' },
+  // Whole cells for every style: an Opening steps 1, 2, 3 as a door does.
+  range: { min: 1, max: DOOR_WIDTH_MAX, step: 1, unit: 'sq' },
   bind: {
-    read: (s) => s.tools.settings.doorWidth,
+    // Picked stairs or a picked cave mouth: its width, and a change resizes it. Else the width of the
+    // next door; the next mouth's, one the kit has, where the Opening lays a mouth piece.
+    read: (s) => {
+      const span = pickedStairs(s)?.span ?? pickedEntrance(s)?.span;
+      return span ? Math.round(span.to - span.from) : (dockMouth(s)?.width ?? s.tools.settings.doorWidth);
+    },
     // Never narrower than the style allows: a double needs room for two leaves.
     write: (store, width) => {
       const st = store.getState();
-      st.updateToolSettings({ doorWidth: Math.max(width, minDoorWidth(st.tools.settings.doorStyle)) });
+      if (pickedStairs(st)) {
+        resizePickedStairs(st.selection.selectedIds, width);
+        return;
+      }
+      if (pickedEntrance(st)) {
+        resizePickedEntrance(st.selection.selectedIds, width);
+        return;
+      }
+      if (resizePickedMouthDoor(st.selection.selectedIds, width)) return;
+      st.updateToolSettings({ doorWidth: Math.max(width, minDoorWidth(st.tools.settings.doorStyle, st.tools.settings.doorBare)) });
     },
   },
 });
@@ -108,12 +131,18 @@ export const doorTool = defineTool({
   key: 'S',
   engine: ['door'],
   settings: [doorStyle, doorWidth, doorAngle, doorSecret, doorFreestanding],
-  dock: [{ id: 'door.kit', caption: 'Kit', render: DoorKitColumn }],
+  dock: [{ id: 'door.kit', caption: 'Kit', render: KitColumn }],
+  // Picked stairs or a picked cave mouth show their card; anything else keeps the tool's panel.
+  selectionPanel: DoorSelectionPanel,
   hint: (s) => ({
     label: 'Door',
     segments: [
       t(
-        s.tools.settings.doorFreestanding
+        s.tools.settings.doorStairs
+          ? 'Click a plateau or pit edge to lay stairs down it · drag stairs along their edge · Delete removes the picked stairs · '
+          : s.tools.settings.doorBare && s.tools.settings.doorStyle === 'archway' && !s.tools.settings.doorFreestanding
+          ? 'Click a wall to open it · on a cliff edge it makes a cave mouth · drag a mouth along its edge · Delete removes the picked mouth · '
+          : s.tools.settings.doorFreestanding
           ? 'Click anywhere to stand a door free · double-click a door opens or shuts it · '
           : 'Click a wall to hang a door · between two walls it spans the gap · on open floor it stands free · double-click a door opens or shuts it · ',
       ),

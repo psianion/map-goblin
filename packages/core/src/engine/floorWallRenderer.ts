@@ -1,35 +1,42 @@
 import { Container, Graphics, Texture, TilingSprite } from 'pixi.js';
-import type { DungeonLayer, PlateauChild, ShapeChild } from '../store/types';
+import type { DungeonLayer, PlateauChild, RockLine, ShapeChild } from '../store/types';
 import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '../types/geometry';
 import { useStore } from '../store/store';
 import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { unitTexture } from '../assets/textureLoader';
-import { hasLiveTexture } from '../assets/packCatalog';
+import { getWallSet, hasLiveTexture, isBandSet, isMeasuredBandSet } from '../assets/packCatalog';
 import { renderEdgeTransitions } from './edgeTransitions';
-import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
-import { ringFloorOf } from './caveBandRenderer';
+import { renderNodeWalls } from './wallNodeRenderer';
+import { bandFloorFit, fittedFloor, ringFloorOf, type FloorFit } from './caveBandRenderer';
 import { renderDoors } from './doorRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
-import { doorOpeningCuts, resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
+import { resolveDoors, resolveWalls, type ResolvedDoor, type ResolvedWall } from '../shared/wallResolve';
+import { stairOpenings } from '../shared/stairOpenings';
+import { doorGaps, openingLines, openingRegions } from './doorGaps';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { computeMergedFloor } from './mergedFloor';
-import { layerSlopes, plateauDrawOrder, plateauTopFills, plateauTopTiles, renderPlateaus, slopeFaceTiles, type TopFill } from './plateauRenderer';
+import { layerSlopes, plateauAlongWalls, plateauDrawOrder, plateauTopFills, plateauTopTiles, renderPlateaus, slopeFaceTiles, type TopFill } from './plateauRenderer';
 import { hasPlateaus } from '../shared/plateaus';
 import { DEFAULT_TEXTURE_SCALE } from '../shared/types';
-import { FACE_TILE_CELLS, faceDirectionOf } from '../shared/plateauShade';
+import { FACE_TILE_CELLS, faceDirectionOf, wobbleSeed } from '../shared/plateauShade';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { deskSubdividesGrid, getEditorDesk } from './editorDesk';
 import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
-import { edgeStyles, ringStyles } from '../shared/wallLook';
+import { edgeStyles, ringStyles, styleWallLook } from '../shared/wallLook';
+import { cliffRockLines, rockLineOf, storeRockLines } from './rockLines';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
 import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
 import { healLegacyPaint } from './legacyPaint';
 import { drawPiece, drawPieceBorder, isWaterPiece, pieceOutline, type PieceCtx } from './pieceRenderer';
-import { pruneSoftMasks } from './softPiece';
-import { paintSoftTiled } from './softEdge';
+import { paintRamp, pruneSoftMasks, rampMaskSprite } from './softPiece';
+import { mouthLines, mouthRamp } from './softEdge';
+import type { Ramp } from './rampMask';
+import { wallShadowRamp, type LaidRock } from './wallShadow';
+import { laidCaves } from './material/materialRenderer';
+import { afterArtSettles } from './lateArt';
 
 /** A '#rrggbb' as a number; NaN for anything else, missing included. */
 function parseColor(hex: string | undefined): number {
@@ -51,6 +58,9 @@ function floorColorOf(style: Partial<DungeonStyle> | undefined): number {
  * texture. Arm one wait per (layer, texture); when the texture lands, bump the
  * layer's epoch — subscribeToStore folds it into the render key and re-bakes.
  */
+/** Each layer's floor fit from its last rebuild, with the union it was fitted for: the grid redraws on its own. */
+const floorFits = new Map<string, { floor: Polygon[]; fit: FloorFit }>();
+
 // The wait is the manager's texture signal, not a timed `waitForTexture`: on a slow first
 // download the art can land long after any timeout, and a bake that gave up on it would
 // stay bare for the rest of the session.
@@ -66,9 +76,10 @@ export function armLateTextureRebuild(layerId: string, textureId: string): void 
       for (const [id, waiting] of [...lateTextures]) {
         // Asking again also starts a decode the first ask could not (its pack not read yet).
         if (![...waiting].some((t) => manager.getTextureOrNull(t))) continue;
-        // The bake that follows arms again whatever is still missing.
+        // The bake that follows arms again whatever is still missing. One bake once the art
+        // landing now has settled, not one per batch (lateArt.ts).
         lateTextures.delete(id);
-        useStore.getState().bumpFloorTextureEpoch(id);
+        afterArtSettles(`floor:${id}`, () => useStore.getState().bumpFloorTextureEpoch(id));
       }
     });
   }
@@ -89,18 +100,22 @@ function watchCatalog(): void {
   if (catalogWatched === manager) return;
   catalogWatched = manager;
   manager.subscribeCatalog(() => {
-    const store = useStore.getState();
-    for (const layer of store.layers) if (layer.type === 'dungeon') store.bumpFloorTextureEpoch(layer.id);
+    // Once the packs being read now have settled, as late art is (lateArt.ts).
+    afterArtSettles('catalog', () => {
+      const store = useStore.getState();
+      for (const layer of store.layers) if (layer.type === 'dungeon') store.bumpFloorTextureEpoch(layer.id);
+    });
   });
 }
 
 /**
- * Stone-gap openings for the doorways: the door's own wall, and every wall on its
- * line the opening reaches into (`doorOpeningCuts`), so a door widened past its
- * short doorway piece cuts the walls either side too. A detached door gaps nothing.
+ * A layer's cave mouths, where its floor fades out: the stretches of its floor rings erased open
+ * (`mouthLines`), and the Openings the Door tool hangs on cave rock (`openingLines`).
  */
-function doorGapsFor(doors: ResolvedDoor[], walls: ResolvedWall[]): DoorGap[] {
-  return doors.flatMap((d) => doorOpeningCuts(d, walls));
+function layerMouths(layer: DungeonLayer, polygons: readonly Polygon[], doors: readonly ResolvedDoor[]): Polygon[] {
+  const lines = openingLines(layer, doors);
+  const carved = mouthLines(polygons, layer.caveOpenings);
+  return lines.length > 0 ? [...carved, ...lines] : carved;
 }
 
 /** Signed area of a polygon. Positive = CW in screen-space (outer), negative = CCW (hole). */
@@ -242,8 +257,6 @@ export interface TiledLook {
   alpha?: number;
   /** The rings are Clipper output whose negative rings are holes, cut out of the fill. */
   holes?: boolean;
-  /** The box the texture is laid over and anchored to; the rings' own when absent (softEdge.ts passes one for all its steps). */
-  bounds?: { minX: number; minY: number; maxX: number; maxY: number };
   /**
    * Lay the pattern from the map's origin whatever the box, so it stays put on the map as the
    * rings move, and over a square box, so a turned pattern is not sheared (Pixi's batched
@@ -258,7 +271,7 @@ export interface TiledLook {
  * rings. Floors and path fills both paint through here.
  */
 export function paintTiled(parent: Container, rings: Polygon[], texture: Texture, look: TiledLook): void {
-  const { minX, minY, maxX, maxY } = look.bounds ?? polygonBounds(rings.flat());
+  const { minX, minY, maxX, maxY } = polygonBounds(rings.flat());
   const side = Math.max(maxX - minX, maxY - minY);
   const width = look.mapAnchored ? side : maxX - minX;
   const height = look.mapAnchored ? side : maxY - minY;
@@ -384,6 +397,13 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
 /** Whether a door hangs on a drawn wall hidden on its own: it goes with the wall. */
 function onHiddenWall(layer: DungeonLayer, wallId: string): boolean {
   return !!wallId && layer.standaloneWalls.some((w) => w.id === wallId && w.visible === false);
+}
+
+/** What opens the layer's walls: its shown doors, and the stairs along a cave wall (`stairOpenings`). */
+function openedBy(layer: DungeonLayer, walls: ResolvedWall[]): ResolvedDoor[] {
+  const doors = resolveDoors(layer, walls).filter((d) => d.door.visible && !onHiddenWall(layer, d.door.wallId));
+  const stairs = stairOpenings(layer, walls);
+  return stairs.length > 0 ? [...doors, ...stairs] : doors;
 }
 
 export function redrawDoors(layer: DungeonLayer, entry: LayerEntry): void {
@@ -523,17 +543,37 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   const lines = gridLineSet(gridMinX, gridMaxX, gridMinY, gridMaxY, deskSubdividesGrid(getEditorDesk()) ? gridDivision(useStore.getState().grid) : 1);
 
   // Ground and plateau textures take the layer's own line colour, over what the floors do not already line.
-  const groups: [string, Polygon[]][] = [...byColor];
-  if (groundRings.length > 0) groups.push([layer.style?.wallColor ?? '#000000', groundRings]);
+  // The walled floors' lines keep to their paint where a measured kit's rock fitted it.
+  const fitted = floorFits.get(layer.id);
+  const fit = fitted && fitted.floor === layer.mergedFloor ? fitted.fit : undefined;
+  // They fade out across a cave's mouth as its floor does, by the same ramp.
+  const opening = layer.children.some((c) => (c.childType === 'door' && c.bare) || (c.childType === 'plateau' && ((c.stairs?.length ?? 0) > 0 || (c.entrances?.length ?? 0) > 0)));
+  const walls = opening ? resolveWalls(layer) : [];
+  const mouths = layerMouths(layer, polygons, opening ? [...resolveDoors(layer, walls).filter((d) => d.door.visible), ...stairOpenings(layer, walls)] : []);
+  const groups: [string, Polygon[], Ramp | null][] = [...byColor].map(([color, rings]): [string, Polygon[], Ramp | null] => {
+    const region = fittedFloor(rings, fit);
+    return [color, region, mouthRamp(region, mouths, wobbleSeed(layer.id))];
+  });
+  if (groundRings.length > 0) groups.push([layer.style?.wallColor ?? '#000000', groundRings, null]);
 
-  for (const [color, rings] of groups) {
+  for (const [color, rings, faded] of groups) {
     // Mask to clip grid lines within floor shape
     const maskG = new Graphics();
     fillPolygonsWithHoles(maskG, rings, { color: 0xffffff });
 
     const gridContainer = new Container();
     gridContainer.addChild(maskG);
-    gridContainer.addChild(...gridStrokes(Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, lines));
+    const strokes = gridStrokes(Number.isFinite(parseColor(color)) ? parseColor(color) : 0x000000, lines);
+    if (faded) {
+      // Through a sprite of the fade, inside the crisp mask of the floor.
+      const ramped = new Container();
+      const ramp = rampMaskSprite(faded.field);
+      ramped.addChild(...strokes, ramp);
+      ramped.mask = ramp;
+      gridContainer.addChild(ramped);
+    } else {
+      gridContainer.addChild(...strokes);
+    }
     gridContainer.mask = maskG;
     gridSub.addChild(gridContainer);
   }
@@ -547,9 +587,18 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
  * holes grow too (Clipper offsets a hole ring inward for a positive delta), so an erased
  * opening keeps its own margin.
  */
-function drawWalledExtras(floor: Container, walled: Container, layer: DungeonLayer, polygons: Polygon[], bleed: number, covered: Polygon[]): void {
+function drawWalledExtras(
+  floor: Container,
+  walled: Container,
+  layer: DungeonLayer,
+  polygons: Polygon[],
+  bleed: number,
+  covered: Polygon[],
+  fit?: FloorFit,
+): void {
   const mask = new Graphics();
-  const union = bleed > 0 ? clipper2Engine.inflate(polygons, bleed) : polygons;
+  // Fitted to a measured kit's rock, as the floors under it are (bandFloorFit).
+  const union = fittedFloor(bleed > 0 ? clipper2Engine.inflate(polygons, bleed) : polygons, fit);
   // Off a ground piece that lies on the floors: it is above them, so above their room look and older paint too.
   fillPolygonsWithHoles(mask, covered.length > 0 ? clipper2Engine.difference(union, covered) : union, { color: 0xffffff });
   walled.addChild(mask);
@@ -591,14 +640,14 @@ function plateauTexture(layerId: string, id: string | undefined): Texture | null
 
 /**
  * A plateau's top texture over its top (`fill`): tiled as a ground piece of that texture with
- * its default settings is, so the top matches the same floor painted beside it; in steps laid
- * the same way where it fades in from a seam with another top of its height.
+ * its default settings is, so the top matches the same floor painted beside it; through its
+ * seams' ramp, laid the same way, where it fades in from a seam with another top of its height.
  */
 function drawTopTile(floor: Container, layerId: string, plateau: PlateauChild, fill: TopFill): void {
   const texture = plateauTexture(layerId, plateau.topArt);
   if (!texture) return;
   const look: TiledLook = { scale: DEFAULT_TEXTURE_SCALE, rotation: 0, offsetX: 0, offsetY: 0 };
-  if (fill.soft) paintSoftTiled(floor, fill.soft, texture, look);
+  if (fill.soft) paintRamp(floor, { field: fill.soft, clip: fill.rings }, { texture, look });
   else paintTiled(floor, fill.rings, texture, { ...look, holes: true });
 }
 
@@ -618,6 +667,23 @@ function drawFaceTile(floor: Container, layerId: string, plateau: PlateauChild, 
     rotation: ((deg - 90) * Math.PI) / 180,
     holes: true,
     mapAnchored: true,
+  });
+}
+
+/**
+ * The floor rings drawn whole (no per-edge looks) whose wall set no installed pack lists, so
+ * nothing was laid round them.
+ */
+function uninstalledRings(
+  polygons: Polygon[],
+  rings: readonly (DungeonStyle | undefined)[],
+  edges: readonly (DungeonStyle[] | null)[],
+  style: DungeonStyle,
+): Polygon[] {
+  return polygons.filter((poly, i) => {
+    if (poly.length < 3 || (edges[i] && edges[i]!.length === poly.length)) return false;
+    const setId = styleWallLook(rings[i] ?? style).setId;
+    return !!setId && !isBandSet(setId) && getWallSet(setId).length === 0;
   });
 }
 
@@ -683,7 +749,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // gaps the stones exactly like one on a standalone wall, and both follow node
   // edits because their geometry is derived here rather than read off the child.
   const resolvedWalls = resolveWalls(layer);
-  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible && !onHiddenWall(layer, d.door.wallId));
+  const doors = openedBy(layer, resolvedWalls);
   // The marks that tell wall types apart are the editor's: drawn under a desk unless the desk
   // turns them off, which the table's does (players never see them).
   const desk = getEditorDesk();
@@ -695,16 +761,69 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   const drawStyle = layerDrawStyle(layer);
   const rings = ringStyles(layer, level);
   const edges = edgeStyles(layer, level);
+  // The rings a measured kit's rock was laid round: the floor's paint is fitted to it.
+  const fits: FloorFit[] = [];
+  // …and the line it was laid on, saved for light, sight and movement (rockLines.ts).
+  const rockLines: RockLine[] = [];
+  // Every ring and run a measured kit's rock was laid along, for the walls' floor shadow.
+  const rock: LaidRock[] = [];
   renderNodeWalls(
     walls,
     layer.mergedFloor ?? [],
     // A wall hidden on its own draws nowhere (the export reads this scene graph too).
     layer.standaloneWalls.filter((w) => w.visible !== false),
     drawStyle,
-    doorGapsFor(doors, resolvedWalls),
+    doorGaps(layer, doors, resolvedWalls),
     layer.floorWallEdits ?? {},
-    { ringStyles: rings, edgeStyles: edges, marks, floorOf: ringFloorOf(layer), waitFor: (id) => armLateTextureRebuild(layer.id, id) },
+    {
+      ringStyles: rings,
+      edgeStyles: edges,
+      marks,
+      openings: layer.caveOpenings,
+      floorOf: ringFloorOf(layer),
+      waitFor: (id) => armLateTextureRebuild(layer.id, id),
+      onBandLaid: (laid) => {
+        fits.push(bandFloorFit(laid.ring, laid.placed, laid.gaps, laid.size));
+        const line = rockLineOf(laid.ring, laid.placed);
+        if (line) rockLines.push(line);
+      },
+      onRockLaid: (laid) => rock.push(laid),
+    },
   );
+  // A painted cave's measured rock fits its floor too, from the one laying its rock is drawn from.
+  for (const laid of laidCaves(layer)) {
+    if (!isMeasuredBandSet(laid.cave.material)) continue;
+    laid.rings.forEach((ring, i) => fits.push(bandFloorFit(ring, laid.placed[i], laid.gaps, laid.size)));
+    laid.placed.forEach((placed) => rock.push({ placed, closed: true, size: laid.size }));
+  }
+  // The walls' floor shadow, along all of that rock, over the floor's paint and under the rock.
+  // An Opening on cave rock is kept clear of it as a carved mouth is.
+  const opened = openingRegions(openingLines(layer, doors));
+  const drawWallShadow = (): void => {
+    const shadow = wallShadowRamp(rock, opened.length > 0 ? [...(layer.caveOpenings ?? []), ...opened] : layer.caveOpenings);
+    if (!shadow) return;
+    const host = new Container();
+    host.label = 'wall-shadow';
+    paintRamp(host, shadow, { color: 0x000000 });
+    floor.addChild(host);
+  };
+  storeRockLines(layer.id, 'floor', rockLines, layer.rockLines?.length ? uninstalledRings(layer.mergedFloor ?? [], rings, edges, drawStyle) : []);
+  // The plateaus below are drawn along the lines just stored: storing them rebuilds nothing.
+  const reread = (): void => {
+    const stored = useStore.getState().layers.find((l): l is DungeonLayer => l.id === layer.id && l.type === 'dungeon');
+    if (stored && stored.rockLines !== layer.rockLines) layer = { ...layer, rockLines: stored.rockLines };
+  };
+  reread();
+  // A plateau cliff laid with a measured kit of its own is walked along the walls' lines, and the
+  // line it laid stored before anything is drawn along it.
+  const cliffs = cliffRockLines(layer);
+  storeRockLines(layer.id, 'cliff', cliffs.lines, layer.rockLines?.length ? cliffs.missing : []);
+  reread();
+  const fit: FloorFit | undefined = fits.some((f) => f.tips.length + f.gaps.length > 0)
+    ? { tips: fits.flatMap((f) => f.tips), gaps: fits.flatMap((f) => f.gaps) }
+    : undefined;
+  if (fit && layer.mergedFloor) floorFits.set(layer.id, { floor: layer.mergedFloor, fit });
+  else floorFits.delete(layer.id);
   if (doors.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;
     renderDoors(doorsSublayer, doors, drawStyle, gridCellSize, rings, edges);
@@ -714,6 +833,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // bail-out: a plateau over painted terrain has no floor under it.
   renderPlateaus(layer, entry.sublayers.plateauTops, entry.sublayers.plateauEdges, {
     waitFor: (id) => armLateTextureRebuild(layer.id, id),
+    fit,
+    cliffs: cliffs.walks,
   });
 
   // The authored boundary itself. A ring's stones stand on it, and dragging one
@@ -746,9 +867,12 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     const after = afterOf(plateau);
     const top = tops.get(plateau);
     const face = faces.get(plateau);
+    // Where the plateau's edge runs along a cave wall, its top and face meet the rock as the floor does.
+    const along = (rings: Polygon[], isFace: boolean) => plateauAlongWalls(layer, plateau, rings, fit, isFace);
+    const fitted: TopFill | null = top ? { ...top, rings: along(top.rings, false) } : null;
     return [
-      ...(top ? [{ plateau, rings: top.rings, top, after }] : []),
-      ...(face ? [{ plateau, rings: face, top: null, after }] : []),
+      ...(fitted ? [{ plateau, rings: fitted.rings, top: fitted, after }] : []),
+      ...(face ? [{ plateau, rings: along(face, true), top: null, after }] : []),
     ];
   });
   const drawFaces = (after: number): void => {
@@ -760,6 +884,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   };
   if (polygons.length === 0 && pieces.length === 0) {
     drawFaces(-1);
+    drawWallShadow();
     pruneSoftMasks(layer.id, new Set());
     redrawGrid(layer, entry);
     return;
@@ -805,7 +930,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // Every water piece's outline, as one: a shore stops where water meets water.
   const waters = pieces.filter((c) => isWaterPiece(c));
   const water = waters.length > 1 ? clipper2Engine.union(waters.flatMap((c) => pieceOutline(c)), []) : waters.flatMap((c) => pieceOutline(c));
-  const ctx: PieceCtx = { layer, style: s, floorFallback, water, bleedOf, unionFilled, soft: new Set(), bordersOverExtras: polygons.length > 0 };
+  // A cave's floor fades out across each of its mouths.
+  const mouths = layerMouths(layer, polygons, doors);
+  const mouthSeed = wobbleSeed(layer.id);
+  const ctx: PieceCtx = { layer, style: s, floorFallback, water, bleedOf, unionFilled, soft: new Set(), bordersOverExtras: polygons.length > 0, fit, mouths, mouthSeed };
 
   // A ground piece between two walled floors lies over the floors under it: where it shows
   // (no later walled floor covers it) the walled extras stay off it.
@@ -824,18 +952,23 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     covered = covered.length > 0 ? clipper2Engine.union(covered, own) : own;
   }
   const walledExtras = (): void => {
-    drawWalledExtras(floor, walled, layer, polygons, bleed, covered);
+    drawWalledExtras(floor, walled, layer, polygons, bleed, covered, fit);
     // The walled floors' painted borders go over the room looks and the older paint, as they
     // always did. A ground piece drawn after this still covers them.
-    for (const sh of shapeChildren) if (sh.edgePaint) drawPieceBorder(floor, layer.id, sh);
+    for (const sh of shapeChildren) if (sh.edgePaint) drawPieceBorder(floor, layer.id, sh, fit);
   };
 
   drawFaces(-1);
   pieces.forEach((shape, i) => {
     if (unionFilled && i === firstWalled) {
-      const floorG = new Graphics();
-      fillPolygonsWithHoles(floorG, polygons, { color: floorColorNum });
-      floor.addChild(floorG);
+      const region = fittedFloor(polygons, fit);
+      const faded = mouthRamp(region, mouths, mouthSeed);
+      if (faded) paintRamp(floor, faded, { color: floorColorNum });
+      else {
+        const floorG = new Graphics();
+        fillPolygonsWithHoles(floorG, region, { color: floorColorNum });
+        floor.addChild(floorG);
+      }
     }
     drawPiece(floor, shape, ctx);
     if (i === lastWalled && polygons.length > 0) walledExtras();
@@ -843,6 +976,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   });
   // A union with no drawable floor behind it (rings too short to draw) still carries its extras.
   if (lastWalled < 0 && polygons.length > 0) walledExtras();
+  drawWallShadow();
   pruneSoftMasks(layer.id, ctx.soft);
 
   // ── Grid sublayer (lines inside shapes) ─────────────────

@@ -69,6 +69,23 @@ export interface WallNode {
   kind: NodeKind;
   /** Marked by a node edit, then filtered out. Never set by auto-layout. */
   removed?: boolean;
+  /**
+   * Where a continuous set's stone is cut at a mitred corner: one half-plane per
+   * corner it crosses (a short run mitred at both ends carries two). Absent for
+   * every stone that is drawn whole.
+   */
+  clips?: WallClip[];
+}
+
+/**
+ * The half-plane a mitred stone keeps: the side of the line through (x, y) that the
+ * unit normal (nx, ny) points to. The line is the corner's bisector.
+ */
+export interface WallClip {
+  x: number;
+  y: number;
+  nx: number;
+  ny: number;
 }
 
 export interface LayoutOptions {
@@ -87,6 +104,15 @@ export interface LayoutOptions {
   overlap?: number;
   /** Which corner pieces the turns take. Absent: sharp. */
   cornerStyle?: CornerStyle;
+  /**
+   * The set's wall is one outlined band rather than a row of stones. A turn no
+   * authored corner fits is then mitred: both runs carry on past the vertex until
+   * their outer sides meet, and the stones that cross the corner's bisector are cut
+   * along it (`clips`). A turn sharper than MITRE_TURN_MAX is carried by its cover
+   * stone alone instead, over straights that run right up to the vertex: arm stones
+   * and a reserve would break the outline either side of the turn.
+   */
+  continuous?: boolean;
 }
 
 /**
@@ -138,6 +164,12 @@ const MAX_CHORD_SAG = 0.25;
 const ARM_TURN_MIN = 65 * (Math.PI / 180);
 
 /**
+ * The sharpest turn a continuous set mitres. Past it the mitre point runs off more
+ * than 1.2 band widths beyond the vertex, so the turn takes a cover stone instead.
+ */
+const MITRE_TURN_MAX = 135 * (Math.PI / 180);
+
+/**
  * Which way the cover stone lies.
  *
  * A band turning a corner mitres: its outer edges cross further from the vertex
@@ -153,6 +185,62 @@ const ARM_TURN_MIN = 65 * (Math.PI / 180);
  */
 function capAngleFor(through: number, turn: number): number {
   return Math.abs(turn) >= ARM_TURN_MIN ? through + Math.PI / 2 : through;
+}
+
+/** The most a hairpin's rounded turns each turn: no sharper than a bend's, well inside what a continuous set mitres. */
+const HAIRPIN_STEP = 60 * (Math.PI / 180);
+/** How much of either side a rounded hairpin may take, as a share of the shorter. */
+const HAIRPIN_ROOM = 0.45;
+/** The shortest side between a rounded hairpin's turns, as a share of the set's shortest straight. */
+const HAIRPIN_LEAST = 0.5;
+
+/**
+ * A spine with each vertex turning past MITRE_TURN_MAX (a hairpin) cut back along both sides and
+ * turned in two or three equal turns of at most HAIRPIN_STEP, joined by sides as long as `side`
+ * (the set's shortest straight) or as HAIRPIN_ROOM of the sides allows. A vertex turning all the
+ * way back, or whose sides are too short to round it, is left: it keeps its cover stone.
+ */
+export function roundHairpins(pts: Point[], closed: boolean, side: number): Point[] {
+  const n = pts.length;
+  const out: Point[] = [];
+  for (let k = 0; k < n; k++) {
+    const V = pts[k];
+    if (!closed && (k === 0 || k === n - 1)) {
+      out.push(V);
+      continue;
+    }
+    const P = pts[(k - 1 + n) % n];
+    const N = pts[(k + 1) % n];
+    const [lin, lout] = [Math.hypot(V.x - P.x, V.y - P.y), Math.hypot(N.x - V.x, N.y - V.y)];
+    const hin = Math.atan2(V.y - P.y, V.x - P.x);
+    const turn = norm(Math.atan2(N.y - V.y, N.x - V.x) - hin);
+    const across = Math.hypot(Math.cos(hin) + Math.cos(hin + turn), Math.sin(hin) + Math.sin(hin + turn));
+    if (Math.abs(turn) <= MITRE_TURN_MAX || across < 0.1 || lin < 1e-9 || lout < 1e-9) {
+      out.push(V);
+      continue;
+    }
+    const parts = Math.ceil(Math.abs(turn) / HAIRPIN_STEP - 1e-9);
+    const step = turn / parts;
+    let sx = 0;
+    let sy = 0;
+    for (let j = 1; j < parts; j++) {
+      sx += Math.cos(hin + j * step);
+      sy += Math.sin(hin + j * step);
+    }
+    const per = Math.hypot(sx, sy) / across;
+    const c = Math.min(side, (HAIRPIN_ROOM * Math.min(lin, lout)) / per);
+    if (c < HAIRPIN_LEAST * side) {
+      out.push(V);
+      continue;
+    }
+    let q = { x: V.x - Math.cos(hin) * c * per, y: V.y - Math.sin(hin) * c * per };
+    out.push(q);
+    for (let j = 1; j < parts; j++) {
+      q = { x: q.x + Math.cos(hin + j * step) * c, y: q.y + Math.sin(hin + j * step) * c };
+      out.push(q);
+    }
+  }
+  return out;
 }
 
 /**
@@ -798,6 +886,12 @@ interface Junction {
   reachOut: number;
   elbow: WallPieceSpec | null;
   fan: Fan | null;
+  /**
+   * A continuous set's mitred corner: the vertex and the unit direction through it
+   * (the mean of the two edges' directions), normal to the bisector the stones are
+   * cut along. Its reaches are negative: each run carries on past the vertex.
+   */
+  mitre?: { x: number; y: number; tx: number; ty: number };
 }
 
 /**
@@ -867,18 +961,49 @@ export function layoutWall(
   pieces: WallPieceSpec[],
   opts: LayoutOptions,
 ): WallNode[] {
+  // Laid out once while the spine, its set's pieces and the options are the same: a rebuild lays
+  // every wall again, and on a drag all but one are as they were. Pure, and its callers copy
+  // before they change anything (see withoutDoorGaps, applyWallEdits).
+  const key = JSON.stringify([points, closed, pieces.map((p) => [p.id, p.role, p.lengthPx, p.thicknessPx, p.swapOnly ?? 0, p.cornerShape ?? '', p.authoredTurn ?? 0]), opts]);
+  const hit = keptWalls.get(key);
+  if (hit) {
+    keptWalls.delete(key);
+    keptWalls.set(key, hit);
+    return hit;
+  }
+  wallWork.layouts++;
+  const value = layWall(points, closed, pieces, opts);
+  if (keptWalls.size >= KEPT_WALLS) keptWalls.delete(keptWalls.keys().next().value!);
+  keptWalls.set(key, value);
+  return value;
+}
+
+/** The most wall layouts kept before the oldest are dropped. */
+const KEPT_WALLS = 512;
+const keptWalls = new Map<string, WallNode[]>();
+/** How many walls were laid out afresh (`layoutWall`). Tests read it. */
+export const wallWork = { layouts: 0 };
+
+function layWall(
+  points: Point[] | [number, number][],
+  closed: boolean,
+  pieces: WallPieceSpec[],
+  opts: LayoutOptions,
+): WallNode[] {
   const raw: Point[] = (points as (Point | [number, number])[]).map((p) =>
     Array.isArray(p) ? { x: p[0], y: p[1] } : p,
   );
   if (raw.length < 2) return [];
 
   const { wallWidth } = opts;
-  const pts = simplifySpine(raw, wallWidth * MIN_EDGE_FRAC, closed);
+  const simple = simplifySpine(raw, wallWidth * MIN_EDGE_FRAC, closed);
   const seed = opts.seed ?? 1;
   const elbowTol = opts.elbowTolerance ?? DEFAULTS.elbowTolerance;
   const overlap = Math.min(Math.max(opts.overlap ?? DEFAULTS.overlap, 0), 0.5);
 
   const straights = pieces.filter((p) => p.role === 'straight');
+  // A continuous set's hairpin, sharper than it mitres, is rounded off into turns it does.
+  const pts = opts.continuous && straights.length > 0 ? roundHairpins(simple, closed, Math.min(...straights.map((p) => pieceWorldLength(p, wallWidth)))) : simple;
   const rocks = pieces.filter((p) => p.role === 'rock');
   const elbows = elbowsFor(pieces, opts.cornerStyle);
   const endings = pieces.filter((p) => p.role === 'ending');
@@ -927,9 +1052,19 @@ export function layoutWall(
     let reachIn: number;
     let reachOut: number;
     let fan: Fan | null = null;
+    let mitre: Junction['mitre'];
 
     if (elbow) {
       reachIn = reachOut = pieceWorldLength(elbow, wallWidth) / 2;
+    } else if (opts.continuous && Math.abs(turn) <= MITRE_TURN_MAX) {
+      // An outlined band mitres: each run carries on until its outer side reaches
+      // the point where the two outer sides cross, and is cut along the bisector.
+      const ext = (wallWidth / 2) * Math.tan(Math.abs(turn) / 2);
+      reachIn = reachOut = -ext;
+      const bx = Math.cos(prev.ang) + Math.cos(curr.ang);
+      const by = Math.sin(prev.ang) + Math.sin(curr.ang);
+      const l = Math.hypot(bx, by);
+      mitre = { x: curr.a.x, y: curr.a.y, tx: bx / l, ty: by / l };
     } else {
       // No authored piece fits this angle. Cover the vertex with one stone and
       // angle one more along each arm. Nothing is compressed, so this holds up
@@ -953,7 +1088,11 @@ export function layoutWall(
       const capIn = extentToward(capHalfLen, capHalfThick, capAngle, dirIn);
       const capOut = extentToward(capHalfLen, capHalfThick, capAngle, curr.ang);
 
-      if (Math.abs(turn) >= ARM_TURN_MIN) {
+      if (opts.continuous) {
+        // An outlined band: the runs meet at the vertex and the cap covers the join.
+        fan = { cap, armIn: null, armOut: null, capAngle, dIn: 0, dOut: 0 };
+        reachIn = reachOut = 0;
+      } else if (Math.abs(turn) >= ARM_TURN_MIN) {
         const armIn = pick(fanPieces, seed, i * 7919);
         const armOut = pick(fanPieces, seed, i * 7919 + 1);
         const inHalf = pieceWorldLength(armIn, wallWidth) / 2;
@@ -989,7 +1128,7 @@ export function layoutWall(
       fan.dOut = Math.max(0, Math.min(fan.dOut, reachOut - half));
     }
 
-    junctions.set(i, { turn, reachIn, reachOut, elbow, fan });
+    junctions.set(i, { turn, reachIn, reachOut, elbow, fan, mitre });
   }
 
   const nodes: WallNode[] = [];
@@ -1114,8 +1253,15 @@ export function layoutWall(
     return Math.min(byArc, byKink);
   };
 
-  const runs: { s0: number; len: number }[] = [];
+  /**
+   * A run's mitred end: the vertex's arc length, the edge the run carries on along
+   * past it (its first edge at the head, its last at the tail) and the mitre.
+   */
+  type MitreEnd = { s: number; edge: number; mitre: NonNullable<Junction['mitre']> };
+  const runs: { s0: number; len: number; head?: MitreEnd; tail?: MitreEnd }[] = [];
   const js = [...junctions.entries()].sort((a, b) => a[0] - b[0]);
+  const endOf = (s: number, edge: number, j: Junction): MitreEnd | undefined =>
+    j.mitre ? { s, edge, mitre: j.mitre } : undefined;
   if (js.length === 0) {
     runs.push({ s0: 0, len: total });
   } else if (closed) {
@@ -1123,26 +1269,71 @@ export function layoutWall(
       const [i, j] = js[k];
       const [ni, nj] = js[(k + 1) % js.length];
       const s0 = edgeStart[i] + j.reachOut;
-      const end = (k + 1 < js.length ? edgeStart[ni] : edgeStart[js[0][0]] + total) - nj.reachIn;
-      runs.push({ s0, len: end - s0 });
+      const at = k + 1 < js.length ? edgeStart[ni] : edgeStart[js[0][0]] + total;
+      const end = at - nj.reachIn;
+      runs.push({
+        s0,
+        len: end - s0,
+        head: endOf(edgeStart[i], i, j),
+        tail: endOf(at, (ni - 1 + edges.length) % edges.length, nj),
+      });
     }
   } else {
     let cursor = 0;
+    let head: MitreEnd | undefined;
     for (const [i, j] of js) {
-      runs.push({ s0: cursor, len: edgeStart[i] - j.reachIn - cursor });
+      runs.push({ s0: cursor, len: edgeStart[i] - j.reachIn - cursor, head, tail: endOf(edgeStart[i], i - 1, j) });
       cursor = edgeStart[i] + j.reachOut;
+      head = endOf(edgeStart[i], i, j);
     }
-    runs.push({ s0: cursor, len: total - cursor });
+    runs.push({ s0: cursor, len: total - cursor, head });
   }
+
+  /**
+   * Point at arc length `s` for a run: past a mitred end it carries on along the
+   * run's own edge, where `pointAt` would have turned onto the neighbouring one.
+   */
+  const runPointAt = (run: (typeof runs)[number], s: number): Point => {
+    if (run.head && s < run.head.s) {
+      const e = edges[run.head.edge];
+      const d = s - run.head.s;
+      return { x: e.a.x + Math.cos(e.ang) * d, y: e.a.y + Math.sin(e.ang) * d };
+    }
+    if (run.tail && s > run.tail.s) {
+      const e = edges[run.tail.edge];
+      const d = s - run.tail.s;
+      return { x: e.b.x + Math.cos(e.ang) * d, y: e.b.y + Math.sin(e.ang) * d };
+    }
+    return pointAt(s);
+  };
+
+  /** The mitred end's cut, for a stone that crosses its bisector; null for one that does not. */
+  const clipFor = (end: MitreEnd, keep: 1 | -1, cx: number, cy: number, angle: number, halfLen: number): WallClip | null => {
+    const { x, y, tx, ty } = end.mitre;
+    const nx = tx * keep;
+    const ny = ty * keep;
+    const ux = Math.cos(angle);
+    const uy = Math.sin(angle);
+    const h = wallWidth / 2;
+    for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const px = cx + ux * halfLen * a - uy * h * b;
+      const py = cy + uy * halfLen * a + ux * h * b;
+      if ((px - x) * nx + (py - y) * ny < -1e-9) return { x, y, nx, ny };
+    }
+    return null;
+  };
 
   const shortestStraight = [...straights].sort(
     (a, b) => pieceWorldLength(a, wallWidth) - pieceWorldLength(b, wallWidth),
   )[0];
 
   for (let r = 0; r < runs.length; r++) {
-    const { s0, len } = runs[r];
+    const run = runs[r];
+    const { s0, len } = run;
     if (len <= 0) continue;
-    const limit = pieceLimit(s0, len);
+    // A mitred vertex is the run's end, not a kink inside it: read the bends between the vertices.
+    const from = run.head ? run.head.s : s0;
+    const limit = pieceLimit(from, (run.tail ? run.tail.s : s0 + len) - from);
     const usable = straights.filter((p) => pieceWorldLength(p, wallWidth) <= limit);
     const filled = fillRun(
       len,
@@ -1154,19 +1345,24 @@ export function layoutWall(
       const wl = pieceWorldLength(piece, wallWidth) * scale;
       // Placed on the chord between the two spine points it spans, so a piece
       // that crosses a gentle bend sits on the wall instead of shooting off it.
-      const p0 = pointAt(s0 + along);
-      const p1 = pointAt(s0 + along + wl);
+      const p0 = runPointAt(run, s0 + along);
+      const p1 = runPointAt(run, s0 + along + wl);
       const chord = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-      const mid = pointAt(s0 + along + wl / 2);
+      const mid = runPointAt(run, s0 + along + wl / 2);
       const angle =
         chord > wl * 0.2
           ? Math.atan2(p1.y - p0.y, p1.x - p0.x)
           : Math.atan2(mid.y - p0.y, mid.x - p0.x);
-      push(
-        chord > wl * 0.2 ? (p0.x + p1.x) / 2 : mid.x,
-        chord > wl * 0.2 ? (p0.y + p1.y) / 2 : mid.y,
-        angle, piece.id, scale, 'straight', wrap(s0 + along + wl / 2),
-      );
+      const cx = chord > wl * 0.2 ? (p0.x + p1.x) / 2 : mid.x;
+      const cy = chord > wl * 0.2 ? (p0.y + p1.y) / 2 : mid.y;
+      push(cx, cy, angle, piece.id, scale, 'straight', wrap(s0 + along + wl / 2));
+      if (run.head || run.tail) {
+        const clips = [
+          run.head ? clipFor(run.head, 1, cx, cy, angle, wl / 2) : null,
+          run.tail ? clipFor(run.tail, -1, cx, cy, angle, wl / 2) : null,
+        ].filter((c): c is WallClip => c !== null);
+        if (clips.length > 0) nodes[nodes.length - 1].clips = clips;
+      }
       along += wl * (1 - overlap);
     }
   }

@@ -390,6 +390,19 @@ describe('mergeMapDelta', () => {
     useSessionStore.setState({ session: null });
   });
 
+  it('keeps the rock lines through a reveal, and takes the newest list when one comes', () => {
+    const hall = { edge: [[0, 0], [4, 0], [4, 4]] as [number, number][], closed: true, runs: [[[0, 0.1], [4, 0.1]]] as [number, number][][] };
+    const gallery = { ...hall, edge: [[8, 0], [12, 0], [12, 4]] as [number, number][] };
+    const doc = loaded();
+    (doc.layers[0] as unknown as { rockLines: unknown }).rockLines = [hall];
+    const rockLinesOf = (data: SerializedMapData | null) => (data!.layers[0] as unknown as { rockLines?: unknown }).rockLines;
+
+    expect(rockLinesOf(mergeMapDelta(doc, delta(), 'player', 'scene-1'))).toEqual([hall]);
+    const newest = delta();
+    newest.layers[0].rockLines = [hall, gallery];
+    expect(rockLinesOf(mergeMapDelta(doc, newest, 'player', 'scene-1'))).toEqual([hall, gallery]);
+  });
+
   it('drops a delta for a scene this client is no longer looking at', () => {
     const current = loaded();
     expect(mergeMapDelta(current, delta({ sceneId: 'scene-2' }), 'player', 'scene-1')).toBe(current);

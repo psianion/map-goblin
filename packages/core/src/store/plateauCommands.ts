@@ -3,16 +3,17 @@
 // change.
 
 import type { CrossingKind, PlateauChild } from '../shared/types';
-import type { Command, Layer, MapRules } from './types';
+import type { Command, DungeonLayer, Layer, MapRules } from './types';
 import { UpdateChildCommand } from './commands';
 import { useStore } from './store';
 import { wrapDirection } from '../shared/plateauShade';
+import { withMouth } from '../engine/plateauRenderer';
 
 /** The fields of a plateau the card edits. */
 export type PlateauPatch = Partial<
   Pick<
     PlateauChild,
-    'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'faceArt' | 'faceDir' | 'topArt' | 'borderWidth' | 'contourLines' | 'sightOverride' | 'crossingId'
+    'height' | 'edge' | 'edgeArt' | 'slopeWidth' | 'faceArt' | 'faceDir' | 'topArt' | 'borderWidth' | 'contourLines' | 'sightOverride' | 'crossingId' | 'entrances'
   >
 >;
 
@@ -29,7 +30,9 @@ function findPlateau(layers: readonly Layer[], id: string): { layerId: string; c
 /**
  * One entry for the fields of plateau `id`. Heights are whole cells (rounded);
  * a slope or border width must be positive, a face or top texture named, a face direction is
- * kept to 0..360. `undefined` on a key removes it, back to its default.
+ * kept to 0..360. `undefined` on a key removes it, back to its default. A change of cliff art, edge or
+ * height works its cave mouths' hollows out again (`withMouth`): they follow its kit's pieces and
+ * which way its cliff is walked.
  */
 export function setPlateauFields(id: string, patch: PlateauPatch, label = 'Edit plateau'): Command | null {
   const found = findPlateau(useStore.getState().layers, id);
@@ -46,6 +49,12 @@ export function setPlateauFields(id: string, patch: PlateauPatch, label = 'Edit 
   if (after.faceDir !== undefined) {
     if (!Number.isFinite(after.faceDir)) return null;
     after.faceDir = wrapDirection(after.faceDir);
+  }
+  const mouths = found.child.entrances;
+  if (mouths?.length && ('edgeArt' in after || 'edge' in after || 'height' in after)) {
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.id === found.layerId && l.type === 'dungeon')!;
+    const next = { ...found.child, ...after } as PlateauChild;
+    after.entrances = mouths.map((s) => withMouth(layer, next, s));
   }
   const before: Record<string, unknown> = {};
   for (const key of Object.keys(after)) before[key] = (found.child as unknown as Record<string, unknown>)[key];

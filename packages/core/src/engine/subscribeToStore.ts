@@ -131,7 +131,7 @@ export function plateauLookKey(children: readonly AnyChild[]): string {
   for (const c of children) {
     if (c.childType === 'shape') pieces++;
     if (c.childType === 'plateau') {
-      key += `${pieces}:${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.faceArt ?? ''}:${c.faceDir ?? ''}:${c.topArt ?? ''}:${c.borderWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''},`;
+      key += `${pieces}:${c.id}:${c.visible}:${geometryDigest(c)}:${c.height}:${c.edge}:${c.edgeArt ?? ''}:${c.faceArt ?? ''}:${c.faceDir ?? ''}:${c.topArt ?? ''}:${c.borderWidth ?? ''}:${c.contourLines ?? ''}:${c.sightOverride ?? ''}:${c.crossingId ?? ''}:${(c.stairs ?? []).map((s) => `${s.id}/${s.ring}/${s.from}/${s.to}/${s.kit ?? ''}`).join(';')}:${(c.entrances ?? []).map((s) => `${s.id}/${s.ring}/${s.from}/${s.to}/${s.piece ?? ''}/${s.mouth?.join('/') ?? ''}`).join(';')},`;
     }
   }
   return key;
@@ -703,11 +703,14 @@ export function subscribeToStore(
           plateauKey: `${plateauLookKey(l.children)}|${state.mapSettings.sightDropCells}|${state.mapSettings.faceDirection ?? ''}`,
           // Where a cave's rock was erased open its edge is no wall: light passes there.
           openingsRef: refId(l.caveOpenings),
+          // Where a measured kit's rock was laid light stops on it (raycaster.ts). Lighting only:
+          // the rebuild writes it, so it must not rebuild.
+          rockLinesRef: refId(l.rockLines),
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey, openingsRef } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey, openingsRef, rockLinesRef } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -733,11 +736,12 @@ export function subscribeToStore(
           // door geometry is here (not just roomKey) because withoutDoorGaps
           // needs it to cut stone gaps. Door STATE is deliberately excluded: it
           // is handled by the doors-only redraw below and must never re-run this.
-          const renderKey = `${detectionKey}|${shapeKeys}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}|${plateauKey}`;
+          // The openings too: a cave-edged room's rock stops where it was erased open.
+          const renderKey = `${detectionKey}|${shapeKeys}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}|${plateauKey}|${openingsRef}`;
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
-          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}|${openingsRef}`;
+          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}|${roomsRef}|${areasRef}|${propOccluders}|${plateauKey}|${openingsRef}|${rockLinesRef}`;
           lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
@@ -859,7 +863,8 @@ export function subscribeToStore(
           item.areasRef === b[i].areasRef &&
           item.propOccluders === b[i].propOccluders &&
           item.plateauKey === b[i].plateauKey &&
-          item.openingsRef === b[i].openingsRef,
+          item.openingsRef === b[i].openingsRef &&
+          item.rockLinesRef === b[i].rockLinesRef,
         ),
     },
   );

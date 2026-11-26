@@ -645,6 +645,12 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       { contours: [[[2, 2], [12, 2], [12, 10], [2, 10]]] },
       { tangents: [[null, { tin: [11, 1], tout: [13, 3] }, null, null]] },
       { transform: { translate: [1, 0], rotate: 0, scale: [1, 1] } },
+      // Laying, resizing, re-kitting, sliding and removing stairs.
+      { stairs: [{ id: 'st1', ring: 0, from: 1, to: 2 }] },
+      { stairs: [{ id: 'st1', ring: 0, from: 1, to: 3 }] },
+      { stairs: [{ id: 'st1', ring: 0, from: 1, to: 3, kit: 'stone-earthy' }] },
+      { stairs: [{ id: 'st1', ring: 0, from: 2, to: 4, kit: 'stone-earthy' }] },
+      { stairs: undefined },
     ];
     for (const patch of patches) {
       vi.clearAllMocks();

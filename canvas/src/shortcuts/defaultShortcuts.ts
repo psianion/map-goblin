@@ -24,8 +24,10 @@ import type { AnyChild, ChildClipboard, Command, DungeonLayer, ToolType } from '
 import { TERRAIN_PANEL_ID } from '@/store/types';
 import { conditionZoneId } from '@dnd/core/src/shared/prep';
 import { isLayerShown, selectLayerForChild, selectLayerForSelected } from '@/store/selectors';
-import { noEditableLayerMessage } from '@dnd/core/src/engine/tools/layerGuard';
-import { kindCounts, resolveSelection, selectionNoun, type SelectionKind } from '@dnd/core/src/store/selectionResolve';
+import { blockedLayerReason, noEditableLayerMessage } from '@dnd/core/src/engine/tools/layerGuard';
+import { entrancePick, kindCounts, resolveSelection, selectionNoun, stairsPick, type SelectionKind } from '@dnd/core/src/store/selectionResolve';
+import { deletePickedStairs } from '@/editor/families/design/stairsModel';
+import { deletePickedEntrance } from '@/editor/families/design/entranceModel';
 import {
   clipboardWalls,
   createDuplicateSelectionCommand,
@@ -614,6 +616,23 @@ function cutSelection(): void | false {
 function deleteSelection(): void | false {
   const store = useStore.getState();
   if (store.selection.selectedIds.length === 0) return false;
+
+  // Picked stairs come off their plateau's edge, closing the cliff again.
+  const stairs = store.selection.selectedIds.length === 1 ? stairsPick(store, store.selection.selectedIds[0]) : null;
+  if (stairs) {
+    const blocked = blockedLayerReason(stairs.layer);
+    if (blocked) notify.warning(blocked);
+    else deletePickedStairs(store.selection.selectedIds);
+    return;
+  }
+  // A picked cave mouth comes out of its cliff, closing it again.
+  const mouth = store.selection.selectedIds.length === 1 ? entrancePick(store, store.selection.selectedIds[0]) : null;
+  if (mouth) {
+    const blocked = blockedLayerReason(mouth.layer);
+    if (blocked) notify.warning(blocked);
+    else deletePickedEntrance(store.selection.selectedIds);
+    return;
+  }
 
   const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
   if (reason) {

@@ -11,7 +11,7 @@ import type { useStore } from '@/store/store';
 import type { HintSegment } from '@/editor/statusHints';
 import type { AssetTypeFilter } from '@/editor/assetTypeFilter';
 import type { ShellSheet } from '@/editor/shell/shellStore';
-import type { AnyChild, ChildType, Level, Room, RoomArea, ToolType, WallSegment } from '@/store/types';
+import type { AnyChild, ChildType, CliffEntrance, Level, Room, RoomArea, StairSpan, ToolType, WallSegment } from '@/store/types';
 import type { createDefaultState } from '@/store/factories';
 
 /** Where a setting renders. Each setting has exactly one. */
@@ -194,8 +194,8 @@ export interface FamilyDef {
   tools: ReadonlyArray<ToolDef>;
 }
 
-/** What a card can be for: every child kind, drawn walls and rooms. */
-export type ObjectKind = ChildType | 'wall' | 'room' | 'area' | 'level';
+/** What a card can be for: every child kind, drawn walls and rooms, and a plateau's stairs and cave mouths. */
+export type ObjectKind = ChildType | 'wall' | 'room' | 'area' | 'level' | 'stairs' | 'entrance';
 
 export type ObjectOf<K extends ObjectKind> = K extends ChildType
   ? Extract<AnyChild, { childType: K }>
@@ -205,7 +205,11 @@ export type ObjectOf<K extends ObjectKind> = K extends ChildType
       ? Room
       : K extends 'area'
         ? RoomArea
-        : Level;
+        : K extends 'stairs'
+          ? StairSpan
+          : K extends 'entrance'
+            ? CliffEntrance
+            : Level;
 
 /** A button on a card's action row: Flip H, Duplicate, Merge. */
 export interface Verb {

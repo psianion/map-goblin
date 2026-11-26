@@ -21,6 +21,8 @@ import { editChildren, editKey, runEdit } from './cardWrites';
 import { SELECTION_VERBS } from './verbs';
 import { choiceStyle, doorDeg, doorHost, doorStyleChoice, doorStyleChoiceLabel, installedDoorKits, liveKit, state, type DoorStyleChoice } from './doorModel';
 import { AngleField, MaterialField, NameField, WidthField } from './DoorFields';
+import { entranceKitValue, pickedMouthDoor, pickEntranceKit, resizePickedMouthDoor } from './entranceModel';
+import { EntranceKitField } from './StairsFields';
 
 /* ── Name, style, state ────────────────────────────────── */
 
@@ -59,7 +61,7 @@ const style = defineCardField<'door', DoorStyleChoice>({
     const cmds = ids.flatMap((id) => {
       const host = doorHost(state(), id);
       if (!host || doorStyleChoice(host.door.style, host.door.bare) === choice) return [];
-      const { after } = doorStyleChange(host.door, next, host.room);
+      const { after } = doorStyleChange(host.door, next, host.room, bare);
       const cmd = doorwayEditCommand('Door style', host.layer, id, { style: host.door.style, bare: host.door.bare }, { style: next, bare }, {
         width: (after as Partial<DoorChild>).width,
       });
@@ -188,8 +190,10 @@ const width = defineCardField<'door', number>({
   control: 'custom',
   render: WidthField,
   read: (o) => o.width,
-  // Each tick is computed from the layer as it stands, and the drag folds into one step.
+  // Each tick is computed from the layer as it stands, and the drag folds into one step. An Opening
+  // in rock with mouth pieces takes the width of the rock's nearest.
   write: (_store, ids, w) => {
+    if (resizePickedMouthDoor(ids, w)) return;
     const cmds = ids.flatMap((id) => {
       const host = doorHost(state(), id);
       const cmd = host ? doorwayEditCommand('Door width', host.layer, id, {}, {}, { width: w }) : null;
@@ -291,6 +295,21 @@ const hinges = defineCardField<'door', boolean>({
   write: (_store, ids, on) => editChildren(on ? 'Show hinges' : 'Hide hinges', ids, () => ({ hinges: on })),
 });
 
+/** An Opening in rock whose kit has mouth pieces: which of them lies across it, as pictures. */
+const mouth = defineCardField<'door', string>({
+  id: 'card.door.mouth',
+  label: 'Mouth',
+  schema: z.string(),
+  default: '0',
+  home: 'card',
+  control: 'custom',
+  section: 'Kit',
+  render: EntranceKitField,
+  visibleWhen: (o) => o.bare === true && pickedMouthDoor(state())?.door.id === o.id,
+  read: () => entranceKitValue(state()),
+  write: (_store, _ids, value) => pickEntranceKit(value),
+});
+
 const JAMBS: { value: DoorJamb; label: string }[] = [
   { value: 'fit', label: 'Fitted' },
   { value: 'one', label: 'One rock' },
@@ -324,5 +343,5 @@ export const doorCard = defineCard<'door'>({
   title: (o) => o.name || doorStyleLabel(o.style),
   // A door rides its wall: it is not flipped, turned or copied on its own (cardActions).
   verbs: SELECTION_VERBS,
-  fields: [name, style, doorState, freestanding, opensTo, secret, width, angle, material, hinge, swing, hinges, jamb],
+  fields: [name, style, doorState, freestanding, opensTo, secret, width, angle, material, hinge, swing, hinges, mouth, jamb],
 });

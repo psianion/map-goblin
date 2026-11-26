@@ -10,14 +10,32 @@ import type { Polygon } from '../types/geometry';
 import { standaloneWallLook, styleWallLook, wallTypeGroup, type WallTypeGroup } from '../shared/wallLook';
 import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
-import { bandScale, bandSetArt, getBandSet, getWallPieces, isBandSet, type CatalogEntry } from '../assets/packCatalog';
+import {
+  bandSetArt,
+  bandSize,
+  getBandSet,
+  getWallPieces,
+  isBandSet,
+  isColoredSet,
+  isMeasuredBandSet,
+  type CatalogEntry,
+} from '../assets/packCatalog';
+import { bandPiecesFor, kitTransitions } from '../assets/caveWallKit';
+import { ringOpeningGaps } from '../shared/caveFloor';
+import { cutRun, transitionAt } from './caveTransitions';
+import type { WalkPlacement } from './caveWalk';
+import { findWallJoints, type JointSpine } from './wallJoints';
+import { doorKitFor } from '../assets/doorKits';
 import {
   bandFillColor,
   layBandChain,
   layBandRing,
+  mouthEnds,
+  mouthPieces,
   orientRings,
   placeBand,
   planDrawnBand,
+  withConnectors,
   type BandFloor,
   type BandRingRef,
   type DrawnBandPlan,
@@ -47,6 +65,13 @@ export interface DoorGap {
    * does, which is what keeps a gap off the neighbouring ring's stones.
    */
   ring?: number;
+  /** An erased mouth, not a door: a run stopping at it ends in a taper rather than a jamb. */
+  mouth?: boolean;
+  /**
+   * An Opening laid with a cave-mouth piece of the rock's kit, by its key: the piece lies across
+   * it (`mouthPieces`) and the rock stops at its ends untapered, however the line curves there.
+   */
+  entrance?: string;
 }
 
 /**
@@ -164,10 +189,28 @@ function placeNodes(
     if (tex.width === 0) continue;
 
     // A cave band's ground strip shares this pool (placeBand); a slot holding
-    // one is pushed along rather than dressed up as a stone.
+    // one is pushed along rather than dressed up as a stone. So is a slot of the
+    // other kind of stone: a mitred one is a sprite under a mask, held together.
     const slot = parent.children[at];
     let sprite: Sprite;
-    if (slot instanceof Sprite) {
+    let mask: Graphics | null = null;
+    if (node.clips?.length) {
+      let held: Container;
+      if (slot && slot.label === CLIPPED_STONE) {
+        held = slot as Container;
+      } else {
+        held = new Container();
+        held.label = CLIPPED_STONE;
+        const g = new Graphics();
+        held.addChild(new Sprite(tex), g);
+        held.mask = g;
+        if (slot) parent.addChildAt(held, at);
+        else parent.addChild(held);
+      }
+      sprite = held.children[0] as Sprite;
+      sprite.texture = tex;
+      mask = held.children[1] as Graphics;
+    } else if (slot instanceof Sprite) {
       sprite = slot;
       sprite.texture = tex;
     } else {
@@ -188,15 +231,53 @@ function placeNodes(
     const [sx, sy] = nodeSpriteScale(node, spec, wallWidth);
     sprite.scale.set(sx, sy);
     sprite.tint = tint;
+    if (mask) drawStoneClip(mask, node, (spec.lengthPx * sx) / 2, (spec.thicknessPx * sy) / 2);
     at++;
   }
   return at;
 }
 
+/** The label of a mitred stone's holder: its sprite, and the mask that cuts it. */
+const CLIPPED_STONE = 'clipped-stone';
+
+/**
+ * A mitred stone's mask: a box well round the stone, cut by each of its half-planes,
+ * so the art is cut along the bisector and never sheared.
+ */
+function drawStoneClip(g: Graphics, node: WallNode, halfLen: number, halfThick: number): void {
+  const ux = Math.cos(node.angle);
+  const uy = Math.sin(node.angle);
+  const a = halfLen + halfThick;
+  const b = 2 * halfThick;
+  let poly: [number, number][] = [[a, b], [-a, b], [-a, -b], [a, -b]].map(([p, q]): [number, number] => [
+    node.x + ux * p - uy * q,
+    node.y + uy * p + ux * q,
+  ]);
+  for (const c of node.clips ?? []) {
+    const side = ([x, y]: [number, number]) => (x - c.x) * c.nx + (y - c.y) * c.ny;
+    const out: [number, number][] = [];
+    for (let k = 0; k < poly.length; k++) {
+      const p = poly[k];
+      const q = poly[(k + 1) % poly.length];
+      const sp = side(p);
+      const sq = side(q);
+      if (sp >= 0) out.push(p);
+      if (sp >= 0 !== sq >= 0) {
+        const f = sp / (sp - sq);
+        out.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]);
+      }
+    }
+    poly = out;
+  }
+  g.clear();
+  if (poly.length >= 3) g.poly(poly.flat()).fill({ color: 0xffffff });
+}
+
 /** Drop the tail of the pool a shorter layout no longer needs. */
 function trimTo(parent: Container, count: number): void {
   while (parent.children.length > count) {
-    parent.removeChildAt(parent.children.length - 1).destroy();
+    // A mitred stone takes its sprite and mask with it.
+    parent.removeChildAt(parent.children.length - 1).destroy({ children: true });
   }
 }
 
@@ -279,10 +360,11 @@ export function withoutDoorGaps(
   wallWidth: number,
   /**
    * The two ends of an open wall, world units, so a stone pushed clear of an
-   * opening is held inside the wall it belongs to. Omitted for a closed ring,
-   * which has no ends to fall off.
+   * opening is held inside the wall it belongs to. On a closed ring, the ends of
+   * the side each stone stands on (see {@link ringSideEnds}), so a stone pushed
+   * clear of a door stays between that side's corners.
    */
-  wallEnds?: [[number, number], [number, number]],
+  wallEnds?: [[number, number], [number, number]] | ((node: WallNode) => [[number, number], [number, number]] | undefined),
 ): WallNode[] {
   if (gaps.length === 0) return nodes;
 
@@ -348,9 +430,10 @@ export function withoutDoorGaps(
     // the stone inside a wall running the other way.
     let lo = -Infinity;
     let hi = Infinity;
-    if (wallEnds) {
-      const p0 = (wallEnds[0][0] - node.x) * cos + (wallEnds[0][1] - node.y) * sin;
-      const p1 = (wallEnds[1][0] - node.x) * cos + (wallEnds[1][1] - node.y) * sin;
+    const ends = typeof wallEnds === 'function' ? wallEnds(node) : wallEnds;
+    if (ends) {
+      const p0 = (ends[0][0] - node.x) * cos + (ends[0][1] - node.y) * sin;
+      const p1 = (ends[1][0] - node.x) * cos + (ends[1][1] - node.y) * sin;
       lo = Math.min(p0, p1);
       hi = Math.max(p0, p1);
     }
@@ -476,9 +559,128 @@ export function withoutDoorGaps(
   }
 }
 
+/**
+ * The end caps either side of each opening (`gaps`) in a wall of a continuous set (`set`) whose
+ * doors have no jambs of their own (no door kit for `setId`): the set's own end piece, as a wall
+ * wears at a free end, on each side of the opening that still has wall, facing into it. None for
+ * a set with no end piece, or one whose doors bring their jambs.
+ */
+export function gapEndings(gaps: readonly DoorGap[], spine: readonly [number, number][], closed: boolean, set: ResolvedSet, setId: string | undefined, wallWidth: number): WallNode[] {
+  if (gaps.length === 0 || !set.continuous || doorKitFor(setId)) return [];
+  const ending = set.specs.find((p) => p.role === 'ending');
+  if (!ending) return [];
+  const n = spine.length;
+  const segs = closed ? n : n - 1;
+  const out: WallNode[] = [];
+  for (const g of gaps) {
+    // The wall's way at the opening, off the stretch of spine it lies on.
+    let best = { d: Infinity, k: -1, t: 0 };
+    for (let k = 0; k < segs; k++) {
+      const [a, b] = [spine[k], spine[(k + 1) % n]];
+      const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+      const L2 = dx * dx + dy * dy;
+      if (L2 < 1e-12) continue;
+      const t = Math.max(0, Math.min(1, ((g.position[0] - a[0]) * dx + (g.position[1] - a[1]) * dy) / L2));
+      const d = Math.hypot(g.position[0] - a[0] - dx * t, g.position[1] - a[1] - dy * t);
+      if (d < best.d) best = { d, k, t };
+    }
+    if (best.k < 0 || best.d > wallWidth) continue;
+    const [a, b] = [spine[best.k], spine[(best.k + 1) % n]];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const [ux, uy] = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+    const angle = Math.atan2(uy, ux);
+    const half = g.width / 2;
+    const along = best.t * L;
+    // Wall left before the opening, and after it, on this stretch or past its corner.
+    const before = along - half > 1e-6 || best.k > 0 || closed;
+    const after = along + half < L - 1e-6 || best.k < segs - 1 || closed;
+    if (before) out.push({ t: 0, x: g.position[0] - ux * half, y: g.position[1] - uy * half, angle, pieceId: ending.id, scale: 1, sizeScale: 1, kind: 'ending' });
+    if (after) out.push({ t: 0, x: g.position[0] + ux * half, y: g.position[1] + uy * half, angle: angle + Math.PI, pieceId: ending.id, scale: 1, sizeScale: 1, kind: 'ending' });
+  }
+  return out;
+}
+
+/** A stone this far off a side, or turned this far from it (sine), does not stand on it. */
+const ON_SIDE = 0.5;
+const SIDE_SIN = 0.17;
+
+/**
+ * For a closed ring: the two corners of the side a stone stands on (its axis along the side,
+ * its middle near it), for `withoutDoorGaps` to hold the stone between. A stone on no side (a
+ * corner piece turned across one) has none, and slides as it always did.
+ */
+export function ringSideEnds(poly: Polygon): (node: WallNode) => [[number, number], [number, number]] | undefined {
+  return (node) => {
+    let best: { d: number; ends: [[number, number], [number, number]] } | undefined;
+    for (let k = 0; k < poly.length; k++) {
+      const a = poly[k];
+      const b = poly[(k + 1) % poly.length];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L < 1e-9) continue;
+      const t = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+      if (Math.abs(t[0] * Math.sin(node.angle) - t[1] * Math.cos(node.angle)) > SIDE_SIN) continue;
+      const s = Math.max(0, Math.min(L, (node.x - a[0]) * t[0] + (node.y - a[1]) * t[1]));
+      const d = Math.hypot(node.x - a[0] - t[0] * s, node.y - a[1] - t[1] * s);
+      if (d <= ON_SIDE && (!best || d < best.d)) best = { d, ends: [[a[0], a[1]], [b[0], b[1]]] };
+    }
+    return best?.ends;
+  };
+}
+
 interface ResolvedSet {
   specs: WallPieceSpec[];
   specById: Map<string, WallPieceSpec>;
+  /** The art carries its own colour: drawn untinted (see `wallSetHasTag`). */
+  colored: boolean;
+  /** The wall is one outlined band: odd turns are capped, not fanned (LayoutOptions.continuous). */
+  continuous: boolean;
+  /** A continuous set's joint pieces for where walls meet, scaled like a corner. */
+  joints: Map<'tee' | 'cross', WallPieceSpec>;
+}
+
+/**
+ * A wall set has a trait (`colored`, `continuous`) when any of its straights carries
+ * the tag. Read off the straights the specs are built from, the same rule
+ * `isColoredSet` applies to a wall set's art.
+ */
+function wallSetHasTag(setId: string, tag: string): boolean {
+  return getWallPieces(setId, 'straight').some((e) => e.tags.includes(tag));
+}
+
+/** Whether a wall set is one outlined band (`LayoutOptions.continuous`): what the node handles lay it with. */
+export function isContinuousSet(setId: string | undefined): boolean {
+  return !!setId && wallSetHasTag(setId, 'continuous');
+}
+
+/** A continuous set's tee and cross pieces, scaled against the set's band like a corner. */
+function jointSpecs(setId: string): Map<'tee' | 'cross', WallPieceSpec> {
+  const out = new Map<'tee' | 'cross', WallPieceSpec>();
+  const bandPx = referenceBandPx(setId);
+  for (const e of getWallPieces(setId, 'joint')) {
+    for (const kind of ['tee', 'cross'] as const) {
+      if (!out.has(kind) && e.tags.includes(kind)) out.set(kind, toSpec({ ...e, contentRect: undefined }, 'joint', bandPx));
+    }
+  }
+  return out;
+}
+
+/** A joint piece to lay where two walls meet, in the look of the wall it is found from. */
+interface LaidJoint {
+  spec: WallPieceSpec;
+  set: ResolvedSet;
+  x: number;
+  y: number;
+  angle: number;
+  width: number;
+  tint: string;
+}
+
+/**
+ * A continuous set's cover stones drawn after the rest, so each covers the join of
+ * the straights beneath it. Only the draw order: the node list keeps its spine order.
+ */
+function capsLast(nodes: WallNode[]): WallNode[] {
+  return [...nodes.filter((n) => n.kind !== 'fan'), ...nodes.filter((n) => n.kind === 'fan')];
 }
 
 /** How light a wall's stones draw in the editor when light passes through it. */
@@ -580,12 +782,29 @@ export interface RenderNodeWallsOptions {
    */
   marks?: Container;
   /**
+   * The layer's opening regions (`DungeonLayer.caveOpenings`): a band ring's rock stops along
+   * the stretches of it inside one (`ringOpeningGaps`), as it does at a door.
+   */
+  openings?: readonly Polygon[];
+  /**
    * The floor a cave band stands on, by ring index (-1 for a drawn wall), for the
    * ground strip behind its rock (see `ringFloorOf`). The ring's floor colour when absent.
    */
   floorOf?: (ring: number) => BandFloor;
   /** Called with each stone's texture id that is not decoded yet, so the host can redraw once it is. */
   waitFor?: (textureId: string) => void;
+  /**
+   * Called for each floor ring a measured band kit was laid round whole: the ring as the
+   * walk took it (void on the left), what it laid, the ring's door gaps and the size. The
+   * host fits the floor's paint to that rock (`bandFloorFit`) without walking it again.
+   */
+  onBandLaid?: (laid: { ring: Polygon; placed: WalkPlacement[]; gaps: DoorGap[]; size: number }) => void;
+  /**
+   * Called for every ring and run a measured band kit was laid along, floor rings, stretches of
+   * a ring's edge and drawn walls alike: what it laid, whether it closes and the size. The host
+   * lays the wall's floor shadow along it (wallShadow.ts).
+   */
+  onRockLaid?: (laid: { placed: WalkPlacement[]; closed: boolean; size: number }) => void;
 }
 
 /**
@@ -611,17 +830,27 @@ export function renderNodeWalls(
     const hit = specCache.get(id);
     if (hit !== undefined) return hit;
     const specs = buildPieceSpecs(id);
+    const continuous = specs.length > 0 && wallSetHasTag(id, 'continuous');
     const resolved = specs.length
-      ? { specs, specById: new Map(specs.map((s) => [s.id, s])) }
+      ? {
+          specs,
+          specById: new Map(specs.map((s) => [s.id, s])),
+          colored: wallSetHasTag(id, 'colored'),
+          continuous,
+          joints: continuous ? jointSpecs(id) : new Map<'tee' | 'cross', WallPieceSpec>(),
+        }
       : null;
     specCache.set(id, resolved);
     return resolved;
   };
   const tintOf = (hex: string): number => parseInt(hex.replace('#', ''), 16) || 0xffffff;
+  // Art that carries its own colour is drawn as it is: a tint would multiply it dark.
+  const stoneTint = (set: ResolvedSet, hex: string): number => (set.colored ? 0xffffff : tintOf(hex));
+  const bandTint = (setId: string | undefined, hex: string): number => (isColoredSet(setId) ? 0xffffff : tintOf(hex));
   // A cave band kit is a wall family the walk lays rather than one the layout
   // composes: its rock rides the ring as placed pieces, so stone edits mean
   // nothing to it and it takes the ring, the gaps, the tint and the width as
-  // the size its rock is laid at (bandScale).
+  // the size its rock is laid at (bandSize).
   // Keyed on the set each run resolves to (a ring's pin, a wall's pin, else the
   // layer's), the same resolution the stones use.
   const bandCache = new Map<string, Map<string, CatalogEntry> | null>();
@@ -681,8 +910,56 @@ export function renderNodeWalls(
     specById: Map<string, WallPieceSpec>,
     width: number,
     tint: number,
+    set?: ResolvedSet,
   ) => {
-    pools.set(target, placeNodes(target, nodes, specById, width, tint, pools.get(target) ?? 0, options.waitFor));
+    const drawn = set?.continuous ? capsLast(nodes) : nodes;
+    pools.set(target, placeNodes(target, drawn, specById, width, tint, pools.get(target) ?? 0, options.waitFor));
+  };
+
+  /**
+   * Where a run of measured cave rock meets a run of stone wall on one ring (`runs` in ring
+   * order, each ending where the next starts, the last onto the first; `oriented` whether ring
+   * order walks with the floor on the right): the transition piece laid at each such vertex (see
+   * caveTransitions.ts). `cuts[r]` is how far run `r` stops short of its start and its end for
+   * them, `pieces[r]` the piece at its start and at its end, on a rock run only.
+   */
+  const ringTransitions = (
+    runs: readonly { look: ReturnType<typeof styleWallLook>; points: [number, number][] }[],
+    oriented: boolean,
+    gaps: readonly DoorGap[],
+  ): { cuts: [number, number][]; pieces: [WalkPlacement | null, WalkPlacement | null][] } => {
+    const cuts = runs.map((): [number, number] => [0, 0]);
+    const pieces = runs.map((): [WalkPlacement | null, WalkPlacement | null] => [null, null]);
+    if (runs.length < 2) return { cuts, pieces };
+    const rock = (look: ReturnType<typeof styleWallLook>): boolean => !!bandFor(look.setId) && isMeasuredBandSet(look.setId) && kitTransitions(bandPiecesFor(look.setId)).length > 0;
+    const stone = (look: ReturnType<typeof styleWallLook>): boolean => !bandFor(look.setId) && !!specsFor(look.setId);
+    const length = (pts: readonly [number, number][]): number => pts.reduce((s, p, k) => (k === 0 ? 0 : s + Math.hypot(p[0] - pts[k - 1][0], p[1] - pts[k - 1][1])), 0);
+    for (let r = 0; r < runs.length; r++) {
+      const s = (r + 1) % runs.length;
+      const [a, b] = [runs[r], runs[s]];
+      const rockFirst = rock(a.look) && stone(b.look);
+      if (!rockFirst && !(rock(b.look) && stone(a.look))) continue;
+      const V = a.points[a.points.length - 1];
+      const prev = a.points[a.points.length - 2];
+      const next = b.points[1];
+      const lenIn = Math.hypot(V[0] - prev[0], V[1] - prev[1]);
+      const lenOut = Math.hypot(next[0] - V[0], next[1] - V[1]);
+      if (lenIn === 0 || lenOut === 0) continue;
+      const dIn: [number, number] = [(V[0] - prev[0]) / lenIn, (V[1] - prev[1]) / lenIn];
+      const dOut: [number, number] = [(next[0] - V[0]) / lenOut, (next[1] - V[1]) / lenOut];
+      const [uIn, uOut]: [number, number][] = oriented ? [dIn, dOut] : [[-dOut[0], -dOut[1]], [-dIn[0], -dIn[1]]];
+      const [cave, wall] = rockFirst ? [a.look, b.look] : [b.look, a.look];
+      const t = transitionAt(bandPiecesFor(cave.setId), wall.setId ?? '', [V[0], V[1]], uIn, uOut, oriented === rockFirst, rockFirst ? lenIn : lenOut, rockFirst ? lenOut : lenIn, bandSize(cave.setId, cave.width), gaps);
+      if (!t) continue;
+      const [cutA, cutB] = rockFirst ? [t.cave, t.wall] : [t.wall, t.cave];
+      // A run short enough that the pieces at its two ends would meet keeps the join at this end.
+      if (cuts[r][0] + cutA > length(a.points) - 0.5 || cuts[s][1] + cutB > length(b.points) - 0.5) continue;
+      cuts[r][1] = cutA;
+      cuts[s][0] = cutB;
+      if (rockFirst) pieces[r][1] = t.pl;
+      else pieces[s][0] = t.pl;
+    }
+    return { cuts, pieces };
   };
 
   /**
@@ -704,7 +981,12 @@ export function renderNodeWalls(
       if (!set) return;
       const wallWidth = looks[0].width;
       const cornerStyle = looks[0].corner;
-      const auto = layoutWall(poly, true, set.specs, { wallWidth, seed: seedForPoints(poly), cornerStyle });
+      const auto = layoutWall(poly, true, set.specs, {
+        wallWidth,
+        seed: seedForPoints(poly),
+        cornerStyle,
+        continuous: set.continuous,
+      });
       const nodes = withoutDoorGaps(
         applyWallEdits(auto, withoutNodeOffsets(floorEdits[String(i)]), undefined, {
           pieces: set.specs,
@@ -714,6 +996,7 @@ export function renderNodeWalls(
         ringDoorGaps,
         set.specById,
         wallWidth,
+        ringSideEnds(poly),
       );
       const byTint = new Map<string, WallNode[]>();
       for (const node of nodes) {
@@ -722,7 +1005,7 @@ export function renderNodeWalls(
         if (group) group.push(node);
         else byTint.set(tint, [node]);
       }
-      for (const [tint, group] of byTint) place(wallsContainer, group, set.specById, wallWidth, tintOf(tint));
+      for (const [tint, group] of byTint) place(wallsContainer, group, set.specById, wallWidth, stoneTint(set, tint), set);
       return;
     }
 
@@ -737,7 +1020,8 @@ export function renderNodeWalls(
       oriented ??= orientRings(polygons);
       return oriented[i] === poly;
     })();
-    const gaps = [...ringDoorGaps, ...ringGaps.filter((g) => g.ring === i)];
+    const gaps = [...ringDoorGaps, ...ringGaps.filter((g) => g.ring === i), ...ringOpeningGaps(poly, i, options.openings)];
+    const runs: { look: (typeof looks)[number]; points: [number, number][] }[] = [];
     for (let k = 0; k < n; ) {
       const e0 = (start + k) % n;
       let len = 1;
@@ -748,21 +1032,40 @@ export function renderNodeWalls(
         points.push([x, y]);
       }
       k += len;
-      const look = looks[e0];
+      runs.push({ look: looks[e0], points });
+    }
+    const turns = ringTransitions(runs, isOriented, gaps);
+    for (let r = 0; r < runs.length; r++) {
+      const look = runs[r].look;
+      const cut = turns.cuts[r];
+      const points = cut[0] > 0 || cut[1] > 0 ? cutRun(runs[r].points, cut[0], cut[1]) : runs[r].points;
       const band = bandFor(look.setId);
       if (band) {
         // The walk wants the floor on the ring's side: a reversed ring reverses its runs.
         const run = isOriented ? points : [...points].reverse();
-        const size = bandScale(look.width);
+        const size = bandSize(look.setId, look.width);
+        // A measured kit's rock is drawn to its own floor line: no strip behind it.
+        const fill = isMeasuredBandSet(look.setId) ? undefined : { edge: run, closed: false, gaps, color: bandFillColor(floorOf(i)), size };
+        const [head, tail] = turns.pieces[r];
+        const placed = layBandChain(run, gaps, bandPiecesFor(look.setId), size, false, [false, false], [false, false], isOriented ? [head, tail] : [tail, head]);
+        if (!fill) options.onRockLaid?.({ placed, closed: false, size });
+        const mouths = mouthPieces(run, gaps, bandPiecesFor(look.setId), false, placed);
         pools.set(
           wallsContainer,
-          placeBand(wallsContainer, layBandChain(run, gaps, undefined, size), band, tintOf(look.tint), pools.get(wallsContainer) ?? 0, {
-            edge: run,
-            closed: false,
-            gaps,
-            color: bandFillColor(floorOf(i)),
-            size,
-          }),
+          placeBand(
+            wallsContainer,
+            // A transition is laid over the rock's end as it stands: the run is not bent to meet it.
+            [
+              ...(head || tail
+                ? [...withConnectors(placed.filter((pl) => pl.branch !== 'transition'), bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), ...placed.filter((pl) => pl.branch === 'transition')]
+                : withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size))),
+              ...mouths,
+            ],
+            band,
+            bandTint(look.setId, look.tint),
+            pools.get(wallsContainer) ?? 0,
+            fill,
+          ),
         );
         continue;
       }
@@ -773,13 +1076,15 @@ export function renderNodeWalls(
         wallWidth: w,
         seed: seedForPoints(points),
         cornerStyle: look.corner,
+        continuous: set.continuous,
       });
       place(
         wallsContainer,
         withoutDoorGaps(auto, ringDoorGaps, set.specById, w, [points[0], points[points.length - 1]]),
         set.specById,
         w,
-        tintOf(look.tint),
+        stoneTint(set, look.tint),
+        set,
       );
     }
   };
@@ -796,12 +1101,23 @@ export function renderNodeWalls(
     const band = bandFor(look.setId);
     if (band) {
       oriented ??= orientRings(polygons);
-      const gaps = [...doorGaps, ...ringGaps].filter((g) => g.ring === i);
-      const size = bandScale(look.width);
-      const fill = { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)), size };
+      const gaps = [...[...doorGaps, ...ringGaps].filter((g) => g.ring === i), ...ringOpeningGaps(poly, i, options.openings)];
+      const size = bandSize(look.setId, look.width);
+      const measured = isMeasuredBandSet(look.setId);
+      const fill = measured ? undefined : { edge: oriented[i], closed: true, gaps, color: bandFillColor(floorOf(i)), size };
+      const placed = layBandRing(oriented[i], gaps, bandPiecesFor(look.setId), size);
+      if (measured) options.onBandLaid?.({ ring: oriented[i], placed, gaps, size });
+      if (measured) options.onRockLaid?.({ placed, closed: true, size });
       pools.set(
         wallsContainer,
-        placeBand(wallsContainer, layBandRing(oriented[i], gaps, undefined, size), band, tintOf(look.tint), pools.get(wallsContainer) ?? 0, fill),
+        placeBand(
+          wallsContainer,
+          [...withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), ...mouthPieces(oriented[i], gaps, bandPiecesFor(look.setId), true, placed)],
+          band,
+          bandTint(look.setId, look.tint),
+          pools.get(wallsContainer) ?? 0,
+          fill,
+        ),
       );
       continue;
     }
@@ -809,7 +1125,12 @@ export function renderNodeWalls(
     if (!set) continue;
     const wallWidth = look.width;
     const cornerStyle = look.corner;
-    const auto = layoutWall(poly, true, set.specs, { wallWidth, seed: seedForPoints(poly), cornerStyle });
+    const auto = layoutWall(poly, true, set.specs, {
+      wallWidth,
+      seed: seedForPoints(poly),
+      cornerStyle,
+      continuous: set.continuous,
+    });
     // A floor ring's stones are hand-editable too; its edits live on the layer
     // because the ring itself is recomputed from the shapes every time. Only
     // the cosmetic ones: a ring stone is moved by moving the outline it
@@ -822,12 +1143,15 @@ export function renderNodeWalls(
     const gaps = doorGaps.filter((g) => g.ring === i);
     place(
       wallsContainer,
-      withoutDoorGaps(nodes, gaps, set.specById, wallWidth),
+      [...withoutDoorGaps(nodes, gaps, set.specById, wallWidth, ringSideEnds(poly)), ...gapEndings(gaps, poly, true, set, look.setId, wallWidth)],
       set.specById,
       wallWidth,
-      tintOf(look.tint),
+      stoneTint(set, look.tint),
+      set,
     );
   }
+
+  const joints = planJoints();
 
   for (const wall of standaloneWalls) {
     if (wall.points.length < 2) continue;
@@ -845,11 +1169,15 @@ export function renderNodeWalls(
       const gaps = doorGaps.filter((g) => g.wallId === wall.id);
       const target = parts && group !== 'solid' ? parts[group] : wallsContainer;
       const color = bandFillColor(floorOf(-1));
-      const size = bandScale(look.width);
+      const size = bandSize(look.setId, look.width);
+      const strip = !isMeasuredBandSet(look.setId);
       let at = pools.get(target) ?? 0;
+      const pieces = bandPiecesFor(look.setId);
       for (const run of drawnPlans.get(wall.id)?.runs ?? []) {
-        const laid = run.closed ? layBandRing(run.points, gaps, undefined, size) : layBandChain(run.points, gaps, undefined, size);
-        at = placeBand(target, laid, band, tintOf(look.tint), at, { edge: run.points, closed: run.closed, gaps, color, size });
+        const laid = run.closed ? layBandRing(run.points, gaps, pieces, size) : layBandChain(run.points, gaps, pieces, size);
+        const fill = strip ? { edge: run.points, closed: run.closed, gaps, color, size } : undefined;
+        if (!strip) options.onRockLaid?.({ placed: laid, closed: run.closed, size });
+        at = placeBand(target, [...withConnectors(laid, pieces, size), ...mouthPieces(run.points, gaps, pieces, run.closed, laid)], band, bandTint(look.setId, look.tint), at, fill);
       }
       pools.set(target, at);
       continue;
@@ -861,30 +1189,108 @@ export function renderNodeWalls(
       wallWidth: w,
       seed: seedForPoints(wall.points),
       cornerStyle: look.corner,
+      continuous: set.continuous,
     });
     // Auto-layout first, then the DM's manual adjustments on top. Walls with no
     // edits — the common case — pass straight through.
-    const nodes = applyWallEdits(auto, wall, undefined, { pieces: set.specs, wallWidth: w, cornerStyle: look.corner });
+    const edited = applyWallEdits(auto, wall, undefined, { pieces: set.specs, wallWidth: w, cornerStyle: look.corner });
+    // A wall that ends on another under a tee piece draws no cap at that end.
+    const capless = joints.capless.get(wall.id);
+    const nodes = capless
+      ? edited.filter((n) => !(n.kind === 'ending' && ((capless.has(0) && n.t === 0) || (capless.has(1) && n.t === 1))))
+      : edited;
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
     place(
       parts && group !== 'solid' ? parts[group] : wallsContainer,
       // A ring has no ends to hold a nudged stone inside — both "ends" are the
       // same seam point, so clamping to them would drag it there.
-      withoutDoorGaps(
-        nodes,
-        gaps,
-        set.specById,
-        w,
-        closed ? undefined : [wall.points[0], wall.points[wall.points.length - 1]],
-      ),
+      [
+        ...withoutDoorGaps(
+          nodes,
+          gaps,
+          set.specById,
+          w,
+          closed ? undefined : [wall.points[0], wall.points[wall.points.length - 1]],
+        ),
+        ...gapEndings(gaps, wall.points, closed, set, look.setId, w),
+      ],
       set.specById,
       w,
-      tintOf(look.tint),
+      stoneTint(set, look.tint),
+      set,
     );
+  }
+
+  // Joint pieces go on last, above both walls they join. They are not nodes: nothing
+  // edits, drags or swaps them, and neither wall is cut beneath them.
+  for (const joint of joints.laid) {
+    const node: WallNode = {
+      t: 0,
+      x: joint.x,
+      y: joint.y,
+      angle: joint.angle,
+      pieceId: joint.spec.id,
+      scale: 1,
+      sizeScale: 1,
+      kind: 'corner',
+    };
+    place(wallsContainer, [node], new Map([[joint.spec.id, joint.spec]]), joint.width, stoneTint(joint.set, joint.tint));
   }
 
   if (parts) parts.lines.stroke({ color: MARK_INK, width: MARK_STROKE, alpha: 0.9 });
   for (const [target, count] of pools) trimTo(target, count);
+
+  /**
+   * Where solid drawn walls of a continuous set that ships joint pieces meet each other
+   * or a floor ring's outline (findWallJoints), and which wall ends lose their cap to a
+   * tee. Nothing to do, and nothing searched, on a layer without such a wall.
+   */
+  function planJoints(): { laid: LaidJoint[]; capless: Map<string, Set<0 | 1>> } {
+    const none = { laid: [], capless: new Map<string, Set<0 | 1>>() };
+    const spines: JointSpine[] = [];
+    const owners: { wallId?: string; tint: string }[] = [];
+    for (const wall of standaloneWalls) {
+      if (wall.points.length < 2 || wallTypeGroup(wall.wallType) !== 'solid') continue;
+      const look = standaloneWallLook(wall, style);
+      if (!look.setId || bandFor(look.setId)) continue;
+      const set = specsFor(look.setId);
+      if (!set?.continuous || set.joints.size === 0) continue;
+      spines.push({ points: wall.points, setId: look.setId, width: look.width, closed: isClosedSpine(wall.points) });
+      owners.push({ wallId: wall.id, tint: look.tint });
+    }
+    if (spines.length === 0) return none;
+    polygons.forEach((poly, i) => {
+      if (poly.length < 3) return;
+      const edges = options.edgeStyles?.[i];
+      const looks =
+        edges && edges.length === poly.length
+          ? edges.map((s) => styleWallLook(s))
+          : [styleWallLook(options.ringStyles?.[i] ?? style)];
+      // A ring whose edges differ in set or width is laid as separate runs: no one spine.
+      if (!looks.every((l) => l.setId === looks[0].setId && l.width === looks[0].width)) return;
+      const { setId, width, tint } = looks[0];
+      if (!setId || bandFor(setId)) return;
+      spines.push({ points: poly, setId, width, closed: true, ring: true });
+      owners.push({ tint });
+    });
+
+    const laid: LaidJoint[] = [];
+    const capless = new Map<string, Set<0 | 1>>();
+    for (const joint of findWallJoints(spines, doorGaps)) {
+      const { setId, width } = spines[joint.spine];
+      const set = specsFor(setId);
+      const spec = set?.joints.get(joint.kind);
+      if (!set || !spec) continue;
+      laid.push({ spec, set, x: joint.x, y: joint.y, angle: joint.angle, width, tint: owners[joint.spine].tint });
+      const wallId = owners[joint.spine].wallId;
+      if (joint.kind === 'tee' && joint.end !== undefined && wallId) {
+        const ends = capless.get(wallId) ?? new Set<0 | 1>();
+        ends.add(joint.end);
+        capless.set(wallId, ends);
+      }
+    }
+    return { laid, capless };
+  }
 }
 
 /** The index of the ring edge (vertex `e` to `e + 1`) nearest the point. */

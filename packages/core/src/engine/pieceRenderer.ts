@@ -14,17 +14,18 @@ import { Container, Graphics, Texture } from 'pixi.js';
 import type { DungeonLayer, DungeonStyle, PieceFade, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { bandScale, bandSetArt } from '../assets/packCatalog';
+import { bandSetArt, bandSize } from '../assets/packCatalog';
 import { wallWidthPin } from '../shared/caveFloor';
 import { isWaterMaterial } from '../assets/materialKit';
 import { resolveTexture } from '../assets/textureLoader';
 import { pieceRings } from '../shared/pieces';
 import { borderWidthOf, wobbleSeed } from '../shared/plateauShade';
-import { bandFillColor, drawOutlineBand } from './caveBandRenderer';
+import { bandFillColor, drawOutlineBand, fittedFloor, type FloorFit } from './caveBandRenderer';
 import { armLateTextureRebuild, fillPolygonsWithHoles, paintTiled, shapeFloorFill, type TiledLook } from './floorWallRenderer';
 import { drawFalls, drawShore, drawWaterEdge, waterEdgeOf, type WaterEdge } from './material/materialRenderer';
-import { innerBandLayers, paintSoftTiled } from './softEdge';
-import { paintSoftPiece, softPieceReady } from './softPiece';
+import { innerBandRamp, mouthRamp } from './softEdge';
+import { paintRamp, paintSoftPiece, softPieceReady } from './softPiece';
+import type { Ramp } from './rampMask';
 import { bakedFades } from '../shared/pieceFades';
 
 /** What a layer's pieces are drawn against, worked out once a rebuild. */
@@ -43,6 +44,12 @@ export interface PieceCtx {
   soft: Set<string>;
   /** A walled floor's painted border is drawn by the caller, over the walled extras: skipped here. */
   bordersOverExtras?: boolean;
+  /** Where a measured kit's rock asks the walled floors to be painted off and on (`bandFloorFit`). */
+  fit?: FloorFit;
+  /** The layer's cave mouths (`mouthLines`): a walled floor fades out across each. */
+  mouths?: Polygon[];
+  /** The seed a mouth's fade wanders by. */
+  mouthSeed?: number;
 }
 
 function area(ring: Polygon): number {
@@ -118,13 +125,23 @@ function artOf(layerId: string, id: string) {
   return null;
 }
 
+/**
+ * The ramp a floor's painted border fades by: a band just inside its own outline, or, for a
+ * walled floor under a measured kit's rock (`fit`), inside the outline as fitted to the rock.
+ */
+export function pieceBorderRamp(shape: ShapeChild, fit?: FloorFit): Ramp | null {
+  return innerBandRamp(pieceRings(shape), borderWidthOf(shape.edgePaintWidth), wobbleSeed(shape.id), fit);
+}
+
 /** A floor's painted border: its texture in a band just inside its own outline, ragged and soft on its inner side. Paint only. */
-export function drawPieceBorder(host: Container, layerId: string, shape: ShapeChild): void {
+export function drawPieceBorder(host: Container, layerId: string, shape: ShapeChild, fit?: FloorFit): void {
   const tex = artOf(layerId, shape.edgePaint!);
   if (!tex) return;
+  const ramp = pieceBorderRamp(shape, fit);
+  if (!ramp) return;
   const band = new Container();
   band.label = `floor-border-${shape.id}`;
-  paintSoftTiled(band, innerBandLayers(pieceRings(shape), borderWidthOf(shape.edgePaintWidth), wobbleSeed(shape.id)), tex);
+  paintRamp(band, ramp, { texture: tex, look: { scale: 1 } });
   host.addChild(band);
 }
 
@@ -167,8 +184,16 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
     } else {
       // Grown by the bleed: a dropped ring would be a hole in the floor, so every ring Clipper hands back is drawn.
       const grown = bleed > 0 ? clipper2Engine.inflate(outline, bleed) : outline;
-      const region = grown.length > 0 ? grown : outline;
-      if (fill.kind === 'texture') {
+      // A walled floor meets the measured kit's rock round it; ground keeps its own edge.
+      const region = shape.ground ? (grown.length > 0 ? grown : outline) : fittedFloor(grown.length > 0 ? grown : outline, ctx.fit);
+      // …and fades out across a cave mouth.
+      const faded = shape.ground ? null : mouthRamp(region, ctx.mouths ?? [], ctx.mouthSeed ?? 0);
+      if (faded && fill.kind === 'texture') {
+        paintRamp(piece, faded, { texture: fill.texture, look });
+      } else if (faded && fill.kind === 'solid') {
+        if (fill.waitFor) armLateTextureRebuild(layer.id, fill.waitFor);
+        paintRamp(piece, faded, { color: fill.color, alpha: look.alpha ?? 1 });
+      } else if (fill.kind === 'texture') {
         paintTiled(piece, region, fill.texture, { ...look, holes: true });
       } else {
         // Texture not loaded yet: re-bake when it lands.
@@ -185,11 +210,11 @@ export function drawPiece(host: Container, shape: ShapeChild, ctx: PieceCtx): vo
     drawWaterEdge(piece, outline, edge, shored);
     drawFalls(piece, layer, outline);
   }
-  if (shape.edgePaint && !(ctx.bordersOverExtras && !shape.ground)) drawPieceBorder(piece, layer.id, shape);
+  if (shape.edgePaint && !(ctx.bordersOverExtras && !shape.ground)) drawPieceBorder(piece, layer.id, shape, shape.ground ? undefined : ctx.fit);
   if (shape.ground && shape.edgeMaterial) {
     // The rock rim of a ground piece: the band walk a cave gets, with no wall behind it.
     for (const e of bandSetArt(shape.edgeMaterial).values()) artOf(layer.id, e.id);
-    const size = bandScale(wallWidthPin(shape) ?? ctx.style.wallWidth);
+    const size = bandSize(shape.edgeMaterial, wallWidthPin(shape) ?? ctx.style.wallWidth);
     drawOutlineBand(piece, outline, shape.edgeMaterial, bandFillColor({ floorColor: ctx.style.floorColor, textureId: shape.textureId }), [], size);
   }
   host.addChild(piece);

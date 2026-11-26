@@ -16,6 +16,8 @@ import { floorCard } from './floorCard';
 import { wallCard } from './wallCard';
 import { doorCard } from './doorCard';
 import { plateauCard } from './plateauCard';
+import { stairsCard } from './stairsCard';
+import { entranceCard } from './entranceCard';
 import { DOORS_TAB, FLOOR_TAB, WALLS_TAB, withTabs } from './tabs';
 
 export const design = defineFamily({
@@ -31,6 +33,6 @@ export const design = defineFamily({
   ],
 });
 
-export const DESIGN_CARDS: readonly CardDef[] = [floorCard, wallCard, doorCard, plateauCard];
+export const DESIGN_CARDS: readonly CardDef[] = [floorCard, wallCard, doorCard, plateauCard, stairsCard, entranceCard];
 
 export { openAssetsRef } from './openAssets';

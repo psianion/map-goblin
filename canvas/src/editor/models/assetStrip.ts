@@ -388,13 +388,30 @@ export function floorColourGesture() {
  * set, rock the walk lays along the floor edge) its short straight piece.
  */
 export function wallSetThumb(setId: string): string | undefined {
-  if (isBandSet(setId)) return getBandSet(setId).find((e) => e.material === 'wall_short')?.id;
+  if (isBandSet(setId)) {
+    // A kit measured from a pack has no `wall_short`: its first piece stands for it, as the Ground strip's does.
+    const pieces = getBandSet(setId);
+    return (pieces.find((e) => e.material === 'wall_short') ?? pieces[0])?.id;
+  }
   return getWallPieces(setId, 'straight')[0]?.id;
 }
 
 /** A set's name as the layer panel shows it: GG_Fieldstone reads Fieldstone. */
 export function wallSetLabel(setId: string): string {
   return setId.replace(/^GG_/, '').replace(/_/g, ' ');
+}
+
+/**
+ * A set's name as a picture tile carries it: the words every set of a pack shares at its start
+ * (FA, Wall) and a lone variant letter at its end left off, so what tells two sets apart fits
+ * under the tile. FA_Wall_Stone_Earthy_A reads Stone Earthy; the tile's tip carries the full name.
+ */
+export function wallSetTileLabel(setId: string): string {
+  const short = setId
+    .replace(/^(GG|FA)_/, '')
+    .replace(/^Wall_/, '')
+    .replace(/_[A-Z]$/, '');
+  return short.replace(/_/g, ' ') || wallSetLabel(setId);
 }
 
 /** The set a recent wall piece belongs to: a composed set's piece, or a cave kit's. */

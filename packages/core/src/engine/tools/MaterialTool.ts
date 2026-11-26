@@ -7,16 +7,16 @@ import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
 import type { Polygon } from '../../types/geometry';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
-import { AddChildCommand, CompositeCommand, PropertyCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
+import { AddChildCommand, CompositeCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { MATERIAL_BRUSH_RANGES } from '../../store/slices/tools';
 import { patchArea, strokeArea } from '../../shared/materialPatch';
-import { caveFloorContours, caveFloorShape, closeCaveOpenings, hasCaveLook, type CaveLook } from '../../shared/caveFloor';
+import { caveFloorContours, caveFloorShape, hasCaveLook, type CaveLook } from '../../shared/caveFloor';
 import { floorPieces } from '../../shared/floorPieces';
 import { nextAuthoredName } from '../../shared/authoredName';
 import { inRingsEvenOdd } from '../../shared/pieces';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import { brushMaterial, isTextureMaterial, isWaterMaterial, materialFillId, pieceNameOf } from '../../assets/materialKit';
-import { carveFloors, pieceRegion, shownRegion, type SoftErase } from './eraseShapes';
+import { carveFloors, closingOpenings, pieceRegion, shownRegion, type SoftErase } from './eraseShapes';
 import { cutToFrame } from '../mapFrame';
 import { bakedFades, clearFades, featherOf } from '../../shared/pieceFades';
 import { tidyRings } from '../../shared/tidyRings';
@@ -88,11 +88,8 @@ export function paintCaveFloor(
     pieces.slice(1).forEach(add);
   }
   // Cave painted over an opening in the rock closes it, in the same step.
-  const openings = closeCaveOpenings(layer.caveOpenings, area);
-  if (openings !== layer.caveOpenings) {
-    commands.push(new PropertyCommand(label, { type: 'layer', layerId }, { caveOpenings: layer.caveOpenings }, { caveOpenings: openings }));
-  }
-  undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand(label, commands));
+  const all = closingOpenings(layer, layerId, label, area, commands);
+  undoManager.execute(all.length === 1 ? all[0] : new CompositeCommand(label, all));
 }
 
 /** What a stroke of the brush paints a ground piece with, besides its outline. */

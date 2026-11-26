@@ -1,7 +1,7 @@
 import type { DungeonLayer } from '../store/types';
 import type { DoorChild, WallSegment } from './types';
 import { snapToNearestWall } from './wallSnap';
-import { caveEdges, caveWallId, caveWallRuns, onCaveEdge } from './caveFloor';
+import { caveEdges, caveWallId, caveWallRuns, floorEdgeOpenSpans, onCaveEdge } from './caveFloor';
 import {
   authoredBoundaries,
   authoredRing,
@@ -228,6 +228,43 @@ export function connectorApertures(
         });
       }
     }
+  }
+  return doors;
+}
+
+/**
+ * Where a floor ring runs through a region erased open (`caveOpenings`): each stretch of its
+ * edges inside one (`floorEdgeOpenSpans`) as an aperture in the shape `buildOcclusionSegments`
+ * splits a wall with, a bare archway, so light, sight and tokens pass. Floor edges only: a
+ * painted cave's wall is already cut into its runs (`caveWallRuns`), and a drawn wall is
+ * never opened.
+ */
+export function openingApertures(layer: DungeonLayer, walls: readonly ResolvedWall[]): DoorChild[] {
+  const openings = layer.caveOpenings;
+  if (!openings || openings.length === 0) return [];
+  const doors: DoorChild[] = [];
+  for (const wall of walls) {
+    if (wall.kind !== 'floor') continue;
+    const [a, b] = wall.points;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < APERTURE_MIN_SPAN) continue;
+    floorEdgeOpenSpans(a, b, openings).forEach(([t0, t1], k) => {
+      const m = (t0 + t1) / 2;
+      doors.push({
+        id: `opening:${wall.id}:${k}`,
+        name: '',
+        childType: 'door',
+        visible: true,
+        wallId: wall.id,
+        position: [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m],
+        angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
+        width: (t1 - t0) * len,
+        style: 'archway',
+        state: 'open',
+        isSecret: false,
+        bare: true,
+      });
+    });
   }
   return doors;
 }
