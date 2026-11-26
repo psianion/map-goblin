@@ -20,12 +20,17 @@ import {
   openWithLateArt,
   rockArt,
   seedMeasured,
+  seedTransitionKit,
+  TURN_CAVE,
+  TURN_STONE,
+  TURN_WOOD,
   useFrames,
   withCaveKit,
   type SpeedMap,
   type SpeedMods,
 } from '../testing/caveSpeed';
-import type { DungeonLayer } from '../store/types';
+import { Container } from 'pixi.js';
+import type { DungeonLayer, DungeonStyle } from '../store/types';
 import type { Polygon } from '../types/geometry';
 
 const repoMap = (file: string): unknown => JSON.parse(readFileSync(resolve(process.cwd(), '../../session/testdata', file), 'utf8'));
@@ -252,6 +257,44 @@ describe('the work a cave rebuild does', () => {
     open.drawAll();
     expect(work(mods)).toEqual(placed);
     open.close();
+  }, 60_000);
+
+  it('lays only the rock and the stone a transition touches when one comes or goes, and nothing for a redraw with nothing changed', async () => {
+    const mods = await freshMods();
+    seedTransitionKit(mods);
+    const { renderNodeWalls } = await import('./wallNodeRenderer');
+    const style = (setId: string, tint = '#ffffff'): DungeonStyle => ({ floorColor: '#F1ECDF', wallColor: '#000', wallWidth: 0.5, lineWidth: 0.04, wallTextureSetId: setId, wallTextureTint: tint }) as unknown as DungeonStyle;
+    const cave = style(TURN_CAVE);
+    // A floor with rock on its west half and stone round the east, its bottom's east half a stone of
+    // another tint, and a cave ring of its own beside it.
+    const ring: Polygon = [[0, 0], [6, 0], [12, 0], [12, 6], [6, 6], [0, 6]];
+    const apart: Polygon = [[20, 0], [26, 0], [26, 6], [20, 6]];
+    const draw = (stone: string): void => {
+      renderNodeWalls(new Container(), [ring, apart], [], cave, [], {}, {
+        ringStyles: [cave, cave],
+        edgeStyles: [[cave, style(stone), style(stone), style(TURN_STONE, '#cccccc'), cave, cave], null],
+      });
+    };
+    const work = () => ({ layings: mods.band.bandWork.layings, walls: mods.walls.wallWork.layouts });
+    // The north stone in wood: no transition where the rock meets it, one where it meets the east stone.
+    draw(TURN_WOOD);
+    const before = work();
+    draw(TURN_WOOD);
+    expect(work()).toEqual(before);
+    // The north stone turned to a listed stone: a transition comes, laying that rock and that stone again.
+    draw(TURN_STONE);
+    const added = work();
+    expect(added.layings - before.layings).toBe(1);
+    expect(added.walls - before.walls).toBe(1);
+    draw(TURN_STONE);
+    expect(work()).toEqual(added);
+    // And back: the transition goes, the two runs it touched laid at most once more each.
+    draw(TURN_WOOD);
+    const removed = work();
+    expect(removed.layings - added.layings).toBeLessThanOrEqual(1);
+    expect(removed.walls - added.walls).toBeLessThanOrEqual(1);
+    draw(TURN_WOOD);
+    expect(work()).toEqual(removed);
   }, 60_000);
 
   // A ceiling at today's speed so nothing gets slower; lower it as laying afresh gets faster.

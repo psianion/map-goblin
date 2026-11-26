@@ -20,8 +20,9 @@ import {
   isMeasuredBandSet,
   type CatalogEntry,
 } from '../assets/packCatalog';
-import { bandPiecesFor } from '../assets/caveWallKit';
+import { bandPiecesFor, kitTransitions } from '../assets/caveWallKit';
 import { ringOpeningGaps } from '../shared/caveFloor';
+import { cutRun, transitionAt } from './caveTransitions';
 import type { WalkPlacement } from './caveWalk';
 import { findWallJoints, type JointSpine } from './wallJoints';
 import { doorKitFor } from '../assets/doorKits';
@@ -910,6 +911,52 @@ export function renderNodeWalls(
   };
 
   /**
+   * Where a run of measured cave rock meets a run of stone wall on one ring (`runs` in ring
+   * order, each ending where the next starts, the last onto the first; `oriented` whether ring
+   * order walks with the floor on the right): the transition piece laid at each such vertex (see
+   * caveTransitions.ts). `cuts[r]` is how far run `r` stops short of its start and its end for
+   * them, `pieces[r]` the piece at its start and at its end, on a rock run only.
+   */
+  const ringTransitions = (
+    runs: readonly { look: ReturnType<typeof styleWallLook>; points: [number, number][] }[],
+    oriented: boolean,
+    gaps: readonly DoorGap[],
+  ): { cuts: [number, number][]; pieces: [WalkPlacement | null, WalkPlacement | null][] } => {
+    const cuts = runs.map((): [number, number] => [0, 0]);
+    const pieces = runs.map((): [WalkPlacement | null, WalkPlacement | null] => [null, null]);
+    if (runs.length < 2) return { cuts, pieces };
+    const rock = (look: ReturnType<typeof styleWallLook>): boolean => !!bandFor(look.setId) && isMeasuredBandSet(look.setId) && kitTransitions(bandPiecesFor(look.setId)).length > 0;
+    const stone = (look: ReturnType<typeof styleWallLook>): boolean => !bandFor(look.setId) && !!specsFor(look.setId);
+    const length = (pts: readonly [number, number][]): number => pts.reduce((s, p, k) => (k === 0 ? 0 : s + Math.hypot(p[0] - pts[k - 1][0], p[1] - pts[k - 1][1])), 0);
+    for (let r = 0; r < runs.length; r++) {
+      const s = (r + 1) % runs.length;
+      const [a, b] = [runs[r], runs[s]];
+      const rockFirst = rock(a.look) && stone(b.look);
+      if (!rockFirst && !(rock(b.look) && stone(a.look))) continue;
+      const V = a.points[a.points.length - 1];
+      const prev = a.points[a.points.length - 2];
+      const next = b.points[1];
+      const lenIn = Math.hypot(V[0] - prev[0], V[1] - prev[1]);
+      const lenOut = Math.hypot(next[0] - V[0], next[1] - V[1]);
+      if (lenIn === 0 || lenOut === 0) continue;
+      const dIn: [number, number] = [(V[0] - prev[0]) / lenIn, (V[1] - prev[1]) / lenIn];
+      const dOut: [number, number] = [(next[0] - V[0]) / lenOut, (next[1] - V[1]) / lenOut];
+      const [uIn, uOut]: [number, number][] = oriented ? [dIn, dOut] : [[-dOut[0], -dOut[1]], [-dIn[0], -dIn[1]]];
+      const [cave, wall] = rockFirst ? [a.look, b.look] : [b.look, a.look];
+      const t = transitionAt(bandPiecesFor(cave.setId), wall.setId ?? '', [V[0], V[1]], uIn, uOut, oriented === rockFirst, rockFirst ? lenIn : lenOut, rockFirst ? lenOut : lenIn, bandSize(cave.setId, cave.width), gaps);
+      if (!t) continue;
+      const [cutA, cutB] = rockFirst ? [t.cave, t.wall] : [t.wall, t.cave];
+      // A run short enough that the pieces at its two ends would meet keeps the join at this end.
+      if (cuts[r][0] + cutA > length(a.points) - 0.5 || cuts[s][1] + cutB > length(b.points) - 0.5) continue;
+      cuts[r][1] = cutA;
+      cuts[s][0] = cutB;
+      if (rockFirst) pieces[r][1] = t.pl;
+      else pieces[s][0] = t.pl;
+    }
+    return { cuts, pieces };
+  };
+
+  /**
    * A ring whose edges do not all draw alike (a room or area pins a wall look on part
    * of it). Edges that differ only in tint keep the ring's own layout, hand edits and
    * all, and only the stones' tint follows the edge each stands on. Edges that differ
@@ -968,6 +1015,7 @@ export function renderNodeWalls(
       return oriented[i] === poly;
     })();
     const gaps = [...ringDoorGaps, ...ringGaps.filter((g) => g.ring === i), ...ringOpeningGaps(poly, i, options.openings)];
+    const runs: { look: (typeof looks)[number]; points: [number, number][] }[] = [];
     for (let k = 0; k < n; ) {
       const e0 = (start + k) % n;
       let len = 1;
@@ -978,7 +1026,13 @@ export function renderNodeWalls(
         points.push([x, y]);
       }
       k += len;
-      const look = looks[e0];
+      runs.push({ look: looks[e0], points });
+    }
+    const turns = ringTransitions(runs, isOriented, gaps);
+    for (let r = 0; r < runs.length; r++) {
+      const look = runs[r].look;
+      const cut = turns.cuts[r];
+      const points = cut[0] > 0 || cut[1] > 0 ? cutRun(runs[r].points, cut[0], cut[1]) : runs[r].points;
       const band = bandFor(look.setId);
       if (band) {
         // The walk wants the floor on the ring's side: a reversed ring reverses its runs.
@@ -986,13 +1040,17 @@ export function renderNodeWalls(
         const size = bandSize(look.setId, look.width);
         // A measured kit's rock is drawn to its own floor line: no strip behind it.
         const fill = isMeasuredBandSet(look.setId) ? undefined : { edge: run, closed: false, gaps, color: bandFillColor(floorOf(i)), size };
-        const placed = layBandChain(run, gaps, bandPiecesFor(look.setId), size);
+        const [head, tail] = turns.pieces[r];
+        const placed = layBandChain(run, gaps, bandPiecesFor(look.setId), size, false, [false, false], [false, false], isOriented ? [head, tail] : [tail, head]);
         if (!fill) options.onRockLaid?.({ placed, closed: false, size });
         pools.set(
           wallsContainer,
           placeBand(
             wallsContainer,
-            withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)),
+            // A transition is laid over the rock's end as it stands: the run is not bent to meet it.
+            head || tail
+              ? [...withConnectors(placed.filter((pl) => pl.branch !== 'transition'), bandPiecesFor(look.setId), size, mouthEnds(gaps, size)), ...placed.filter((pl) => pl.branch === 'transition')]
+              : withConnectors(placed, bandPiecesFor(look.setId), size, mouthEnds(gaps, size)),
             band,
             bandTint(look.setId, look.tint),
             pools.get(wallsContainer) ?? 0,

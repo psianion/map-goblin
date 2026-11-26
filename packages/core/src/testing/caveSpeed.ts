@@ -536,3 +536,34 @@ export function speedTable(title: string, rows: SpeedRow[]): string {
   const head = `${'map'.padEnd(28)}${cols.map((c) => c.padStart(8)).join('')}`;
   return [title, head, ...rows.map((r) => `${r.map.padEnd(28)}${cols.map((c) => f(r[c])).join('')}`)].join('\n') + '\n';
 }
+
+/** The measured kit with transitions (rock turning into a cut-stone wall), and the wall sets it is laid against. */
+export const TURN_CAVE = 'Turn_Cave';
+export const TURN_STONE = 'Turn_Stone';
+export const TURN_WOOD = 'Turn_Wood';
+
+/**
+ * A measured cave kit with straights, bends and six transitions measured as a real cave kit's
+ * are (two straights in two hands, a corner in two hands), fitting the wall sets `walls` (none
+ * listed with null), and two stone wall sets: TURN_STONE and TURN_WOOD.
+ */
+export function seedTransitionKit(mods: SpeedMods, walls: string[] | null = [TURN_STONE]): void {
+  const entry = (material: string, gridSize: string, band: Record<string, unknown>) => ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set: TURN_CAVE, tags: ['colored'], band });
+  const entries: Record<string, unknown> = {};
+  for (let L = 1; L <= 6; L++) entries[`run_${L}x2_A`] = entry('run', `${L}x2`, { joints: [[L / 2 + 0.15, 0.36], [-(L / 2 + 0.15), 0.36]], turnDeg: 0, faces: 'floor' });
+  for (const N of [2, 3]) {
+    const end = N / 2 + 0.15;
+    entries[`turn_in_${N}x${N}_A`] = entry('turn_in', `${N}x${N}`, { joints: [[N / 2 - 0.64, -end], [-end, N / 2 - 0.64]], turnDeg: 90 });
+    entries[`turn_out_${N}x${N}_A`] = entry('turn_out', `${N}x${N}`, { joints: [[-end, N / 2 - 1.36], [N / 2 - 1.36, -end]], turnDeg: -90 });
+  }
+  const turn = (name: string, gridSize: string, joints: number[][], transition: string, wallJoint: number, turnDeg = 0) =>
+    entry(name, gridSize, { joints, turnDeg, transition, wallJoint, ...(walls && { walls }) });
+  entries.to_wall_a1_1x2_A = turn('to_wall_a1', '1x2', [[0.65, 0.115], [-0.65, 0.36]], 'straight', 0);
+  entries.to_wall_a2_1x2_A = turn('to_wall_a2', '1x2', [[0.65, 0.36], [-0.65, 0.117]], 'straight', 1);
+  entries.to_wall_b1_2x2_A = turn('to_wall_b1', '2x2', [[1.15, 0.115], [-1.15, 0.36]], 'straight', 0);
+  entries.to_wall_b2_2x2_A = turn('to_wall_b2', '2x2', [[1.15, 0.36], [-1.15, 0.12]], 'straight', 1);
+  entries.to_wall_corner_a1_2x2_A = turn('to_wall_corner_a1', '2x2', [[1.15, 0.115], [0.36, 1.15]], 'corner', 0, -90);
+  entries.to_wall_corner_a2_2x2_A = turn('to_wall_corner_a2', '2x2', [[-0.36, 1.15], [-1.15, 0.117]], 'corner', 1, -90);
+  mods.seed.seedPack('turn-pack', entries as never);
+  mods.seed.seedTestWallSets([TURN_STONE, TURN_WOOD], 'turn-stone');
+}

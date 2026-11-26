@@ -2525,7 +2525,9 @@ function padEnds(ride: Curve): Curve {
  * left of the drawn direction. Each free end gets a piece closed onto it. A
  * cliff's end that runs on into a wall's rock (`merged`, head and tail in the
  * drawn direction) holds its straights to the corner instead (see layExactRun). A cliff's end at a
- * flight of stairs (`bare`) is a free end that takes no painted ending: its art runs to the end.
+ * flight of stairs (`bare`) is a free end that takes no painted ending: its art runs to the end. An
+ * end where the rock turns into a stone wall takes that transition piece (`turns`, head and tail in
+ * the drawn direction, see caveTransitions.ts), laid where it is given, before or after the run.
  */
 export function layBandChain(
   points: Polygon,
@@ -2535,12 +2537,49 @@ export function layBandChain(
   cliff = false,
   merged: [boolean, boolean] = [false, false],
   bare: [boolean, boolean] = [false, false],
+  turns: [WalkPlacement | null, WalkPlacement | null] = [null, null],
 ): WalkPlacement[] {
-  const kind = `${cliff ? 'cliff-chain' : 'chain'}${merged[0] ? '<' : ''}${merged[1] ? '>' : ''}${bare[0] ? '(' : ''}${bare[1] ? ')' : ''}`;
+  const turnKey = (t: WalkPlacement | null): string => (t ? `{${t.piece.key}@${[...t.P, ...t.Q].map((v) => v.toFixed(3)).join(',')}}` : '');
+  const kind = `${cliff ? 'cliff-chain' : 'chain'}${merged[0] ? '<' : ''}${merged[1] ? '>' : ''}${bare[0] ? '(' : ''}${bare[1] ? ')' : ''}${turnKey(turns[0])}${turnKey(turns[1])}`;
   return keptLaying(kind, points, gaps, set, size, () => {
-    if (size !== 1) return laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set, 1, cliff, merged, bare));
-    return layChain(points as Curve, gaps, set, { lap: true }, cliff, merged, bare);
+    let laid = size !== 1 ? laidAtSize(size, points, gaps, (p, g) => layBandChain(p, g, set, 1, cliff, merged, bare)) : layChain(points as Curve, gaps, set, { lap: true }, cliff, merged, bare);
+    if (turns[1]) laid = meetTurn(laid, turns[1], false, set, size);
+    if (turns[0]) laid = meetTurn(laid, turns[0], true, set, size);
+    return turns[0] || turns[1] ? [...(turns[0] ? [turns[0]] : []), ...laid, ...(turns[1] ? [turns[1]] : [])] : laid;
   });
+}
+
+/**
+ * A run's piece beside a transition (its first, `head`, or its last) lengthened or shortened, no
+ * further than {@link meetNeighbours} and {@link trimLaps} take one, until it laps the
+ * transition's rock joint by exactly the kit's overlap: their art butts as two of the run's own
+ * pieces do. The transition's art is cut square at its tile, so a piece short of it shows the
+ * floor between them, and one lapping it shows the transition's shadow edge over its own.
+ */
+function meetTurn(laid: WalkPlacement[], turn: WalkPlacement, head: boolean, set: CaveKitPiece[], size: number): WalkPlacement[] {
+  if (laid.length === 0) return laid;
+  const k = head ? 0 : laid.length - 1;
+  const pl = laid[k];
+  const rock = jointsOf(turn.piece, turn.at)[1 - (turn.piece.wallJoint ?? 0)];
+  const own = jointsOf(pl.piece, pl.at)[head ? 0 : 1];
+  const chord = Math.atan2(pl.Q[1] - pl.P[1], pl.Q[0] - pl.P[0]);
+  const half = (pl.piece.turnDeg * Math.PI) / 360;
+  // Travel at the piece's end beside the transition, read as jointLap reads it.
+  const along = head ? chord - half : chord + half;
+  const t: Vec = [Math.cos(along), Math.sin(along)];
+  const lap = head ? dot(sub(rock, own), t) : dot(sub(own, rock), t);
+  const short = kitOverlap(set) * size - lap;
+  if (Math.abs(short) < 1e-6 || Math.abs(short) > MEET_SHORT * size) return laid;
+  // The end beside the transition moves along travel there: a bend keeps its corner, and only
+  // turns and grows or shrinks a hair to meet it.
+  const P = head ? sub(pl.P, mul(t, short)) : pl.P;
+  const Q = head ? pl.Q : add(pl.Q, mul(t, short));
+  const length = dist(P, Q);
+  const natural = dist(...pl.piece.jointsCells) * size;
+  if (length > Math.min(dist(pl.P, pl.Q) * MEET_STRETCH, natural * MEASURED_SCALE[1]) || length < natural * MEASURED_SCALE[0]) return laid;
+  const out = [...laid];
+  out[k] = { ...pl, P, Q, at: placePiece(pl.piece, P, Q, kitOut(set) * size, 0, pl.nudge) };
+  return out;
 }
 
 function layChain(points: Curve, gaps: DoorGap[], set: CaveKitPiece[], opts: WalkOptions, cliff = false, merged: [boolean, boolean] = [false, false], bare: [boolean, boolean] = [false, false]): WalkPlacement[] {
