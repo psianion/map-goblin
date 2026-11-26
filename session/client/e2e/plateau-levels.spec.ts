@@ -1,7 +1,7 @@
 // @levels: plateaus and floors at the table (plan section 6.2): crossings by hand on
 // `plateau-table`, a multi-floor map on `tower-test`. Written, never run by the builders.
 import { join } from 'node:path';
-import { assertMapLoaded, dmCommands, expect, hostMap, joinTable, test } from './fixtures';
+import { assertMapLoaded, dmCommands, expect, hostMap, joinTable, startTable, test } from './fixtures';
 
 const PLATEAU_TABLE = join(import.meta.dirname, '../../testdata/plateau-table.mapbuilder');
 const TOWER_TEST = join(import.meta.dirname, '../../testdata/tower-test.mapbuilder');
@@ -16,6 +16,7 @@ test.describe('@levels plateaus and floors', () => {
 
     const player = await (await newContext()).newPage();
     await joinTable(player, table.inviteCode, 'Pim');
+    await startTable(page, player);
     await assertMapLoaded(player, 'Plateau Table');
     // A move up a blocking edge is refused with the kind's own words (B3).
     await expect
@@ -38,6 +39,7 @@ test.describe('@levels plateaus and floors', () => {
 
     const player = await (await newContext()).newPage();
     await joinTable(player, table.inviteCode, 'Pim');
+    await startTable(page, player);
     await assertMapLoaded(player, 'Tower Test');
     // Decision c: a player does not change floor; the DM's switch did not move the player's view.
     await expect(player.getByTestId('title-level')).not.toContainText('First floor');
