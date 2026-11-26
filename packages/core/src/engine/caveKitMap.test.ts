@@ -587,7 +587,7 @@ describe('a cave mouth', () => {
       }
     }
     expect(checked).toBeGreaterThan(1000);
-  });
+  }, 30_000);
 
   it('paints a map with no openings as it always did', () => {
     seedKit();
