@@ -39,6 +39,8 @@ import {
   sceneTokens,
   sendTokens,
 } from './play';
+import { seatColour } from '../../shell/seatColour';
+import { TokenArtEditor } from './TokenArtEditor';
 import { TokenPortrait } from './TokenPortrait';
 
 const options = <K extends string>(labels: Record<K, string>) =>
@@ -200,7 +202,7 @@ export function TokenCard({ token }: { token: Token }) {
       </ActionRow>
       <div className="flex flex-col gap-2.5 px-3 pt-2.5 pb-3">
         <div className="flex items-center gap-2.5">
-          <TokenPortrait name={token.name} assetId={token.imageAssetId} className="size-10" />
+          <TokenPortrait name={token.name} assetId={token.imageAssetId} ring={token.ring} className="size-10" />
           <div className="flex flex-1 flex-col">
             <span className={cn('font-mono text-sm tabular-nums', hpDanger(token) ? 'text-danger' : 'text-text')} data-testid="token-card-hp">
               {token.hp ? `${token.hp.current} / ${token.hp.max} HP` : 'No HP set'}
@@ -307,7 +309,46 @@ export function GroupCard({ tokens }: { tokens: Token[] }) {
   );
 }
 
-/** A player's card: claim an unclaimed token, or see who holds it. Their own goes to the Character sheet. */
+/** A player's own character on the map: its name, and "Edit my token" for its picture and ring. */
+function OwnTokenCard({ token, identityId }: { token: Token; identityId: string }) {
+  const ref = useBeside(token.x, token.y, (SIZE_CELLS[token.size] ?? 1) / 2);
+  const [editing, setEditing] = useState(false);
+  return (
+    <FloatBox
+      ref={ref}
+      className={cn('absolute z-30 flex flex-col gap-2 px-3 py-2.5', editing ? 'w-[344px] max-w-[calc(100vw-1rem)] p-3' : 'w-56')}
+      style={{ visibility: 'hidden' }}
+      data-testid="token-card"
+      data-chrome
+      onPointerDown={(e) => e.stopPropagation()}
+      onWheel={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-2">
+        <TokenPortrait name={token.name} assetId={token.imageAssetId} ring={token.ring} className="size-7" />
+        <span className="truncate text-sm font-medium text-text">{token.name}</span>
+      </div>
+      {editing ? (
+        <TokenArtEditor
+          name={token.name}
+          imageAssetId={token.imageAssetId}
+          ring={token.ring}
+          defaultRing={seatColour(identityId)}
+          onCancel={() => setEditing(false)}
+          onSave={(art) => {
+            sendTokens('pc-update', art);
+            setEditing(false);
+          }}
+        />
+      ) : (
+        <SecondaryButton icon={Pencil} className="self-start" data-testid="token-card-edit-mine" onClick={() => setEditing(true)}>
+          Edit my token
+        </SecondaryButton>
+      )}
+    </FloatBox>
+  );
+}
+
+/** A player's card: claim an unclaimed token, see who holds it, or edit their own character's. */
 function PlayerTokenCard({ token }: { token: Token }) {
   const you = useSessionStore((s) => s.you);
   const holder = useSessionStore((s) => s.session?.players.find((p) => p.identityId === token.ownerId)?.name);
@@ -339,6 +380,7 @@ export function TokenCards() {
   const state = useModuleState<TokensState>('tokens');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const role = useSessionStore((s) => s.you?.role);
+  const identityId = useSessionStore((s) => s.you?.identityId);
   const selectedIds = useTokenInteraction((s) => s.selectedIds);
   const draggingId = useTokenInteraction((s) => s.draggingId);
   const picked = useMemo(() => {
@@ -350,7 +392,12 @@ export function TokenCards() {
   }, [state, sceneId, selectedIds]);
 
   if (draggingId !== null || picked.length === 0) return null;
-  if (role !== 'dm') return picked.length === 1 ? <PlayerTokenCard key={picked[0].id} token={picked[0]} /> : null;
+  if (role !== 'dm') {
+    if (picked.length !== 1) return null;
+    const [one] = picked;
+    if (identityId && one.ownerId === identityId && one.kind === 'pc') return <OwnTokenCard key={one.id} token={one} identityId={identityId} />;
+    return <PlayerTokenCard key={one.id} token={one} />;
+  }
   if (picked.length > 1) return <GroupCard tokens={picked} />;
   return <TokenCard key={picked[0].id} token={picked[0]} />;
 }

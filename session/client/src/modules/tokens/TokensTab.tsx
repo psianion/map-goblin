@@ -180,7 +180,7 @@ export function TokensStrip() {
                 onDoubleClick={() => openSheet('token-type', { defId: def.id })}
               >
                 <span className="flex size-full items-center justify-center">
-                  <TokenPortrait name={def.name} assetId={def.imageAssetId} className="size-8" />
+                  <TokenPortrait name={def.name} assetId={def.imageAssetId} ring={def.ring} className="size-8" />
                 </span>
                 <span className="absolute bottom-0.5 left-0.5 rounded-key bg-panel px-1 text-xs leading-none text-text-2">{KIND_LABEL[kindOf(def)]}</span>
                 {counts.get(def.id) ? (
