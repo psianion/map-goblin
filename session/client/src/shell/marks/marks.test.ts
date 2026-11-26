@@ -5,7 +5,7 @@ import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { attachMarkInput } from './markInput';
-import { adoptOwnTemplate, distanceLabel, receiveMark, sendMark, useMarks } from './marks';
+import { CLEAR_DRAWINGS, CLEAR_TEMPLATES, LEAVE_MS, adoptOwnTemplate, distanceLabel, receiveMark, sendMark, useMarks } from './marks';
 import { useLocalPins } from './pins';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'DM', role: 'dm', connected: true };
@@ -47,6 +47,7 @@ describe('mark tools', () => {
     fireEvent.pointerMove(canvas, { clientX: 30, clientY: 40 });
     expect(useMarks.getState().marks[0]?.msg).toEqual({ kind: 'ruler', from: { x: 0, y: 0 }, to: { x: 3, y: 4 } });
     fireEvent.pointerUp(canvas, {});
+    useMarks.getState().prune(Date.now() + 2000);
     expect(useMarks.getState().marks).toEqual([]);
   });
 
@@ -84,6 +85,9 @@ describe('mark tools', () => {
     fireEvent.pointerUp(canvas, {});
     useSessionStore.setState({ sendMark: real });
     expect(sent).toEqual([{ kind: 'clear', id: 'mabc' }]);
+    // It fades out, then is gone.
+    expect(useMarks.getState().marks[0]?.expiresAt).toBeLessThanOrEqual(Date.now() + LEAVE_MS);
+    useMarks.getState().prune(Date.now() + LEAVE_MS + 1);
     expect(useMarks.getState().marks).toEqual([]);
   });
 
@@ -122,12 +126,32 @@ describe('mark channel adapter', () => {
     useMarks.getState().prune(Date.now() + 120_000);
     expect(useMarks.getState().marks.map((m) => m.id)).toEqual(['m1']);
     useSessionStore.getState().applyServerMessage({ type: 'mark', event: { id: 'm2', from: 'd', at: 0, sceneId: null, ttlMs: 0, mark: { kind: 'clear', id: 'm1' } } } as never);
+    useMarks.getState().prune(Date.now() + LEAVE_MS + 1);
     expect(useMarks.getState().marks).toEqual([]);
+  });
+
+  it('clears every template, or every drawing, by the two clear-all ids', () => {
+    receiveMark({ kind: 'template', shape: 'cone', origin: { x: 1, y: 1 }, size: 3, toward: { x: 4, y: 1 } }, 'd', 0, { id: 't1', ttlMs: 0 });
+    receiveMark({ kind: 'draw', points: [[0, 0], [1, 1]], ttl: 60_000 }, 'd');
+    useSessionStore.getState().applyServerMessage({ type: 'mark', event: { id: 'm3', from: 'd', at: 0, sceneId: null, ttlMs: 0, mark: { kind: 'clear', id: CLEAR_TEMPLATES } } } as never);
+    useMarks.getState().prune(Date.now() + LEAVE_MS + 1);
+    expect(useMarks.getState().marks.map((m) => m.msg.kind)).toEqual(['draw']);
+    useMarks.getState().drop(CLEAR_DRAWINGS);
+    useMarks.getState().prune(Date.now() + LEAVE_MS + 1);
+    expect(useMarks.getState().marks).toEqual([]);
+  });
+
+  it('puts a mark on the scene it was relayed for, else the live one', () => {
+    useSessionStore.setState({ session: { activeSceneId: 's1' } as never });
+    receiveMark({ kind: 'ping', x: 1, y: 1 }, 'p1');
+    receiveMark({ kind: 'ping', x: 2, y: 2 }, 'p1', Date.now(), { sceneId: 's2' });
+    expect(useMarks.getState().marks.map((m) => m.sceneId)).toEqual(['s1', 's2']);
+    useSessionStore.setState({ session: null });
   });
 
   it("re-keys this seat's own template to the id the server relayed it with", () => {
     const template = { kind: 'template' as const, shape: 'circle' as const, origin: { x: 1, y: 1 }, size: 3 };
-    useMarks.getState().put({ id: 'template:d:1', by: 'd', msg: template, expiresAt: Infinity });
+    useMarks.getState().put({ id: 'template:d:1', by: 'd', sceneId: null, msg: template, expiresAt: Infinity });
     adoptOwnTemplate(template, 'd', 'm7');
     expect(useMarks.getState().marks.map((m) => m.id)).toEqual(['m7']);
     // A rejoin replays it with no local copy: it is drawn all the same.

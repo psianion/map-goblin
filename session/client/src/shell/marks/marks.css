@@ -1,0 +1,84 @@
+/*
+ * The marks layer's look in motion (table lobby pass, section 6), on the motion tokens. A
+ * mark fades in over --duration-enter and its glyph settles from a little small; it leaves by
+ * fading. Under reduced motion only the fades are left.
+ */
+
+/* Undo the camera's zoom for what is sized in screen pixels: glyphs, end dots, pills. The
+   frame loop writes --mk-k (one over the zoom) onto the layer; React never hears of it. */
+.mk-fix {
+  transform: scale(var(--mk-k, 1));
+}
+
+.mk-mark {
+  animation: mk-fade-in var(--duration-enter) var(--ease-enter) backwards;
+  transition: opacity var(--mk-leave, var(--duration-exit)) var(--ease-exit);
+}
+.mk-mark[data-leaving] {
+  opacity: 0;
+}
+
+.mk-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mk-pop var(--duration-enter) var(--ease-spring) backwards;
+}
+.mk-drop {
+  animation: mk-drop 220ms var(--ease-spring) backwards;
+}
+
+/* A ping's two rings: each widens and thins out, the second half a beat behind. */
+.mk-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mk-ripple 1400ms var(--ease-enter) infinite;
+}
+.mk-ring-late {
+  animation-delay: 500ms;
+}
+
+.mk-edge {
+  transition: opacity var(--duration-enter) var(--ease-enter);
+}
+
+@keyframes mk-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mk-pop {
+  from {
+    transform: scale(0.55);
+  }
+}
+@keyframes mk-drop {
+  from {
+    transform: translateY(-10px);
+  }
+}
+@keyframes mk-ripple {
+  from {
+    transform: scale(0.45);
+    opacity: 0.95;
+  }
+  to {
+    transform: scale(2.7);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mk-pop,
+  .mk-drop {
+    animation: none;
+  }
+  .mk-ring {
+    animation: none;
+    transform: scale(1.5);
+    opacity: 0.55;
+  }
+  .mk-ring-late {
+    transform: scale(2.4);
+    opacity: 0.3;
+  }
+}
