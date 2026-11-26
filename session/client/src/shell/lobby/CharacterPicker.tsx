@@ -8,7 +8,7 @@ import { Plus } from '@dnd/ui/icons';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { TokenPortrait } from '../../modules/tokens/TokenPortrait';
-import { pcDefs, pcStatus, sendCommand, useTable, type PcStatus } from './lobbyState';
+import { pcDefs, pcStatus, sendCommand, useRoster, useTable, type PcStatus } from './lobbyState';
 
 function statusText(s: PcStatus): string {
   if (s.kind === 'taken') return `Taken by ${s.by}`;
@@ -62,7 +62,7 @@ function MakeYourOwn({ onDone }: { onDone: () => void }) {
 
 export function CharacterPicker() {
   const tokens = useModuleState<TokensState>('tokens');
-  const players = useSessionStore((s) => s.session?.players ?? []);
+  const players = useRoster();
   const you = useSessionStore((s) => s.you?.identityId);
   const { playersMakePcs } = useTable();
   const [making, setMaking] = useState(false);

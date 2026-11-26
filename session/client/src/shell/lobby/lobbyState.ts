@@ -30,6 +30,11 @@ export function liveSceneKey(session: SessionState | null | undefined): string |
 
 export const useLiveSceneKey = (): string | null => useSessionStore((s) => liveSceneKey(s.session));
 
+const NO_PLAYERS: readonly PlayerInfo[] = [];
+
+/** Every seat at the table. One empty list while the session is still on its way, so the store never sees a fresh array per read. */
+export const useRoster = (): readonly PlayerInfo[] => useSessionStore((s) => s.session?.players ?? NO_PLAYERS);
+
 /** A player's seat on a table the DM has not started: the lobby, in place of the map. */
 export function isInLobby(s: SessionSlice): boolean {
   return s.you?.role === 'player' && !!s.session && tableOf(s.session).started === false;

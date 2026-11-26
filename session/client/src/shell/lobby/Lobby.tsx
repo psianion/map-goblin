@@ -17,7 +17,7 @@ import { TableToaster } from '../TableToaster';
 import { withoutSupersededSeats } from '../top/roster';
 import { leaveTable } from '../top/sessionActions';
 import { CharacterPicker } from './CharacterPicker';
-import { pcOf, sendCommand, useTable } from './lobbyState';
+import { pcOf, sendCommand, useRoster, useTable } from './lobbyState';
 import { useLobbyLoading, type LobbyLoad } from './loading';
 
 const LOAD_WORDS: Record<LobbyLoad['state'], string> = {
@@ -72,7 +72,7 @@ function YourCharacter() {
 }
 
 function Seats({ load }: { load: LobbyLoad }) {
-  const roster = useSessionStore((s) => s.session?.players ?? []);
+  const roster = useRoster();
   const you = useSessionStore((s) => s.you?.identityId);
   const tokens = useModuleState<TokensState>('tokens');
   const { ready } = useTable();

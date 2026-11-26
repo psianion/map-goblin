@@ -13,7 +13,7 @@ import { sceneTokens } from '../../modules/tokens/play';
 import { TokenArtEditor } from '../../modules/tokens/TokenArtEditor';
 import { seatColour } from '../seatColour';
 import { withoutSupersededSeats } from '../top/roster';
-import { armPartyStart, handCharacter, pcDefs, pcOf, sendCommand, useLiveSceneKey, useTable } from './lobbyState';
+import { armPartyStart, handCharacter, pcDefs, pcOf, sendCommand, useLiveSceneKey, useRoster, useTable } from './lobbyState';
 
 const selectClass = 'h-7 min-w-0 flex-1 rounded-control border border-line bg-panel px-1.5 text-xs text-text';
 
@@ -85,7 +85,7 @@ function SeatRow({ seat, pcs, readyKey }: { seat: PlayerInfo; pcs: TokenDef[]; r
 }
 
 function Roster({ onArm }: { onArm: () => void }) {
-  const roster = useSessionStore((s) => s.session?.players ?? []);
+  const roster = useRoster();
   const tokens = useModuleState<TokensState>('tokens');
   const table = useTable();
   const key = useLiveSceneKey();
@@ -125,7 +125,7 @@ function Roster({ onArm }: { onArm: () => void }) {
 /** "Not started", who is ready, and Start, under the DM's title card. */
 export function LobbyStrip() {
   const dm = useSessionStore((s) => s.you?.role === 'dm');
-  const roster = useSessionStore((s) => s.session?.players ?? []);
+  const roster = useRoster();
   const { started, ready } = useTable();
   const key = useLiveSceneKey();
   const [open, setOpen] = useState(false);

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import { TABLE_INITIAL } from '@dnd/mechanics/table';
+import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { BRAM, DM, SCENE, def, seat, sent, token, tokensState } from '../../modules/tokens/playTestSeat';
 import { SessionMenu } from '../top/SessionMenu';
@@ -34,6 +35,13 @@ describe('the DM lobby strip', () => {
     expect(screen.queryByTestId('lobby-strip')).toBeNull();
     cleanup();
     seat({ table: notStarted }, BRAM, players);
+    render(<LobbyStrip />);
+    expect(screen.queryByTestId('lobby-strip')).toBeNull();
+  });
+
+  it('draws nothing, and does not loop, while the session is still on its way', () => {
+    seat({ table: notStarted }, DM, players);
+    useSessionStore.setState({ session: null });
     render(<LobbyStrip />);
     expect(screen.queryByTestId('lobby-strip')).toBeNull();
   });
