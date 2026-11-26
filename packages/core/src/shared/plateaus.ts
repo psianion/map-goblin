@@ -495,9 +495,11 @@ export interface StairFlight {
 
 /**
  * Every flight of stairs on a layer: one per span with a drop under it (a span wholly covered by
- * a higher plateau, or flush with the ground outside, has none).
+ * a higher plateau, or flush with the ground outside, has none). Where the low side lies past the
+ * layer's floor and the other side on it (an edge along a room's wall), the flight is turned onto
+ * the floor inside the room.
  */
-export function stairFlights(layer: Pick<DungeonLayer, 'children'>): StairFlight[] {
+export function stairFlights(layer: Pick<DungeonLayer, 'children'> & { mergedFloor?: Polygon[] | null }): StairFlight[] {
   if (!hasPlateaus(layer) || !layer.children.some((c) => c.childType === 'plateau' && (c.stairs?.length ?? 0) > 0)) return [];
   const out: StairFlight[] = [];
   for (const band of layerPlateaus(layer).bands) {
@@ -520,8 +522,18 @@ export function stairFlights(layer: Pick<DungeonLayer, 'children'>): StairFlight
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
         // Outside is the left of travel along the ring: (dy, -dx). A plateau's low side is outside, a pit's inside.
         const left: Vec = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
-        const down: Vec = drop > 0 ? left : [-left[0], -left[1]];
+        let down: Vec = drop > 0 ? left : [-left[0], -left[1]];
         const [p, q] = [line[0], line[line.length - 1]];
+        const floor = layer.mergedFloor;
+        if (floor && floor.length > 0) {
+          const mid: Vec = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+          const onFloor = (k: number): boolean => {
+            const x = mid[0] + down[0] * k;
+            const y = mid[1] + down[1] * k;
+            return floor.reduce((hit, ring) => (ring.length >= 3 && pointInPoly(x, y, ring) ? !hit : hit), false);
+          };
+          if (!onFloor(0.5) && onFloor(-0.5)) down = [-down[0], -down[1]];
+        }
         // The span's ends in the ring's order.
         const forward = (q[0] - p[0]) * (b[0] - a[0]) + (q[1] - p[1]) * (b[1] - a[1]) >= 0;
         out.push({ plateau: s, span, top: forward ? [[p[0], p[1]], [q[0], q[1]]] : [[q[0], q[1]], [p[0], p[1]]], down, length: Math.abs(drop), edge: edgeOf(s) });

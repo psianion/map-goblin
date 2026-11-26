@@ -1007,6 +1007,21 @@ describe('DoorTool, Stairs style', () => {
     expect(spans()).toEqual([{ ring: 0, from: 1, to: 3 }]);
   });
 
+  it('picks stairs with any style, and never lays a door on them', () => {
+    click(tool, 12.3, 9.8);
+    const id = selectedIds()[0];
+    useStore.getState().setSelectedIds([]);
+    for (const doorStyle of ['single', 'double', 'archway'] as const) {
+      useStore.getState().updateToolSettings({ doorStairs: false, doorStyle, doorFreestanding: true });
+      tool.onPointerMove({ x: 12, y: 9.5 });
+      expect(ghost.children).toHaveLength(0);
+      click(tool, 12, 9.5);
+      expect(selectedIds()).toEqual([id]);
+      expect(doors()).toHaveLength(0);
+      useStore.getState().setSelectedIds([]);
+    }
+  });
+
   it('deletes the picked stairs, the cliff whole again', () => {
     click(tool, 12.3, 9.8);
     tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));

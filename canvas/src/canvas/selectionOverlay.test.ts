@@ -48,6 +48,23 @@ describe('selection overlay model', () => {
     expect(selectionOverlayModel(useStore.getState()).locked).toEqual([{ id: 'l', box: { x: 9.5, y: 9.5, width: 1, height: 1 } }]);
   });
 
+  it('picked stairs are outlined round their flight, and follow a resize', () => {
+    const plateau = {
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 2, edge: 'cliff',
+      stairs: [{ id: 's1', ring: 0, from: 1, to: 3 }],
+    } as unknown as AnyChild;
+    useStore.getState().addChild(layer().id, plateau);
+    expect(selectionOverlayModel(useStore.getState()).stairs).toEqual([]);
+    useStore.getState().setSelectedIds(['stairs:p1:s1']);
+    const xs = (i = 0) => selectionOverlayModel(useStore.getState()).stairs[i].map(([x]) => x);
+    const ys = (i = 0) => selectionOverlayModel(useStore.getState()).stairs[i].map(([, y]) => y);
+    // Two cells along the edge y 10 from x 11, two cells down to y 8.
+    expect([Math.min(...xs()), Math.max(...xs())]).toEqual([11, 13]);
+    expect([Math.min(...ys()), Math.max(...ys())]).toEqual([8, 10]);
+    useStore.getState().updateChild(layer().id, 'p1', { stairs: [{ id: 's1', ring: 0, from: 1, to: 4 }] } as never);
+    expect(Math.max(...xs())).toBe(14);
+  });
+
   it('an unlocked selection draws no lock', () => {
     asset('p');
     useStore.getState().setSelectedIds(['p']);

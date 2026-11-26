@@ -1,7 +1,7 @@
 // Stair kits a pack declares, and a flight laid with one: whole cells of painted steps, Wide pieces
 // first across, the longest run first down, the tile's top on the edge, foot first.
 import { afterEach, describe, expect, it } from 'vitest';
-import { layFlight, packStairKits, stairKitById, stairKitFor, STONE_STAIRS } from './stairKits';
+import { layFlight, packStairKits, STAIR_SIDE_LINE, stairKitById, stairKitFor, stairPasses, STONE_STAIRS } from './stairKits';
 import { resetAssetPackManager, seedPack } from '../testing/seedCatalog';
 import type { ManifestEntry, StairsMeasure } from '../engine/packManifest';
 
@@ -82,5 +82,35 @@ describe('a flight laid with a kit', () => {
     expect(p.entryId).toBe('test-pack:overlay_b_1x2_A');
     expect(p.scale[0]).toBeCloseTo(1.25);
     expect(p.scale[1]).toBeCloseTo(0.9);
+  });
+});
+
+describe('a flight wider than one piece', () => {
+  it('trims the side lines where pieces meet, so it reads as one flight; its outer sides stay', () => {
+    seedStairs();
+    const laid = layFlight({ top: [[0, 0], [4, 0]], down: [0, 1], length: 1 }, stairKitById('overlay')!);
+    expect(laid.map((p) => p.crop)).toEqual([
+      [false, true],
+      [true, false],
+    ]);
+    expect(laid[0].painted).toEqual([0, 0, 2 - STAIR_SIDE_LINE, 1]);
+    expect(laid[1].painted).toEqual([STAIR_SIDE_LINE, 0, 2, 1]);
+    const three = layFlight({ top: [[0, 0], [3, 0]], down: [0, 1], length: 1 }, stairKitById('overlay')!);
+    expect(three.map((p) => p.crop)).toEqual([
+      [false, true],
+      [true, false],
+    ]);
+    // Each still fills its own share of the span.
+    expect(three[0].scale[0] * (three[0].painted[2] - three[0].painted[0])).toBeCloseTo(2);
+    expect(three[1].scale[0] * (three[1].painted[2] - three[1].painted[0])).toBeCloseTo(1);
+    const [one] = layFlight({ top: [[0, 0], [1, 0]], down: [0, 1], length: 1 }, stairKitById('overlay')!);
+    expect(one.crop).toEqual([false, false]);
+    expect(one.painted).toEqual([0, 0, 1, 1]);
+  });
+
+  it('draws a translucent overlay kit twice, so its steps read on a light floor, and a stone kit once', () => {
+    seedStairs();
+    expect(stairPasses(stairKitById('overlay')!)).toBe(2);
+    expect(stairPasses(stairKitById('stone_slate')!)).toBe(1);
   });
 });

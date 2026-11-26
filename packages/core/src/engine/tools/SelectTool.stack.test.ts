@@ -129,6 +129,35 @@ describe('Select: picking stacked objects', () => {
     expect(undoManager.canUndo()).toBe(false);
   });
 
+  it('stairs take their place in the stack as a door does: under a prop, over the plateau and floor', () => {
+    add({
+      id: 'f', name: 'f', childType: 'shape', visible: true, shapeType: 'rectangle', flipX: false, flipY: false,
+      contours: [[[0, 0], [20, 0], [20, 20], [0, 20]]],
+    } as unknown as ShapeChild);
+    add({
+      id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 2, edge: 'cliff',
+      stairs: [{ id: 's1', ring: 0, from: 1, to: 3 }],
+    } as unknown as AnyChild);
+    asset('a', 12, 9);
+    // The flight lies north of the edge y 10, x 11..13, two cells down to y 8.
+    const stack = stackIds(12, 9);
+    expect(stack.slice(0, 2)).toEqual(['a', 'stairs:p1:s1']);
+    expect(stack).toContain('f');
+    clickAt(tool, 12, 9, 1000);
+    expect(sel()).toEqual(['a']);
+    clickAt(tool, 12, 9, 1000 + CLICK_AGAIN_MIN_MS);
+    expect(sel()).toEqual(['stairs:p1:s1']);
+    clickAt(tool, 12, 9, 1000 + 2 * CLICK_AGAIN_MIN_MS);
+    expect(sel()).toEqual([stack[2]]);
+    // Shift reaches past the stairs to what lies under them, the floor: a selection they cannot join.
+    clickAt(tool, 11.2, 8.3, 5000);
+    expect(sel()).toEqual(['stairs:p1:s1']);
+    tool.onPointerDown({ x: 11.2, y: 8.3 }, at(11.2, 8.3, { shiftKey: true }));
+    tool.onPointerUp({ x: 11.2, y: 8.3 }, at(11.2, 8.3, { shiftKey: true }));
+    expect(sel()).toContain('f');
+    expect(undoManager.canUndo()).toBe(false);
+  });
+
   it('the second click of a double-click keeps the pick, so the double-click acts on the top', () => {
     asset('p', 2, 2);
     floor('f');

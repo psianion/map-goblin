@@ -18,6 +18,7 @@ import { rebuildDungeonLayer } from './floorWallRenderer';
 import { cliffRockLines } from './rockLines';
 import { cliffFreeTips, cliffLedge, laidRuns, renderPlateaus, walkCliff } from './plateauRenderer';
 import { jointsOf } from '../assets/caveWallKit';
+import { STAIR_SIDE_LINE } from '../assets/stairKits';
 import { layerPlateaus } from '../shared/plateaus';
 import type { LayerEntry } from './sceneGraph';
 import type { BandMeasure, ManifestEntry } from './packManifest';
@@ -129,6 +130,42 @@ describe('stairs on a measured cliff', () => {
     expect(pts.some(([x, y]) => x > 4.2 && x < 5.8 && Math.abs(y) < 0.6)).toBe(false);
   });
 
+  for (const height of [2, -2]) {
+    it(`ends the top line where the rock line does beside the stairs, with no hook back to the edge (height ${height})`, () => {
+      const layer = setUp(plat(height, [SPAN]));
+      rebuildDungeonLayer(layer, makeEntry(layer.id));
+      const saved = dungeon();
+      const line = (saved.rockLines ?? []).find((l) => l.kind === 'cliff')!;
+      // The rock's ends beside the span, as saved.
+      const ends = line.runs.flatMap((r) => [r[0], r[r.length - 1]]);
+      const atEnd = ([x, y]: readonly number[]) => ends.some(([u, v]) => Math.hypot(u - x, v - y) < 0.02);
+      const [c] = laidRuns(saved, layerPlateaus(saved).bands[0])[0].cliffs!;
+      const pts = c.top.points;
+      expect(atEnd(pts[0])).toBe(true);
+      expect(atEnd(pts[pts.length - 1])).toBe(true);
+      expect(c.top.drops).toHaveLength(pts.length - 1);
+    });
+  }
+
+  it('opens a small -2 pit exactly across a 2-wide span near its corner, rock laid on either side', () => {
+    const pit: PlateauChild = { ...plat(-2, [{ id: 's1', ring: 0, from: 1, to: 3 }]), contours: [[[0, 0], [5, 0], [5, 4], [0, 4]]] };
+    const layer = setUp(pit);
+    rebuildDungeonLayer(layer, makeEntry(layer.id));
+    const line = (dungeon().rockLines ?? []).find((l) => l.kind === 'cliff')!;
+    expect(line.runs).toHaveLength(1);
+    const run = line.runs[0];
+    // The rock stops at the span's two ends, tapered there, and nowhere across it.
+    const ends = [run[0], run[run.length - 1]].map(([x]) => x).sort((p, q) => p - q);
+    expect(ends[0]).toBeGreaterThan(0.75);
+    expect(ends[0]).toBeLessThan(1.25);
+    expect(ends[1]).toBeGreaterThan(2.75);
+    expect(ends[1]).toBeLessThan(3.25);
+    const onTop = run.filter(([, y]) => Math.abs(y) < 0.6).map(([x]) => x);
+    expect(onTop.some((x) => x < 0.9)).toBe(true);
+    expect(onTop.some((x) => x > 3.1)).toBe(true);
+    expect(onTop.some((x) => x > 1.25 && x < 2.75)).toBe(false);
+  });
+
   it('lays the cliff exactly as it was once the stairs are taken away', () => {
     const before = placements(setUp(plat(2)));
     expect(before.length).toBeGreaterThan(0);
@@ -163,14 +200,33 @@ describe('stairs on a measured cliff', () => {
     const edges = new Container();
     renderPlateaus(layer, new Container(), edges);
     const flight = (edges.children[0] as Container).children.find((c) => c.label === 'plateau-stairs') as Container;
-    expect(flight.children).toHaveLength(1);
+    // A kit with no stone colour is a translucent overlay: laid twice over itself.
+    expect(flight.children).toHaveLength(2);
     const piece = flight.children[0] as Sprite;
+    expect([flight.children[1].position.x, flight.children[1].position.y]).toEqual([piece.position.x, piece.position.y]);
     // Down north from y 0: the tile turned a half turn, its painted top-left at the span's east end.
     expect(piece.position.x).toBeCloseTo(6);
     expect(piece.position.y).toBeCloseTo(0);
     expect(Math.abs(piece.rotation)).toBeCloseTo(Math.PI);
     // The whole 2-cell-wide tile drawn two cells wide, whatever size its texture is served at.
     expect(piece.scale.x * piece.texture.width).toBeCloseTo(2);
+  });
+
+  it('trims the side lines where the pieces of a wide flight meet, each still filling its share of the span', () => {
+    const stairs = (material: string, gridSize: string, wide: number, run: number) =>
+      ({ type: 'object', material, gridSize, pieceType: 'object', variant: 'A', set: 'Test_Stairs', tags: ['stairs'], stairs: { kit: 'steps', label: 'Steps', wide, run, painted: [0, 0, wide, run], colour: 'Earthy' } }) as ManifestEntry;
+    seedPack('test-stairs', { b_1x2_A: stairs('b', '1x2', 1, 1), a_1x3_A: stairs('a', '1x3', 1, 2), wide_a_2x3_A: stairs('wide_a', '2x3', 2, 2), wide_b_2x2_A: stairs('wide_b', '2x2', 2, 1) });
+    const layer = setUp(plat(2, [{ id: 's1', ring: 0, from: 3, to: 6 }]));
+    const edges = new Container();
+    renderPlateaus(layer, new Container(), edges);
+    const flight = (edges.children[0] as Container).children.find((c) => c.label === 'plateau-stairs') as Container;
+    const [wide, one] = flight.children as Sprite[];
+    expect(flight.children).toHaveLength(2);
+    // The served texture is 200 px: a cell of the Wide tile is 100 px of it, the one-cell tile's 200.
+    expect(wide.texture.frame.width).toBeCloseTo(200 - 100 * STAIR_SIDE_LINE);
+    expect(one.texture.frame.width).toBeCloseTo(200 - 200 * STAIR_SIDE_LINE);
+    expect(wide.scale.x * wide.texture.frame.width).toBeCloseTo(2);
+    expect(one.scale.x * one.texture.frame.width).toBeCloseTo(1);
   });
 });
 

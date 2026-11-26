@@ -8,6 +8,9 @@ import { SwatchPicker, type Swatch } from '@/editor/SwatchPicker';
 import { swatchLabel } from '@/editor/swatchLabel';
 import { DEFAULT_STAIRS, pickedStairs, pickStairKit, stairKitSwatches } from './stairsModel';
 import { DoorKitColumn } from './DoorFields';
+import { SelectionPanel } from '@/editor/families/select/SelectionPanel';
+import { ToolPanel } from '@/editor/surfaces/ToolPanel';
+import { useActiveTool } from '@/editor/surfaces/hooks';
 
 /** The tiles for what is picked: Stone takes the colour of the picked stairs' cliff. */
 function useStairSwatches(): Swatch[] {
@@ -35,6 +38,14 @@ export function StairKitColumn() {
       <SwatchPicker name="Stair kit" swatches={swatches} value={value} onPick={pickStairKit} compact twoLines />
     </DockColumn>
   );
+}
+
+/** The Door tool's box beside the rail while something is picked: the stairs card for picked stairs, else its own panel. */
+export function DoorSelectionPanel() {
+  const stairs = useStore((s) => pickedStairs(s) !== null);
+  const tool = useActiveTool();
+  if (stairs) return <SelectionPanel />;
+  return tool ? <ToolPanel tool={tool} /> : null;
 }
 
 /** The Door tool's Kit column: the stair kits with the Stairs style, else the door kits. */

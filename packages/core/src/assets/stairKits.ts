@@ -78,6 +78,23 @@ export interface LaidStair {
   rotation: number;
   /** World cells per tile cell across the flight and down it. */
   scale: Vec;
+  /**
+   * Whether the tile is cut off at its painted steps on its start side and its end side across the
+   * flight: where it meets the next piece, its side line is trimmed (STAIR_SIDE_LINE inside
+   * `painted`), so the two read as one flight.
+   */
+  crop: [boolean, boolean];
+}
+
+/** How far in from a piece's side its painted side line reaches, tile cells: trimmed where pieces meet. */
+export const STAIR_SIDE_LINE = 0.015;
+
+/**
+ * How many times a flight's pieces are drawn over each other: a translucent overlay kit (one with
+ * no stone colour) twice, so its steps read on a light floor at normal zoom; a stone kit once.
+ */
+export function stairPasses(kit: StairKit): number {
+  return kit.colour ? 1 : 2;
 }
 
 /** Cell counts `total` is split into, by the sizes there are pieces for: the largest first. */
@@ -108,7 +125,8 @@ export function layFlight(flight: { top: [Vec, Vec]; down: Vec; length: number }
   // The tile's x axis: its y axis (down the flight) turned back a quarter, as a tile's axes are.
   const x: Vec = [d[1], -d[0]];
   const start = (b[0] - a[0]) * x[0] + (b[1] - a[1]) * x[1] >= 0 ? a : b;
-  const across = slots(Math.max(1, Math.round(width)), [...new Set(kit.pieces.map((p) => p.wide))]);
+  const cells = Math.max(1, Math.round(width));
+  const across = slots(cells, [...new Set(kit.pieces.map((p) => p.wide))]);
   const down = slots(Math.max(1, Math.round(flight.length)), [...new Set(kit.pieces.map((p) => p.run))]);
   const sx = width / Math.max(1, Math.round(width));
   const sy = flight.length / Math.max(1, Math.round(flight.length));
@@ -129,15 +147,19 @@ export function layFlight(flight: { top: [Vec, Vec]; down: Vec; length: number }
       const w = piece ? Math.min(wide, piece.wide) : wide;
       const reps = piece ? Math.max(1, Math.round(wide / w)) : 0;
       for (let r = 0; r < reps; r++) {
+        // Where it meets a piece beside it, its side line is trimmed off.
+        const crop: [boolean, boolean] = [off + r * w > 0, off + (r + 1) * w < cells];
         const [x0, y0, x1, y1] = piece!.painted;
+        const painted: StairPiece['painted'] = [x0 + (crop[0] ? STAIR_SIDE_LINE : 0), y0, x1 - (crop[1] ? STAIR_SIDE_LINE : 0), y1];
         const o0 = (off + r * w) * sx;
         const t0 = row.at * sy;
         out.push({
           entryId: piece!.entryId,
-          painted: piece!.painted,
+          painted,
           origin: [start[0] + x[0] * o0 + d[0] * t0, start[1] + x[1] * o0 + d[1] * t0],
           rotation,
-          scale: [(w * sx) / (x1 - x0), (row.run * sy) / (y1 - y0)],
+          scale: [(w * sx) / (painted[2] - painted[0]), (row.run * sy) / (y1 - y0)],
+          crop,
         });
       }
       off += wide;

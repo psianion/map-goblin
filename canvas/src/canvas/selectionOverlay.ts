@@ -5,12 +5,17 @@ import type { RenderEngine } from '@/engine/RenderEngine';
 import { getEditorDesk } from '@dnd/core/src/engine/editorDesk';
 import { getChildFootprint, getWallBounds, wallReach } from '@dnd/core/src/engine/hitTest';
 import { dashSpine } from '@dnd/core/src/engine/wallNodeRenderer';
-import { isLockedObject, resolveSelection } from '@dnd/core/src/store/selectionResolve';
+import { isLockedObject, resolveSelection, stairsPick } from '@dnd/core/src/store/selectionResolve';
+import { stairFlights } from '@dnd/core/src/shared/plateaus';
+import { flightFootprint } from '@dnd/core/src/engine/plateauRenderer';
+import type { Polygon } from '@dnd/core/src/types/geometry';
 
 /*
  * The editor's selection overlay: what the gizmo cannot say about a selection. A locked
  * member stays selectable but is left out of the box, so it gets a dashed outline of its
  * own and a padlock at its top-left corner instead of handles.
+ *
+ * Picked stairs have no gizmo either, so their flight gets a solid outline here.
  *
  * Built like the prop overlay (propOverlay.ts): one root in the engine's screen-space
  * overlay, the world camera copied onto it every frame, drawn in world units, redrawn
@@ -31,10 +36,18 @@ type Box = { x: number; y: number; width: number; height: number };
 export interface SelectionOverlayModel {
   /** The world box of each locked selected member, with its id. */
   locked: { id: string; box: Box }[];
+  /** The footprint of each picked flight of stairs: they have no gizmo, so this is their outline. */
+  stairs: Polygon[];
 }
 
 /** What the overlay draws for `state`. Pure. */
 export function selectionOverlayModel(state: MapBuilderStore): SelectionOverlayModel {
+  const stairs: Polygon[] = [];
+  for (const id of state.selection.selectedIds) {
+    const pick = stairsPick(state, id);
+    const flight = pick && stairFlights(pick.layer).find((f) => f.plateau.id === pick.plateau.id && f.span.id === pick.span.id);
+    if (flight) stairs.push(flightFootprint(flight));
+  }
   const sel = resolveSelection(state, state.selection.selectedIds);
   const locked: SelectionOverlayModel['locked'] = [];
   for (const { child } of sel.children) {
@@ -44,14 +57,18 @@ export function selectionOverlayModel(state: MapBuilderStore): SelectionOverlayM
   for (const { wall, layer } of sel.walls) {
     if (isLockedObject(wall) && wall.visible !== false) locked.push({ id: wall.id, box: getWallBounds(wall, wallReach(wall, layer)) });
   }
-  return { locked };
+  return { locked, stairs };
 }
 
-/** A redraw's inputs by identity: the selection and its locked members, never `layers`. */
+/** A redraw's inputs by identity: the selection, its locked members and picked stairs' plateaus, never `layers`. */
 function overlayKeys(s: MapBuilderStore): unknown[] {
   const ids = new Set(s.selection.selectedIds);
   const out: unknown[] = [s.selection.selectedIds];
   if (ids.size === 0) return out;
+  for (const id of ids) {
+    const pick = stairsPick(s, id);
+    if (pick) out.push(pick.plateau);
+  }
   for (const l of s.layers) {
     if (l.type !== 'dungeon') continue;
     for (const c of l.children) if (ids.has(c.id) && isLockedObject(c)) out.push(c);
@@ -136,6 +153,12 @@ export function mountSelectionOverlay(engine: RenderEngine): SelectionOverlayHan
     pal = next;
     const model = selectionOverlayModel(useStore.getState());
     lines.clear();
+    // Picked stairs: a solid outline round the flight, ink over a paper halo.
+    for (const ring of model.stairs) {
+      const flat = ring.flat();
+      lines.poly(flat, true).stroke({ color: pal.paper, width: (OUTLINE_PX + 2 * HALO_PX) / zoom, alpha: 0.6 });
+      lines.poly(flat, true).stroke({ color: pal.ink, width: OUTLINE_PX / zoom, alpha: 1 });
+    }
     const live = new Set<string>();
     for (const { id, box } of model.locked) {
       const p = PAD_PX / zoom;

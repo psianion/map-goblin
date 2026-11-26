@@ -453,6 +453,28 @@ describe('tool settings', () => {
     expect(st().selection.selectedIds).toEqual([]);
   });
 
+  it('the dock Width reads and resizes picked stairs in whole cells, one undo step, and the next door’s width otherwise', () => {
+    useStore.setState((s) => {
+      (s.layers.find((l) => l.type === 'dungeon') as DungeonLayer).children.push({
+        id: 'p1', name: 'p1', childType: 'plateau', visible: true, contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]], height: 1, edge: 'cliff',
+        stairs: [{ id: 's1', ring: 0, from: 1, to: 2 }],
+      } as PlateauChild);
+    });
+    const plateau = () => st().layers.flatMap((l) => (l.type === 'dungeon' ? (l as DungeonLayer).children : [])).find((c) => c.id === 'p1') as PlateauChild;
+    settings.setSetting('door.width', 1);
+    st().setSelectedIds(['stairs:p1:s1']);
+    expect(settings.getSetting('door.width')).toBe(1);
+    settings.setSetting('door.width', 2);
+    expect(plateau().stairs).toEqual([{ id: 's1', ring: 0, from: 1, to: 3 }]);
+    expect(settings.getSetting('door.width')).toBe(2);
+    expect(st().tools.settings.doorWidth).toBe(1);
+    undoManager.undo();
+    expect(plateau().stairs).toEqual([{ id: 's1', ring: 0, from: 1, to: 2 }]);
+    st().setSelectedIds([]);
+    settings.setSetting('door.width', 3);
+    expect(st().tools.settings.doorWidth).toBe(3);
+  });
+
   it('door Width steps by whole cells for every style, an Opening from 1 to 2', () => {
     expect(reg.settingById('door.width')!.range?.step).toBe(1);
     settings.setSetting('door.style', 'opening');

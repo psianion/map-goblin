@@ -4,6 +4,7 @@
 
 import type { DungeonLayer } from '../store/types';
 import type { PlateauChild, StairSpan } from './types';
+import type { Polygon } from '../types/geometry';
 import { layerPlateaus, shapeRing, stairFlights, type StairFlight } from './plateaus';
 import { alongRock } from './rockLines';
 
@@ -59,7 +60,7 @@ function outlineEdge(plateau: PlateauChild, a: Vec, b: Vec): { ring: number; p: 
  * edge shorter than the width takes as many whole cells as it holds. `ignore` is a span of the
  * same plateau being moved: it is no obstacle. Null off every edge, or on one shorter than a cell.
  */
-export function stairSpanAt(layer: Pick<DungeonLayer, 'children' | 'rockLines'>, point: Vec, width: number, ignore?: string): StairPlan | null {
+export function stairSpanAt(layer: Pick<DungeonLayer, 'children' | 'rockLines'> & { mergedFloor?: Polygon[] | null }, point: Vec, width: number, ignore?: string): StairPlan | null {
   let best: { d: number; a: Vec; b: Vec; owner: PlateauChild } | null = null;
   for (const band of layerPlateaus(layer).bands) {
     band.rings.forEach((ring, ri) => {
@@ -92,12 +93,12 @@ export function stairSpanAt(layer: Pick<DungeonLayer, 'children' | 'rockLines'>,
   const others = (hit.owner.stairs ?? []).filter((s) => s.id !== ignore);
   const overlaps = others.some((s) => s.ring === span.ring && s.from < span.to - EPS && s.to > span.from + EPS);
   const probe = { ...hit.owner, stairs: [...others, { ...span, id: '\u0000plan' }] } as PlateauChild;
-  const flight = stairFlights({ children: layer.children.map((c) => (c === hit.owner ? probe : c)) }).find((f) => f.span.id === '\u0000plan') ?? null;
+  const flight = stairFlights({ children: layer.children.map((c) => (c === hit.owner ? probe : c)), mergedFloor: layer.mergedFloor }).find((f) => f.span.id === '\u0000plan') ?? null;
   return { plateau: hit.owner, span, flight, valid: !overlaps && flight !== null };
 }
 
 /** The stairs under `point`: on its flight, or within reach of its span's line. */
-export function stairsAt(layer: Pick<DungeonLayer, 'children'>, point: Vec): { plateau: PlateauChild; span: StairSpan } | null {
+export function stairsAt(layer: Pick<DungeonLayer, 'children'> & { mergedFloor?: Polygon[] | null }, point: Vec): { plateau: PlateauChild; span: StairSpan } | null {
   for (const f of stairFlights(layer)) {
     const [a, b] = f.top;
     const w = Math.hypot(b[0] - a[0], b[1] - a[1]);

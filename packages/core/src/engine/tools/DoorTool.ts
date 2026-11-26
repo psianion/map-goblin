@@ -442,6 +442,11 @@ export class DoorTool implements DrawingTool {
     // A placed door is found under the pointer itself: one on a freehand cave wall
     // sits off the grid, where the snapped point can miss it.
     const hit = doorAt(raw ?? point, activeLayer);
+    // Stairs under the pointer are picked whatever the style: no door lands on them.
+    if (!hit && stairsAt(activeLayer, [(raw ?? point).x, (raw ?? point).y])) {
+      this.stairsDown(activeLayer, raw ?? point, point, locked);
+      return;
+    }
     if (hit) {
       // Second click of a double flips the state; the first already selected the
       // door, and selection is idempotent, so nothing fires twice.
@@ -817,13 +822,13 @@ export class DoorTool implements DrawingTool {
     const activeLayer = activeDungeonLayer();
     if (!activeLayer) return;
 
+    if (this.stairsPress) {
+      this.stairsSlide(activeLayer, point);
+      return;
+    }
+    const over = stairsAt(activeLayer, [(raw ?? point).x, (raw ?? point).y]);
+    this.hoveredStairs = over ? stairsSelectionId(over.plateau.id, over.span.id) : null;
     if (useStore.getState().tools.settings.doorStairs) {
-      if (this.stairsPress) {
-        this.stairsSlide(activeLayer, point);
-        return;
-      }
-      const over = stairsAt(activeLayer, [(raw ?? point).x, (raw ?? point).y]);
-      this.hoveredStairs = over ? stairsSelectionId(over.plateau.id, over.span.id) : null;
       this.hoveredDoorId = null;
       this.updateStairsGhost(activeLayer, point);
       return;
@@ -851,6 +856,12 @@ export class DoorTool implements DrawingTool {
     if (this.pendingLeaf) return;
 
     this.hoveredDoorId = doorAt(raw ?? point, activeLayer)?.id ?? null;
+    // Over stairs a click picks them: no door ghost there.
+    if (!this.hoveredDoorId && this.hoveredStairs) {
+      this.clearGhost();
+      return;
+    }
+    this.hoveredStairs = null;
 
     this.updateGhost(activeLayer, point);
   }

@@ -29,7 +29,7 @@
 // The cliff shadows are the shadow pass's (shadowPass.ts); it also re-lights the cliff rock
 // here when the sun moves (`shadeCliffs`).
 
-import { BlurFilter, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { BlurFilter, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import {
   BORDER_FADE,
@@ -93,7 +93,7 @@ import { isGroundPiece, pieceRings } from '../shared/pieces';
 import type { WorldBounds } from '../shared/mapBounds';
 import { baseGroundFrame } from './mapFrame';
 import { bandSize, getCatalogEntry, GRID_CELL_PX, isColoredSet, isMeasuredBandSet, type CatalogEntry } from '../assets/packCatalog';
-import { layFlight, stairKitFor } from '../assets/stairKits';
+import { layFlight, stairKitFor, stairPasses } from '../assets/stairKits';
 import { swapWhenLanded } from './lateArt';
 import { resolveTexture } from '../assets/textureLoader';
 import type { ShadowLook } from '../shared/shadows';
@@ -281,27 +281,35 @@ export function drawStairs(parent: Container, flights: StairFlight[]): void {
       outline.poly(flightFootprint(f).flat(), true).stroke({ color: INK, width: LINE, alpha: 0.85 });
       continue;
     }
+    // A translucent overlay is laid twice over itself, so its steps read on a light floor.
+    const passes = stairPasses(kit);
     for (const pl of layFlight(f, kit)) {
       const entry = getCatalogEntry(pl.entryId);
       if (!entry) continue;
-      const sprite = holder.addChild(new Sprite(Texture.EMPTY));
-      sprite.anchor.set((pl.painted[0] * GRID_CELL_PX) / entry.naturalWidth, (pl.painted[1] * GRID_CELL_PX) / entry.naturalHeight);
-      sprite.position.set(pl.origin[0], pl.origin[1]);
-      sprite.rotation = pl.rotation;
-      // World cells per texture pixel: the art is authored at GRID_CELL_PX a cell, brought back to
-      // that size from whatever resolution it is served at.
-      const show = (t: Texture): void => {
-        sprite.texture = t;
-        sprite.scale.set((pl.scale[0] * entry.naturalWidth) / t.width / GRID_CELL_PX, (pl.scale[1] * entry.naturalHeight) / t.height / GRID_CELL_PX);
-        sprite.visible = true;
-      };
-      const tex = resolveTexture(entry.id);
-      if (tex.width > 1) show(tex);
-      else {
-        sprite.visible = false;
-        swapWhenLanded(entry.id, (t) => {
-          if (!sprite.destroyed) show(t);
-        });
+      for (let pass = 0; pass < passes; pass++) {
+        const sprite = holder.addChild(new Sprite(Texture.EMPTY));
+        sprite.position.set(pl.origin[0], pl.origin[1]);
+        sprite.rotation = pl.rotation;
+        // World cells per texture pixel: the art is authored at GRID_CELL_PX a cell, brought back to
+        // that size from whatever resolution it is served at. Where it meets a piece beside it, the
+        // tile is cut off at its painted steps, its side line trimmed (`LaidStair.crop`).
+        const show = (t: Texture): void => {
+          const cell = (GRID_CELL_PX * t.width) / entry.naturalWidth;
+          const fx0 = pl.crop[0] ? pl.painted[0] * cell : 0;
+          const fx1 = pl.crop[1] ? pl.painted[2] * cell : t.width;
+          sprite.texture = fx0 > 0 || fx1 < t.width ? new Texture({ source: t.source, frame: new Rectangle(t.frame.x + fx0, t.frame.y, fx1 - fx0, t.frame.height) }) : t;
+          sprite.anchor.set((pl.painted[0] * cell - fx0) / (fx1 - fx0), (pl.painted[1] * GRID_CELL_PX) / entry.naturalHeight);
+          sprite.scale.set(pl.scale[0] / cell, (pl.scale[1] * entry.naturalHeight) / t.height / GRID_CELL_PX);
+          sprite.visible = true;
+        };
+        const tex = resolveTexture(entry.id);
+        if (tex.width > 1) show(tex);
+        else {
+          sprite.visible = false;
+          swapWhenLanded(entry.id, (t) => {
+            if (!sprite.destroyed) show(t);
+          });
+        }
       }
     }
   }
@@ -609,7 +617,7 @@ function cliffRuns(run: EdgeRun, walk: EdgeRun, laid: EdgeRun, walls: CliffWalls
     if (part && kept) {
       const stretch: EdgeRun = { ...run, closed: false, ...kept };
       const a = alongRock(kept.points, false, own);
-      const top = a.replaced.length === 0 ? stretch : { ...stretch, points: a.points, drops: a.segs.map((i) => kept.drops[i]) };
+      const top = a.replaced.length === 0 ? stretch : { ...stretch, ...rockEnds(a, kept.drops, !!part.head?.opens, !!tail?.opens) };
       out.push({
         run: stretch,
         top,
@@ -638,6 +646,55 @@ function cliffRuns(run: EdgeRun, walk: EdgeRun, laid: EdgeRun, walls: CliffWalls
   }
   flush(null);
   return out;
+}
+
+/** The most of a stretch's drawn edge left before its rock line starts, at a tip beside stairs, that is dropped from its top line, cells. */
+const HOOK_MAX = 0.6;
+
+/**
+ * A stretch's top line along its own rock line (`a`, each segment with its drop), ending where the
+ * rock does at a tip beside stairs (`head`, `tail`): the short bit of drawn edge from the span's end
+ * to the rock line is left off, and the line runs on along the rock to the rock line's own end
+ * there, so it neither hooks back to the edge nor stops short of the rock.
+ */
+function rockEnds(a: AlongRock, drops: number[], head: boolean, tail: boolean): { points: Vec[]; drops: number[] } {
+  let points = a.points;
+  let ds = a.segs.map((i) => drops[i]);
+  const length =(pts: readonly Vec[]): number => pts.reduce((s, p, k) => (k === 0 ? 0 : s + vdist(pts[k - 1], p)), 0);
+  const runs = [...new Set(a.replaced.map((r) => r.line))].flatMap((l) => l.runs as Vec[][]);
+  /** The rock line from the end of one of its runs to `p` on it, when that is short: that end first, `p` left off. */
+  const fromRunEnd = (p: Vec): Vec[] => {
+    for (const r of runs) {
+      for (const run of [r, [...r].reverse()]) {
+        let s = 0;
+        for (let j = 0; j + 1 < run.length && s <= HOOK_MAX; j++) {
+          if (segDist(p, run[j], run[j + 1]) < 0.01) return vdist(p, run[j]) < 1e-9 ? run.slice(0, j) : run.slice(0, j + 1);
+          s += vdist(run[j], run[j + 1]);
+        }
+      }
+    }
+    return [];
+  };
+  const onRock = (p: Vec): boolean => runs.some((r) => r.some((q, j) => j + 1 < r.length && segDist(p, q, r[j + 1]) < 0.01));
+  if (head) {
+    const k = points.findIndex(onRock);
+    if (k >= 0 && length(points.slice(0, k + 1)) <= HOOK_MAX) {
+      const lead = fromRunEnd(points[k]);
+      points = [...lead, ...points.slice(k)];
+      ds = [...lead.map(() => ds[k]), ...ds.slice(k)];
+    }
+  }
+  if (tail) {
+    let k = -1;
+    for (let i = points.length - 1; i >= 0 && k < 0; i--) if (onRock(points[i])) k = i;
+    if (k >= 0 && length(points.slice(k)) <= HOOK_MAX) {
+      const trail = fromRunEnd(points[k]).reverse();
+      const keep = ds.slice(0, k);
+      points = [...points.slice(0, k + 1), ...trail];
+      ds = [...keep, ...trail.map(() => keep[keep.length - 1] ?? ds[0])];
+    }
+  }
+  return { points, drops: ds };
 }
 
 /** The open line `points` less `head` of its length at its start and `tail` at its end, each kept segment with its drop; null when nothing is left. */

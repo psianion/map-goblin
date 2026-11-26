@@ -425,6 +425,17 @@ describe('stairs on an edge', () => {
     expect(crossingsAlong(layerOf([ground, pit]), [12, 8], [12, 11], kinds)[0]).toMatchObject({ kindId: 'free', chip: false });
   });
 
+  it('turns a flight whose low side is past the floor (an edge along the room’s wall) onto the floor inside', () => {
+    // The floor ends at y 10, the plateau's top edge: past it is the wall's rock, not floor.
+    const room = { children: [ground, top], mergedFloor: [[[0, 10], [30, 10], [30, 30], [0, 30]]] } as unknown as DungeonLayer;
+    const [inside] = stairFlights(room);
+    expect(inside.down[1]).toBeCloseTo(1);
+    expect(inside.length).toBe(2);
+    // With floor on both sides it stays on the low side.
+    const open = { children: [ground, top], mergedFloor: [[[0, 0], [30, 0], [30, 30], [0, 30]]] } as unknown as DungeonLayer;
+    expect(stairFlights(open)[0].down[1]).toBeCloseTo(-1);
+  });
+
   it('leaves the band exactly as it was once the stairs are gone', () => {
     const before = layerPlateaus(layerOf([ground, bare])).bands[0];
     layerPlateaus(layerOf([ground, top]));

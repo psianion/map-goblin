@@ -1,4 +1,4 @@
-import type { AnyChild, LightChild, DungeonLayer, ZoneChild } from '../store/types';
+import type { AnyChild, LightChild, DungeonLayer, PlateauChild, StairSpan, ZoneChild } from '../store/types';
 import type { RingGeometry, Room, WallSegment } from '../shared/types';
 import { flattenRing } from '../shared/bezier';
 import { distanceToLine, pathwayBounds, pathwayLine } from '../shared/pathway';
@@ -12,7 +12,8 @@ import { roomIndexOf } from '../shared/roomIndex';
 import { roomBadgePoints } from '../shared/roomUtils';
 import { inFrame, inRingsEvenOdd, lockedFrame } from '../shared/pieces';
 import { marqueeTabKinds } from './marqueeFilter';
-import type { SelectionKind } from '../store/selectionResolve';
+import { stairsAt } from '../shared/stairPlace';
+import { stairsSelectionId, type SelectionKind } from '../store/selectionResolve';
 
 /**
  * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
@@ -403,6 +404,8 @@ export type PickHit = (
   | { kind: 'child'; id: string; layerId: string; child: AnyChild }
   | { kind: 'wall'; id: string; layerId: string; wall: WallSegment }
   | { kind: 'room'; id: string; layerId: string; room: Room }
+  /** A flight of stairs on a plateau's edge, by its selection id (`stairsSelectionId`). */
+  | { kind: 'stairs'; id: string; layerId: string; plateau: PlateauChild; span: StairSpan }
 ) & {
   /** The object is locked on its own: selectable, never transformed. */
   locked?: boolean;
@@ -521,13 +524,16 @@ export function pointOnZoneEdge(zone: Pick<ZoneChild, 'shape'>, point: [number, 
 
 /**
  * Everything under `point` on one layer, topmost first: what stands on the walls (lights,
- * labels, props, doors), a zone by its outline, the drawn walls, plateaus, the room the point
- * is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by its
- * area, then the floors.
+ * labels, props, doors), stairs, a zone by its outline, the drawn walls, plateaus, the room
+ * the point is in (where rooms pick, see `setRoomPicking`; `opts.rooms` overrides), a zone by
+ * its area, then the floors.
  */
 function* layerHits(layer: DungeonLayer, point: [number, number], opts?: PickOptions & { rooms?: boolean }): Generator<PickHit> {
   const above = layer.children.filter((c) => ABOVE_WALLS.has(c.childType));
   for (const c of childHits(above, point, layer, opts)) yield childHit(layer.id, c);
+  // Stairs are the Door tool's and pick as a door does: under the props, over the walls they open.
+  const stairs = stairsAt(layer, point);
+  if (stairs) yield { kind: 'stairs', id: stairsSelectionId(stairs.plateau.id, stairs.span.id), layerId: layer.id, plateau: stairs.plateau, span: stairs.span };
   const zones = layer.children.filter((c): c is ZoneChild => c.childType === 'zone');
   const zoneHits = [...childHits(zones, point, layer, opts)] as ZoneChild[];
   for (const z of zoneHits) if (pointOnZoneEdge(z, point, opts?.zoom)) yield childHit(layer.id, z);
@@ -675,9 +681,9 @@ export interface StackEntry {
   hidden: boolean;
 }
 
-/** The kind a pick is, as the Pick only filter names kinds. */
+/** The kind a pick is, as the Pick only filter names kinds. Stairs go with the doors: the Door tool lays both. */
 export function pickKindOf(hit: PickHit): SelectionKind {
-  return hit.kind === 'child' ? hit.child.childType : hit.kind;
+  return hit.kind === 'child' ? hit.child.childType : hit.kind === 'stairs' ? 'door' : hit.kind;
 }
 
 /**
