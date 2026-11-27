@@ -101,7 +101,7 @@ test('material brush: a painted cave is a real floor that Suggest rooms proposes
   expect(await layer()).toMatchObject({ floors: [{ name: 'Cave 1', edge: 'GG_Cave_Ink' }], patches: 0 })
 
   // Suggest rooms sees the cave.
-  await pickFromFlyout(page, 'Text', 'Rooms')
+  await pickFromFlyout(page, 'Rooms', 'Outline')
   const suggest = page.getByTestId('rooms-suggest')
   await suggest.getByRole('button', { name: 'Suggest rooms' }).click()
   await expect(suggest).toContainText('1 room suggested')
@@ -151,7 +151,7 @@ test('material brush: a cave painted on top of a rectangle floor keeps its borde
   await expect.poll(async () => (await state()).caves).toBe(1)
   await expect.poll(async () => (await state()).sprites, { message: 'the cave’s rock is laid round it' }).toBeGreaterThan(4)
 
-  await pickFromFlyout(page, 'Text', 'Rooms')
+  await pickFromFlyout(page, 'Rooms', 'Outline')
   const suggest = page.getByTestId('rooms-suggest')
   await suggest.getByRole('button', { name: 'Suggest rooms' }).click()
   // The cave, and the rest of the floor round it.

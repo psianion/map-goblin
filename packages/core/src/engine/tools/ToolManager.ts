@@ -12,7 +12,7 @@ import { fillPolygonsWithHoles } from '../floorWallRenderer';
 import { pieceOutline } from '../pieceRenderer';
 
 /** Tools that ignore the erase toggle: they add a room, never cut one. */
-const ALWAYS_DRAWS = new Set<string>(['roomRect', 'roomPolygon', 'divide']);
+const ALWAYS_DRAWS = new Set<string>(['roomRect', 'roomPolygon', 'divide', 'outline']);
 
 /** The floor tools (Carve out and Alt erase) and the brush's three entries (Erase): the tools the erase wash follows. */
 const FLOOR_TOOLS = new Set<string>(['rectangle', 'polygon', 'regularPolygon']);

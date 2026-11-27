@@ -1,8 +1,7 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import { useStore } from '@/store/store';
-import { undoManager } from '@/store/undoManager';
-import { AcceptRoomsCommand } from '@/store/commands';
 import type { DungeonLayer, MapBuilderStore, Room, ThresholdSegment } from '@/store/types';
+import { acceptSuggestedRoom, rejectSuggestedRoom, removeSuggestedLine } from '@/editor/models/roomActions';
 import type { RenderEngine } from '@/engine/RenderEngine';
 import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
 import { faceSignature, roomBadgePoints, roomFace } from '@dnd/core/src/shared/roomUtils';
@@ -76,7 +75,9 @@ const ZOOM_SETTLE_MS = 140;
 /** How long a room's outline takes to appear or go: the editor's hover transition. */
 export const OUTLINE_FADE_MS = 120;
 
-const ROOM_TOOLS = new Set<string>(['roomRect', 'roomPolygon', 'divide']);
+const ROOM_TOOLS = new Set<string>(['roomRect', 'roomPolygon', 'divide', 'outline']);
+/** A proposed line is drawn this much heavier than a threshold: it is waiting on the DM. */
+const PROPOSED_PX = 2;
 
 type Ring = [number, number][];
 
@@ -112,6 +113,8 @@ export interface RoomOverlayModel {
   areaFaces: Ring[];
   /** Suggestions on the active layer, with that layer's id. */
   suggestions: { layerId: string; rooms: Room[] } | null;
+  /** The divide lines Suggest proposes with them, each with its own ✕. */
+  divides: ThresholdSegment[];
 }
 
 const ids = new WeakMap<object, number>();
@@ -193,32 +196,33 @@ export function roomOverlayModel(state: MapBuilderStore, zoomKey: number, ink = 
   const list = state.ui.roomSuggestions;
   const owner = list ? state.layers.find((l) => l.id === list.layerId) : undefined;
   const suggestions = list && list.rooms.length > 0 && owner?.type === 'dungeon' ? list : null;
-  return { rooms, thresholds, areaFaces, suggestions };
+  return { rooms, thresholds, areaFaces, suggestions, divides: suggestions?.divides ?? [] };
 }
 
 // ─── Suggestions: accept / reject one ──────────────────────────────────────
 
 /**
- * Accept one suggestion: it becomes a room on the layer the proposals were made on (one
- * undo step) and leaves the ghosts. `layerId` is the ghost's own; a ghost of some other
- * list is refused.
+ * Accept one suggestion: it becomes a room on the layer the proposals were made on, with
+ * the lines still proposed (one undo step), and leaves the ghosts. `layerId` is the ghost's
+ * own; a ghost of some other list is refused.
  */
 export function acceptSuggestion(layerId: string, roomId: string): void {
-  const s = useStore.getState();
-  const list = s.ui.roomSuggestions;
-  if (!list || list.layerId !== layerId) return;
-  const room = list.rooms.find((r) => r.id === roomId);
-  if (!room) return;
-  s.setRoomSuggestions({ layerId, rooms: list.rooms.filter((r) => r.id !== roomId) });
-  undoManager.execute(new AcceptRoomsCommand(layerId, [room]));
+  if (useStore.getState().ui.roomSuggestions?.layerId !== layerId) return;
+  acceptSuggestedRoom(roomId);
 }
 
 /** Reject one suggestion: it leaves the ghosts, nothing else changes. */
 export function rejectSuggestion(roomId: string): void {
-  const s = useStore.getState();
-  const list = s.ui.roomSuggestions;
-  if (!list) return;
-  s.setRoomSuggestions({ layerId: list.layerId, rooms: list.rooms.filter((r) => r.id !== roomId) });
+  rejectSuggestedRoom(roomId);
+}
+
+/** Where a proposed line's ✕ sits: the middle of the line. */
+export function lineMark(t: ThresholdSegment): [number, number] {
+  const pts = t.points;
+  if (pts.length === 0) return [0, 0];
+  const a = pts[0];
+  const b = pts[pts.length - 1];
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 }
 
 // ─── Drawing ───────────────────────────────────────────────────────────────
@@ -350,9 +354,11 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
   areaG.label = 'roomOverlay-area';
   const shapes = new Container();
   const thresholdG = new Graphics();
+  const divideG = new Graphics();
+  divideG.label = 'roomOverlay-divides';
   const ghosts = new Container();
   const labels = new Container();
-  root.addChild(areaG, shapes, thresholdG, ghosts, labels);
+  root.addChild(areaG, shapes, thresholdG, divideG, ghosts, labels);
   const screen = engine.overlay();
   screen.addChild(root);
   const stats: RoomOverlayStats = { redraws: 0, shapes: 0, ms: 0 };
@@ -380,6 +386,8 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
 
   const views = new Map<string, RoomView>();
   const ghostViews = new Map<string, GhostView>();
+  /** Each proposed line's ✕, screen sized, at the middle of the line. */
+  const lineViews = new Map<string, { mark: Graphics; at: [number, number] }>();
   let anchorPreview: AnchorPreview | null = null;
 
   const findRoom = (layerId: string, roomId: string): Room | null => {
@@ -586,6 +594,22 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
     const s = 1 / zoom;
     for (const v of views.values()) v.label.scale.set(s);
     for (const gv of ghostViews.values()) gv.label.scale.set(s);
+    for (const lv of lineViews.values()) lv.mark.scale.set(s);
+  };
+
+  /** A proposed line's ✕: the ghost's reject mark on a paper disc, centred on (0, 0). */
+  const drawLineMark = (g: Graphics): void => {
+    const h = GLYPH / 2;
+    g.clear()
+      .roundRect(-h, -h, GLYPH, GLYPH, 3)
+      .fill({ color: pal.paper, alpha: 0.95 })
+      .roundRect(-h, -h, GLYPH, GLYPH, 3)
+      .stroke({ color: pal.ink, width: 1.2, alpha: 0.8 })
+      .moveTo(-4, -4)
+      .lineTo(4, 4)
+      .moveTo(4, -4)
+      .lineTo(-4, 4)
+      .stroke({ color: pal.ink, width: 1.8, alpha: 0.9 });
   };
 
   const redraw = (): void => {
@@ -635,6 +659,32 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
     thresholdG.clear();
     for (const t of model.thresholds) if (t.points.length >= 2) dashSpine(thresholdG, t.points, DASH_PX / zoom, GAP_PX / zoom);
     if (model.thresholds.length > 0) thresholdG.stroke({ color: pal.ink, width: 1 / zoom, alpha: OUTLINE_ALPHA });
+
+    // Proposed divide lines: dashed and a little heavier than a threshold, each with its ✕.
+    divideG.clear();
+    for (const t of model.divides) {
+      if (t.points.length < 2) continue;
+      haloStroke(divideG, () => dashSpine(divideG, t.points, DASH_PX / zoom, GAP_PX / zoom), PROPOSED_PX, zoom, pal.ink, 1);
+    }
+    const lineLive = new Set<string>();
+    for (const t of model.divides) {
+      lineLive.add(t.id);
+      let lv = lineViews.get(t.id);
+      if (!lv) {
+        const mark = new Graphics();
+        labels.addChild(mark);
+        lv = { mark, at: [0, 0] };
+        lineViews.set(t.id, lv);
+      }
+      lv.at = lineMark(t);
+      lv.mark.position.set(lv.at[0], lv.at[1]);
+      drawLineMark(lv.mark);
+    }
+    for (const [id, lv] of [...lineViews]) {
+      if (lineLive.has(id)) continue;
+      lv.mark.destroy();
+      lineViews.delete(id);
+    }
 
     // Suggestions: ghosts with their own ✓ / ✕.
     const ghostLive = new Set<string>();
@@ -765,6 +815,14 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
 
   return {
     pressAt(sx, sy) {
+      const h = GLYPH / 2;
+      for (const [id, lv] of lineViews) {
+        const at = engine.worldToScreen(lv.at[0], lv.at[1]);
+        if (inBox(sx - at.x, sy - at.y, { x: -h, y: -h, w: GLYPH, h: GLYPH })) {
+          removeSuggestedLine(id);
+          return true;
+        }
+      }
       for (const gv of ghostViews.values()) {
         const at = engine.worldToScreen(gv.room.anchor[0], gv.room.anchor[1]);
         const x = sx - at.x;
@@ -796,6 +854,7 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
       unsubPreview();
       views.clear();
       ghostViews.clear();
+      lineViews.clear();
       root.destroy({ children: true });
     },
   };

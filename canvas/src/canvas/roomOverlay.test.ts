@@ -38,6 +38,7 @@ import { SelectTool } from '@dnd/core/src/engine/tools/SelectTool';
 import {
   OUTLINE_FADE_MS,
   acceptSuggestion,
+  lineMark,
   mountRoomOverlay,
   rejectSuggestion,
   roomOverlayModel,
@@ -291,6 +292,15 @@ describe('suggestion ghosts', () => {
     expect(useStore.getState().ui.roomSuggestions!.rooms.map((r) => r.id)).toEqual(['g1']);
     expect(layer().rooms!.map((r) => r.id)).toEqual(['west', 'east']);
     expect(undoManager.canUndo()).toBe(false);
+  });
+
+  it('carry the divide lines Suggest proposed, each ✕ sitting at its middle', () => {
+    const line = { id: 'line-1', points: [[30, -0.3], [30, 10.3]] as [number, number][] };
+    useStore.getState().setRoomSuggestions({ layerId: layer().id, rooms: [ghost, ghost2], divides: [line] });
+    expect(model().divides).toEqual([line]);
+    expect(lineMark(line)).toEqual([30, 5]);
+    useStore.getState().setRoomSuggestions(null);
+    expect(model().divides).toEqual([]);
   });
 });
 

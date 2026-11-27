@@ -253,6 +253,7 @@ export function createDefaultState(): MapBuilderState {
       activeLevelId: level.id,
       roomLabels: 'both' as const,
       roomSuggestions: null,
+      outlineRoomId: null,
       roomsSheetOpen: false,
       roomsSheetRoomId: null,
       dividerMode: 'threshold' as const,

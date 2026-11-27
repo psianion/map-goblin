@@ -20,8 +20,8 @@ import type { CardFieldDef, ObjectKind } from '@/editor/registry/types';
 import { SELECTION_VERBS } from '@/editor/families/select';
 import type { LookTarget } from '@/editor/models/roomLook';
 import { nextAreaName } from '@/editor/models/roomActions';
-import { layerOnLevel, levelDungeons, roomCountLabel } from '@/editor/models/roomModel';
-import { AreaPick, CountField, FloorSection, KeyField, LightsField, NEW_AREA, NO_AREA, PlaceSection, ReadoutField, TypedField, WallsSection } from './RoomFields';
+import { layerOnLevel, levelDungeons, roomCountLabel, roomIsOpen } from '@/editor/models/roomModel';
+import { AreaPick, CountField, FloorSection, KeyField, LightsField, NEW_AREA, NO_AREA, OpenSpaceField, PlaceSection, ReadoutField, TypedField, WallsSection } from './RoomFields';
 
 const state = () => useStore.getState() as MapBuilderStore;
 
@@ -109,9 +109,22 @@ const roomSize = roomField<string>({
   render: ReadoutField,
   read: (r) => {
     const doors = r.doors?.length ?? 0;
-    const size = r.area !== undefined ? `${Math.round(r.area)} sq` : 'No floor here';
+    const size = roomIsOpen(r) ? 'Open' : `${Math.round(r.area ?? 0)} sq`;
     return `${size} · ${doors} door${doors === 1 ? '' : 's'}`;
   },
+  write: () => {},
+});
+
+/** A room with no floor under it: "This space is open", and Outline it. Hidden otherwise. */
+const roomOpen = roomField<string>({
+  id: 'card.room.open',
+  label: 'Open space',
+  schema: z.string(),
+  default: '',
+  control: 'custom',
+  render: OpenSpaceField,
+  read: (r) => r.id,
+  visibleWhen: roomIsOpen,
   write: () => {},
 });
 
@@ -168,6 +181,7 @@ export const roomCard = defineCard<'room'>({
     roomNumber,
     roomName,
     roomSize,
+    roomOpen,
     roomArea,
     ...looks<'room'>('room', ((r: Room) => ({ kind: 'room', layerId: layerOfRoom(r.id)?.id ?? '', roomId: r.id })) as never),
     place<'room'>('room', ((r: Room) => ({ kind: 'room', layerId: layerOfRoom(r.id)?.id ?? '', roomId: r.id })) as never),

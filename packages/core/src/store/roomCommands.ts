@@ -1,7 +1,7 @@
 import type { Command, DungeonLayer, Level, MapSettings, Room, RoomArea, RoomKey, RoomLook, ShapeChild, ThresholdSegment } from './types';
 import { ROOM_RUNTIME_KEYS } from '../shared/types';
 import { patchLook } from '../shared/lookScope';
-import { pointInRing, readingOrder, roomFace } from '../shared/roomUtils';
+import { interiorPoint, pointInRing, readingOrder, roomFace } from '../shared/roomUtils';
 import { serializableRoom, useStore } from './store';
 import { AddChildCommand, CompositeCommand } from './commands';
 
@@ -155,22 +155,59 @@ export class AddRoomCommand extends RoomsEditCommand {
   }
 }
 
-/** Adds the suggestions the DM accepted, as one undo step. Ids already on the layer are skipped. */
+/**
+ * Adds the suggestions the DM accepted, as one undo step: the divide lines Suggest found
+ * them with first, then the rooms. Ids already on the layer are skipped.
+ */
 export class AcceptRoomsCommand extends RoomsEditCommand {
   readonly label: string;
   private readonly rooms: Room[];
+  private readonly thresholds: ThresholdSegment[];
 
-  constructor(layerId: string, rooms: Room[]) {
+  constructor(layerId: string, rooms: Room[], thresholds: ThresholdSegment[] = []) {
     super(layerId, true);
     this.rooms = structuredClone(rooms);
+    this.thresholds = structuredClone(thresholds);
     this.label = rooms.length === 1 ? 'Accept room' : 'Accept rooms';
   }
 
   protected edit(s: RoomsState): RoomsState | null {
+    const knownLines = new Set(s.thresholds.map((t) => t.id));
+    const lines = this.thresholds.filter((t) => !knownLines.has(t.id));
     const known = new Set(s.rooms.map((r) => r.id));
     const fresh = this.rooms.filter((r) => !known.has(r.id));
-    if (fresh.length === 0) return null;
+    if (fresh.length === 0 && lines.length === 0) return null;
+    s.thresholds.push(...lines);
     s.rooms.push(...fresh.map(serializableRoom));
+    return s;
+  }
+}
+
+/**
+ * Sets the outline a room is drawn by (the Outline tool's room, a moved point), and where its
+ * pin sits when one is given. The outline is the room's face, cut to the floor under it.
+ */
+export class SetRoomBoundaryCommand extends RoomsEditCommand {
+  readonly label: string;
+  private readonly roomId: string;
+  private readonly boundary: [number, number][];
+  private readonly anchor: [number, number] | undefined;
+
+  constructor(layerId: string, roomId: string, boundary: [number, number][], anchor?: [number, number], label = 'Outline room') {
+    super(layerId, true);
+    this.roomId = roomId;
+    this.boundary = boundary.map(([x, y]): [number, number] => [x, y]);
+    this.anchor = anchor && [anchor[0], anchor[1]];
+    this.label = label;
+  }
+
+  protected edit(s: RoomsState): RoomsState | null {
+    const room = s.rooms.find((r) => r.id === this.roomId);
+    if (!room || this.boundary.length < 3) return null;
+    room.boundary = this.boundary.map(([x, y]): [number, number] => [x, y]);
+    if (this.anchor) room.anchor = [...this.anchor];
+    // A pin left outside its own outline would name no face: it goes back inside.
+    else if (!pointInRing(room.anchor[0], room.anchor[1], room.boundary)) room.anchor = interiorPoint(room.boundary);
     return s;
   }
 }
@@ -304,7 +341,10 @@ export class RenumberByReadingOrderCommand extends RoomsEditCommand {
   }
 }
 
-/** Moves a room's anchor (its badge dragged): the room now names whichever face holds the new point. */
+/**
+ * Moves a room's anchor (its badge dragged): the room now names whichever face holds the new
+ * point. A room drawn by its outline takes the outline along, the same distance.
+ */
 export class SetRoomAnchorCommand extends RoomsEditCommand {
   readonly label = 'Move room';
   private readonly roomId: string;
@@ -319,7 +359,10 @@ export class SetRoomAnchorCommand extends RoomsEditCommand {
   protected edit(s: RoomsState): RoomsState | null {
     const room = s.rooms.find((r) => r.id === this.roomId);
     if (!room) return null;
+    const dx = this.anchor[0] - room.anchor[0];
+    const dy = this.anchor[1] - room.anchor[1];
     room.anchor = [...this.anchor];
+    if (room.boundary) room.boundary = room.boundary.map(([x, y]): [number, number] => [x + dx, y + dy]);
     return s;
   }
 }

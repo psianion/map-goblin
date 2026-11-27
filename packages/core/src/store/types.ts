@@ -326,6 +326,8 @@ export type ToolType =
   | 'roomPolygon'
   /** Draws a threshold (or a wall) across a floor to split a room. */
   | 'divide'
+  /** Marks a room by its outline over whatever floor is there: a dragged rectangle or clicked corners. */
+  | 'outline'
   /** Draws a plateau: relief raised or sunk over floors or painted terrain. */
   | 'plateau'
   /** The brush, listing water textures first: paints water pieces on the active layer. */
@@ -614,6 +616,13 @@ export interface SelectionSlice {
 export interface RoomSuggestions {
   layerId: string;
   rooms: Room[];
+  /**
+   * The divide lines Suggest would add where a floor narrows. The ghosts were found with
+   * these; taking one away finds them again from the lines left. Accepting adds them first.
+   */
+  divides?: ThresholdSegment[];
+  /** Where the ghosts the DM took away stood: finding the ghosts again leaves these out. */
+  rejected?: [number, number][];
 }
 
 export interface UISlice {
@@ -669,6 +678,12 @@ export interface UISlice {
    * Never saved.
    */
   roomSuggestions: RoomSuggestions | null;
+  /**
+   * The room the Outline tool is drawing for (its card's Outline it): the next outline
+   * becomes this room's instead of a new one. Cleared when the outline lands or the tool
+   * goes. View state: never saved, never undoable.
+   */
+  outlineRoomId: string | null;
   /** Whether the rooms list sheet is open. Persisted as a view preference. */
   roomsSheetOpen: boolean;
   /** The room whose key the sheet is showing; null shows the list. */

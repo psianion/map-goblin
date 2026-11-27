@@ -13,12 +13,13 @@ import {
 import { undoManager } from '@/store/undoManager';
 import { createDungeonLayer } from '@/store/factories';
 import { notify } from '@dnd/ui/toast';
-import { suggestRooms } from '@dnd/core/src/shared/suggestRooms';
+import { suggestDivides, suggestRooms } from '@dnd/core/src/shared/suggestRooms';
 import { roomContextOf } from '@dnd/core/src/shared/roomFloor';
+import { pointInRing, roomFace } from '@dnd/core/src/shared/roomUtils';
 import { emptyRoomKey, roomKeyOf } from '@dnd/core/src/shared/prep';
-import type { DungeonLayer, Layer, MapBuilderStore, Room, RoomKey } from '@/store/types';
+import type { DungeonLayer, Layer, MapBuilderStore, Room, RoomKey, ThresholdSegment } from '@/store/types';
 import { jumpToPoint } from './jumpTo';
-import { isKeyEmpty } from './roomModel';
+import { isKeyEmpty, SUGGEST_NOTHING } from './roomModel';
 
 export function activeDungeon(state: MapBuilderStore = useStore.getState()): DungeonLayer | null {
   const layer = state.layers.find((l) => l.id === state.ui.activeLayerId);
@@ -27,10 +28,23 @@ export function activeDungeon(state: MapBuilderStore = useStore.getState()): Dun
 
 /* ── Suggest ────────────────────────────────────────────── */
 
+/** The layer the proposals were made on, while it is still a map layer. */
+function suggestionLayer(state: MapBuilderStore, layerId: string): DungeonLayer | null {
+  const layer = state.layers.find((l) => l.id === layerId);
+  return layer && layer.type === 'dungeon' ? (layer as DungeonLayer) : null;
+}
+
+/** The ghosts for `divides`, leaving out any whose face holds a spot the DM took a ghost away from. */
+function ghostsFor(state: MapBuilderStore, layer: DungeonLayer, divides: ThresholdSegment[], rejected: [number, number][]): Room[] {
+  const found = suggestRooms(layer, roomContextOf(state, layer), divides);
+  return found.filter((r) => !rejected.some(([x, y]) => pointInRing(x, y, roomFace(r))));
+}
+
 /**
- * Propose rooms for every enclosed face of the active layer that holds none. The
- * proposals sit in `ui.roomSuggestions` as ghosts until accepted or dismissed. Returns
- * how many were found.
+ * Propose rooms for every closed space of the active layer that holds none, with the divide
+ * lines that split a floor where it narrows (chambers and passages apart). The proposals sit
+ * in `ui.roomSuggestions` as ghosts and dashed lines until accepted or dismissed. Returns how
+ * many rooms were found; with none, a toast (and the panel) say why.
  */
 export function suggestOnActiveLayer(): number {
   const state = useStore.getState();
@@ -39,30 +53,85 @@ export function suggestOnActiveLayer(): number {
     notify.warning('Pick a map layer first');
     return 0;
   }
-  const found = suggestRooms(layer, roomContextOf(state, layer));
+  const ctx = roomContextOf(state, layer);
+  const divides = suggestDivides(layer, ctx);
+  const found = suggestRooms(layer, ctx, divides);
   if (found.length === 0) {
     state.setRoomSuggestions(null);
-    notify.info('No enclosed floor without a room');
+    notify.info(SUGGEST_NOTHING);
     return 0;
   }
-  state.setRoomSuggestions({ layerId: layer.id, rooms: found });
+  state.setRoomSuggestions({ layerId: layer.id, rooms: found, divides, rejected: [] });
   return found.length;
 }
 
-/** Add every proposal still standing to the layer they were made on, as one undo step. */
+/** Take one proposed divide line away: the ghosts are found again from the lines left. */
+export function removeSuggestedLine(lineId: string): void {
+  const state = useStore.getState();
+  const list = state.ui.roomSuggestions;
+  if (!list?.divides?.some((d) => d.id === lineId)) return;
+  const layer = suggestionLayer(state, list.layerId);
+  if (!layer) return;
+  const divides = list.divides.filter((d) => d.id !== lineId);
+  state.setRoomSuggestions({ ...list, divides, rooms: ghostsFor(state, layer, divides, list.rejected ?? []) });
+}
+
+/** Take one ghost away. Its spot is kept, so finding the ghosts again leaves it out. */
+export function rejectSuggestedRoom(roomId: string): void {
+  const state = useStore.getState();
+  const list = state.ui.roomSuggestions;
+  const room = list?.rooms.find((r) => r.id === roomId);
+  if (!list || !room) return;
+  state.setRoomSuggestions({ ...list, rooms: list.rooms.filter((r) => r.id !== roomId), rejected: [...(list.rejected ?? []), room.anchor] });
+}
+
+/**
+ * Keep one ghost: it becomes a room on the layer the proposals were made on, with the lines
+ * still proposed (its face was found with them), as one undo step. The other ghosts stay.
+ */
+export function acceptSuggestedRoom(roomId: string): void {
+  const state = useStore.getState();
+  const list = state.ui.roomSuggestions;
+  const room = list?.rooms.find((r) => r.id === roomId);
+  if (!list || !room || !suggestionLayer(state, list.layerId)) return;
+  state.setRoomSuggestions({ ...list, rooms: list.rooms.filter((r) => r.id !== roomId), divides: [] });
+  undoManager.execute(new AcceptRoomsCommand(list.layerId, [room], list.divides ?? []));
+}
+
+/** Add every proposal still standing to the layer they were made on, lines first, as one undo step. */
 export function acceptAllSuggestions(): void {
   const state = useStore.getState();
   const suggestions = state.ui.roomSuggestions;
   state.setRoomSuggestions(null);
   if (!suggestions || suggestions.rooms.length === 0) return;
   const { layerId, rooms } = suggestions;
-  if (!state.layers.some((l) => l.id === layerId && l.type === 'dungeon')) return;
-  undoManager.execute(new AcceptRoomsCommand(layerId, rooms));
+  if (!suggestionLayer(state, layerId)) return;
+  undoManager.execute(new AcceptRoomsCommand(layerId, rooms, suggestions.divides ?? []));
   notify.subtle(`${rooms.length} room${rooms.length === 1 ? '' : 's'} added`, { icon: 'plus' });
 }
 
 export function dismissSuggestions(): void {
   useStore.getState().setRoomSuggestions(null);
+}
+
+/* ── Outline ────────────────────────────────────────────── */
+
+/** A room card's Outline it: the Outline tool in hand, its next outline going to this room. */
+export function startOutlineFor(roomId: string, layerId: string): void {
+  const s = useStore.getState();
+  if (s.ui.activeLayerId !== layerId) s.setActiveLayerId(layerId);
+  s.setActiveTool('outline');
+  useStore.setState((d) => {
+    d.ui.outlineRoomId = roomId;
+  });
+}
+
+/** Drop a pending Outline it. */
+export function clearOutlineTarget(): void {
+  if (useStore.getState().ui.outlineRoomId === null) return;
+  useStore.setState((d) => {
+    d.ui.outlineRoomId = null;
+  });
 }
 
 /* ── Selecting ──────────────────────────────────────────── */

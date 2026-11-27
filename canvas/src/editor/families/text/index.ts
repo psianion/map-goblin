@@ -1,6 +1,6 @@
-// The Text family (plan 6.5): Label, Zone and the Rooms tool (rectangle, polygon or divide in
-// its dock), and the cards for labels, zones, rooms, areas and levels. The rooms list, a
-// zone's sheet and the Prep overview are the family's sheets (TextSheets).
+// The Text family (plan 6.5): Label and Zone, and the cards for labels and zones. The rooms
+// list, a zone's sheet and the Prep overview are sheets here (TextSheets); the Rooms tools
+// and the room, area and level cards are the Rooms family's (families/rooms).
 //
 // Not built yet (plan 8.5): a Font for labels (the label renderer, here and at the table,
 // draws one face), Clone on create and Compare levels in the Level column (the store keeps
@@ -13,16 +13,13 @@ import type { CardDef } from '@/editor/registry/types';
 import { labelTool } from './label';
 import { labelCard } from './labelCard';
 import { zoneCard, zoneTool } from './zone';
-import { roomsTool } from './rooms';
-import { areaCard, levelCard, roomCard } from './roomCards';
-import { DOORS_TAB, WALLS_TAB, withTabs } from '@/editor/families/design/tabs';
 
 export const text = defineFamily({
   id: 'text',
   label: 'Text',
   icon: Type,
   key: 'X',
-  tools: [labelTool, zoneTool, withTabs(roomsTool, [WALLS_TAB, DOORS_TAB])],
+  tools: [labelTool, zoneTool],
 });
 
-export const TEXT_CARDS: readonly CardDef[] = [labelCard, zoneCard, roomCard, areaCard, levelCard];
+export const TEXT_CARDS: readonly CardDef[] = [labelCard, zoneCard];

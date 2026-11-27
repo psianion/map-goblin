@@ -187,7 +187,7 @@ export interface ToolDef {
 }
 
 export interface FamilyDef {
-  id: 'design' | 'terrain' | 'objects' | 'environment' | 'text';
+  id: 'design' | 'terrain' | 'objects' | 'environment' | 'rooms' | 'text';
   label: string;
   icon: LucideIcon;
   key: string;

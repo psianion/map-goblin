@@ -16,6 +16,7 @@ export type ToolType =
   | 'roomRect'
   | 'roomPolygon'
   | 'divide'
+  | 'outline'
   | 'plateau'
   | 'water'
   | 'material'
