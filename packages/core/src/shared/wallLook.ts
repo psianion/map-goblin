@@ -4,6 +4,7 @@ import { WALL_TYPE_OCCLUSION } from './occlusion';
 import { roomIndexOf } from './roomIndex';
 import { caveEdges, onCaveEdge } from './caveFloor';
 import type { ResolvedDoor } from './wallResolve';
+import { shapeRing } from './plateaus';
 
 /*
  * How a wall looks: which texture set its stones come from, how they are tinted and how
@@ -177,6 +178,17 @@ function outlinePins(shape: ShapeChild): Pins | null {
   return out;
 }
 
+/**
+ * The set a walled floor's own outline is drawn with on a layer drawing with `style` (its
+ * level folded in, `levelStyle`): its edge band, else its pinned set, else the layer's; an
+ * edge band of None takes a band away and leaves stone walls. '' for none.
+ */
+export function floorWallSet(shape: ShapeChild, style: DungeonStyle): string {
+  const pins = outlinePins(shape);
+  const set = (pins?.wallTextureSetId !== undefined ? pins.wallTextureSetId : style.wallTextureSetId) || '';
+  return pins?.noBand && set && isBandSetId(set) ? '' : set;
+}
+
 const samePins = (a: Pins | null, b: Pins | null): boolean =>
   OUTLINE_KEYS.every((k) => (a?.[k] ?? null) === (b?.[k] ?? null)) && !!a?.noBand === !!b?.noBand;
 
@@ -320,13 +332,15 @@ export function doorWallLook(
   return { ...look, setId: wall?.textureSetId || look.setId, tint: wall?.textureTint ?? look.tint, width: wall?.bandWidth ?? look.width };
 }
 
-/* ── Per-edge styles: rooms and areas that pin a wall look ─────────────────
+/* ── Per-edge styles: rooms, areas and floors that pin a wall look ─────────
  *
  * A room (or the area it sits in) may pin the wall keys of its look. Walls stay the
  * layer's — a room never owns one — so the pin is read edge by edge: an edge of the
- * floor outline draws with the look of the room on its floor side. Where no room or
- * area pins a wall key, which is nearly every map, every ring answers null and the
- * renderers take the per-ring path exactly as before.
+ * floor outline draws with the look of the room on its floor side. Floors pinned unlike
+ * one another (a passage with its own band between two chambers) are read the same way:
+ * an edge draws with the floor it runs along. Where neither pins anything apart, which is
+ * nearly every map, every ring answers null and the renderers take the per-ring path
+ * exactly as before.
  */
 
 /** The wall keys of a room's look, and the style keys they draw with (the same names). */
@@ -384,10 +398,12 @@ const edgeMemo = new Map<string, { keys: readonly unknown[]; out: (DungeonStyle[
 /**
  * The style each edge of each ring of `layer.mergedFloor` draws with: for ring `i`, null
  * when every edge takes the ring's style (`ringStyles(layer)[i]`), else one style per edge
- * (edge `e` runs from vertex `e` to vertex `e + 1`, wrapping). An edge whose room or area
- * pins a wall key takes the ring's style with those keys on top; an edge along a painted
- * cave's outline takes no stone (the cave's rock stands there). Edges that resolve alike
- * share one style object, so a renderer can batch runs by identity.
+ * (edge `e` runs from vertex `e` to vertex `e + 1`, wrapping). Each edge takes, in order: the
+ * wall keys its room or area pins; else, where floors are pinned unlike one another, the pins
+ * of the floor whose own outline it lies on (the later floor where two do; the layer's for a
+ * floor with none); else the ring's. An edge along a painted cave's outline takes no stone (the
+ * cave's rock stands there). Edges that resolve alike share one style object, so a renderer
+ * can batch runs by identity.
  */
 export function edgeStyles(layer: DungeonLayer, level?: RoomLook): (DungeonStyle[] | null)[] {
   const rings = layer.mergedFloor ?? [];
@@ -400,22 +416,27 @@ export function edgeStyles(layer: DungeonLayer, level?: RoomLook): (DungeonStyle
   // A stretch of ring that carries a painted cave's rock gets no stone from the floor the ring
   // belongs to (a hole carved through a cave and the floor under it): one edge there, the rock.
   const caves = caveEdges(layer);
-  if (!pinning && caves.length === 0) {
+  // Floors pinned unlike one another: each edge takes the floor whose own outline it runs along.
+  const floors = floorsPinnedApart(layer, level);
+  if (!pinning && caves.length === 0 && !floors) {
     out = rings.map(() => null);
   } else {
     const base = ringStyles(layer, level);
     const pinsOf = new Map<string, Partial<DungeonStyle> | null>();
+    // One merged style per distinct (edge style, pin set), so equal edges are identical.
+    const merged = new Map<DungeonStyle, Map<Partial<DungeonStyle>, DungeonStyle>>();
     out = rings.map((ring, i) => {
       const n = ring.length;
       if (n < 2) return null;
       const ringStyle = base[i] ?? levelStyle(layer.style, level);
-      // One merged style per distinct pin set on this ring, so equal edges are identical.
-      const merged = new Map<Partial<DungeonStyle>, DungeonStyle>();
       let styles: DungeonStyle[] | null = null;
       let rock: DungeonStyle | null = null;
+      const own = floors ? floorStylesAlong(ring, floors, ringStyle) : null;
+      if (own) styles = own;
       for (let e = 0; e < n; e++) {
         const [a, b] = [ring[e], ring[(e + 1) % n]];
-        if (caves.length > 0 && ringStyle.wallTextureSetId && onCaveEdge([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], caves)) {
+        const edgeStyle = own?.[e] ?? ringStyle;
+        if (caves.length > 0 && edgeStyle.wallTextureSetId && onCaveEdge([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], caves)) {
           rock ??= { ...ringStyle, wallTextureSetId: '' };
           styles ??= new Array<DungeonStyle>(n).fill(ringStyle);
           styles[e] = rock;
@@ -427,8 +448,10 @@ export function edgeStyles(layer: DungeonLayer, level?: RoomLook): (DungeonStyle
         let pins = pinsOf.get(room.id);
         if (pins === undefined) pinsOf.set(room.id, (pins = roomWallPins(room, layer.areas)));
         if (!pins) continue;
-        let style = merged.get(pins);
-        if (!style) merged.set(pins, (style = { ...ringStyle, ...pins }));
+        let byPins = merged.get(edgeStyle);
+        if (!byPins) merged.set(edgeStyle, (byPins = new Map()));
+        let style = byPins.get(pins);
+        if (!style) byPins.set(pins, (style = { ...edgeStyle, ...pins }));
         styles ??= new Array<DungeonStyle>(n).fill(ringStyle);
         styles[e] = style;
       }
@@ -436,6 +459,90 @@ export function edgeStyles(layer: DungeonLayer, level?: RoomLook): (DungeonStyle
     });
   }
   edgeMemo.set(layer.id, { keys, out });
+  return out;
+}
+
+/** A walled floor's own outline, flattened as the union is drawn from, and its box. */
+interface PinnedFloor {
+  rings: [number, number][][];
+  box: [number, number, number, number];
+  /** The style its outline draws with: its pins over the layer's, or the layer's. */
+  style: DungeonStyle;
+}
+
+/** How near a floor's own outline an edge's midpoint counts as on it, cells: the union rounds to hundredths. */
+const ON_OUTLINE = 0.01;
+
+/**
+ * The walled floors, last drawn first, each with the style its own outline draws with; null when
+ * every floor draws its outline alike (no pins, or the same pins on all), which is nearly every
+ * map: then nothing is measured.
+ */
+function floorsPinnedApart(layer: DungeonLayer, level: RoomLook | undefined): PinnedFloor[] | null {
+  const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.visible !== false && !c.ground);
+  const pins = shapes.map(outlinePins);
+  if (pins.every((p) => p === null) || pins.every((p) => samePins(p, pins[0]))) return null;
+  const base = levelStyle(layer.style, level);
+  const levelPins = levelWallPins(level);
+  const out: PinnedFloor[] = [];
+  for (let k = shapes.length - 1; k >= 0; k--) {
+    const rings = shapes[k].contours.map((_, i) => shapeRing(shapes[k], i)).filter((r) => r.length >= 2);
+    if (rings.length === 0) continue;
+    const p = pins[k];
+    let style = base;
+    if (p) {
+      const { noBand, ...keys } = p;
+      style = { ...base, ...keys, ...levelPins };
+      if (noBand && style.wallTextureSetId && isBandSetId(style.wallTextureSetId)) style.wallTextureSetId = '';
+    }
+    out.push({ rings, box: bbox(rings.flat()), style });
+  }
+  return out;
+}
+
+/** Whether `p` lies on one of `rings`' edges, within ON_OUTLINE. */
+function onRings(p: readonly [number, number], rings: readonly (readonly [number, number])[][]): boolean {
+  for (const r of rings) {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [xi, yi] = r[i];
+      const dx = r[j][0] - xi;
+      const dy = r[j][1] - yi;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((p[0] - xi) * dx + (p[1] - yi) * dy) / len2)) : 0;
+      if (Math.hypot(p[0] - (xi + dx * t), p[1] - (yi + dy * t)) <= ON_OUTLINE) return true;
+    }
+  }
+  return false;
+}
+
+const sameOutline = (a: DungeonStyle, b: DungeonStyle): boolean => OUTLINE_KEYS.every((k) => a[k] === b[k]);
+
+/**
+ * The style each edge of `ring` draws with by the floor whose own outline it lies on (the later
+ * floor where two do): that floor's, as the ring's own style object where they draw alike; the
+ * ring's where no floor's outline holds it. Null when every edge draws as the ring does.
+ */
+function floorStylesAlong(ring: readonly [number, number][], floors: readonly PinnedFloor[], ringStyle: DungeonStyle): DungeonStyle[] | null {
+  const n = ring.length;
+  const [rx0, ry0, rx1, ry1] = bbox(ring);
+  const near = floors.filter((f) => f.box[2] >= rx0 - ON_OUTLINE && f.box[0] <= rx1 + ON_OUTLINE && f.box[3] >= ry0 - ON_OUTLINE && f.box[1] <= ry1 + ON_OUTLINE);
+  if (near.length === 0) return null;
+  const looks = new Map<PinnedFloor, DungeonStyle>();
+  let out: DungeonStyle[] | null = null;
+  for (let e = 0; e < n; e++) {
+    const a = ring[e];
+    const b = ring[(e + 1) % n];
+    const m: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const floor = near.find(
+      (f) => m[0] >= f.box[0] - ON_OUTLINE && m[0] <= f.box[2] + ON_OUTLINE && m[1] >= f.box[1] - ON_OUTLINE && m[1] <= f.box[3] + ON_OUTLINE && onRings(m, f.rings),
+    );
+    if (!floor) continue;
+    let style = looks.get(floor);
+    if (!style) looks.set(floor, (style = sameOutline(floor.style, ringStyle) ? ringStyle : floor.style));
+    if (style === ringStyle) continue;
+    out ??= new Array<DungeonStyle>(n).fill(ringStyle);
+    out[e] = style;
+  }
   return out;
 }
 

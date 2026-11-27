@@ -9,6 +9,7 @@ import { computeMergedFloor } from './mergedFloor';
 import { syncRooms } from '../store/roomSync';
 import { drawRoomFills, roomCover, roomFillPlan, roomFillsBuilt, seamRamp, faceReach, type RoomFill } from './roomFillRenderer';
 import { washStrips } from './edgeTransitions';
+import { edgeStyles } from '../shared/wallLook';
 import { insideRings, rampAlphaAt } from './rampMask';
 import { seedPack } from '../testing/seedCatalog';
 import { SEVEN_IDS, sevenRoomLayer, type SevenRoomOptions } from '../testing/sevenRooms';
@@ -176,6 +177,24 @@ describe('the ramp at the door', () => {
       // The passage's overhang cell, clear of the seam, is the chamber's floor.
       expect(rampAlphaAt(ramp, [10.3, 7])).toBe(1);
     }
+  });
+});
+
+describe("the passage's walls on the cave's own union", () => {
+  it("lays the passage's band along its two long sides and the cave set everywhere else", () => {
+    const l = cave();
+    const styles = edgeStyles(l);
+    const ring = l.mergedFloor!.findIndex((r) => r.length > 4);
+    const sets = styles[ring]!.map((s, e) => [s.wallTextureSetId, l.mergedFloor![ring][e], l.mergedFloor![ring][(e + 1) % l.mergedFloor![ring].length]] as const);
+    const banded = sets.filter(([set]) => set === SEVEN_IDS.band);
+    expect(banded).toHaveLength(2);
+    for (const [, a, b] of banded) {
+      expect(a[1]).toBeCloseTo(b[1], 5);
+      expect([6, 8]).toContain(Math.round(a[1]));
+      expect(Math.min(a[0], b[0])).toBeCloseTo(11, 5);
+      expect(Math.max(a[0], b[0])).toBeCloseTo(15, 5);
+    }
+    expect(sets.filter(([set]) => set !== SEVEN_IDS.band).every(([set]) => set === SEVEN_IDS.cave)).toBe(true);
   });
 });
 

@@ -237,10 +237,18 @@ export function faceReach(layer: DungeonLayer): number {
  * wash between differently textured floors stays off it. Empty for a layer with no room.
  */
 export function roomCover(layer: DungeonLayer): Polygon[] {
-  const faces = (layer.rooms ?? []).map((r) => roomFace(r)).filter((f) => f.length >= 3).map(positive);
-  if (faces.length === 0) return [];
-  return clipper2Engine.inflate(faces, faceReach(layer));
+  const rooms = layer.rooms ?? [];
+  const reach = faceReach(layer);
+  const hit = coverMemo.get(rooms);
+  if (hit && hit.reach === reach) return hit.cover;
+  const faces = rooms.map((r) => roomFace(r)).filter((f) => f.length >= 3).map(positive);
+  const cover = faces.length === 0 ? [] : clipper2Engine.inflate(faces, reach);
+  coverMemo.set(rooms, { reach, cover });
+  return cover;
 }
+
+/** Each rooms array's cover: immer hands out a new array exactly when a room moved. */
+const coverMemo = new WeakMap<readonly Room[], { reach: number; cover: Polygon[] }>();
 
 /** The layer's floor edges choice: Blend (true) or Sharp. */
 export const blendsFloors = (layer: Pick<DungeonLayer, 'style'>): boolean => layer.style.showEdgeTransitions !== false;
@@ -590,11 +598,17 @@ export function drawRoomFills(floor: Container, layer: DungeonLayer, opts: { for
 
 /**
  * Put the fills of rooms on painted ground into `floor`, after its pieces, and redraw them if
- * what they are drawn from moved. Always leaves its container in place, so a look edit has
- * somewhere to draw.
+ * what they are drawn from moved. On a layer with painted ground it always leaves its container
+ * in place, so a look edit has somewhere to draw.
  */
 export function drawGroundRoomFills(floor: Container, layer: DungeonLayer, opts: { force?: boolean } = {}): void {
   const state = useStore.getState();
+  // A layer with no painted ground has no room on it: nothing is put in the stack at all.
+  if (!layer.children.some((c) => c.childType === 'shape' && c.ground && c.visible !== false)) {
+    const held = groundSlots.get(floor);
+    if (held && held.node.parent === floor) floor.removeChild(held.node);
+    return;
+  }
   const slot = slotIn(groundSlots, floor, 'groundRoomFills');
   if (slot.node.parent !== floor) floor.addChild(slot.node);
   const keys = fillKeys(state, layer);

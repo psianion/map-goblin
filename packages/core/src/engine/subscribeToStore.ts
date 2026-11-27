@@ -649,7 +649,8 @@ export function subscribeToStore(
             // and leaving it out meant setting one changed the store and nothing else.
             // Opacity for the same reason: the bake is what fades the fill. And the soft erases'
             // fades, by identity: an erase below full strength cuts nothing, so only they change.
-            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}:${c.opacity ?? 1}${pieceDressingKey(c)}${c.fades ? `:f${refId(c.fades)}` : ''}`)
+            // The floor's own edge band too: it is what its outline is walled with.
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}:${styleOverridesDigest(c.styleOverrides)}:${c.opacity ?? 1}${pieceDressingKey(c)}${c.fades ? `:f${refId(c.fades)}` : ''}${c.edgeBand !== undefined ? `:b${c.edgeBand ?? '-'}` : ''}`)
             .join(','),
           // The same shapes, geometry only. Everything above this line that is
           // dressing — texture, scale, tint, offset, fill rotation — moves no

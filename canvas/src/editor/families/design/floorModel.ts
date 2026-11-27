@@ -6,6 +6,8 @@ import { selectLayerForChild } from '@/store/selectors';
 import { isBandSet } from '@dnd/core/src/assets/packCatalog';
 import type { DungeonLayer, MapBuilderStore, ShapeChild } from '@/store/types';
 import { radToDeg } from '@/editor/models/selectionModel';
+import { floorWallSet } from '@dnd/core/src/shared/wallLook';
+import { layerDrawStyle } from '@dnd/core/src/engine/levelLook';
 
 export const state = () => useStore.getState() as MapBuilderStore;
 
@@ -33,11 +35,23 @@ export function layerBandOf(layer: Pick<DungeonLayer, 'style'> | null | undefine
   return id && isBandSet(id) ? id : null;
 }
 
-/** A floor's edge band as it draws: its own, else its layer's. */
+/** The set a walled floor's outline is drawn with, as the renderer reads it: '' for none. */
+export function drawnWallSetOf(o: ShapeChild): string {
+  const layer = selectLayerForChild(state(), o.id);
+  if (layer?.type !== 'dungeon') return '';
+  return floorWallSet(o, layerDrawStyle(layer as DungeonLayer));
+}
+
+/** A floor's edge band as it draws: its own, else its pinned set's or its layer's when that is a band. */
 export function edgeBandOf(o: ShapeChild): string | null {
   if (o.edgeBand !== undefined) return o.edgeBand;
-  const layer = selectLayerForChild(state(), o.id);
-  return layerBandOf(layer?.type === 'dungeon' ? (layer as DungeonLayer) : null);
+  const set = drawnWallSetOf(o);
+  return set && isBandSet(set) ? set : null;
+}
+
+/** The band a floor would draw with no edge band of its own: its pinned set's or its layer's, when a band. */
+export function unpinnedBandOf(o: ShapeChild): string | null {
+  return edgeBandOf({ ...o, edgeBand: undefined });
 }
 
 export function fillOf(o: ShapeChild): FillValue {

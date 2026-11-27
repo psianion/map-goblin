@@ -548,6 +548,36 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
   });
 
+  // A floor's edge band is what its outline is walled with: picking one redraws at once, with
+  // no union or room work, since no outline moved. A floor with none keeps its key as it was.
+  it("a floor's edge band pick rebuilds the layer once, and re-runs no union", () => {
+    const layerId = seed({ children: [shape('s1', 0, 0), shape('s2', 100, 0)] });
+    unsub = start();
+    vi.clearAllMocks();
+
+    const setBand = (band: string | null | undefined) =>
+      useStore.setState((s) => {
+        const l = s.layers.find((x) => x.id === layerId);
+        const c = l?.type === 'dungeon' ? (l.children.find((x) => x.id === 's1') as ShapeChild | undefined) : undefined;
+        if (c) c.edgeBand = band;
+      });
+    setBand('Band_A');
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    setBand(null);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    setBand(undefined);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+  });
+
   it('a level look edit: a floor tint redraws the fills, wall keys rebuild with the level folded in', () => {
     const layerId = seed({ children: [shape('s1', 0, 0)] });
     unsub = start();

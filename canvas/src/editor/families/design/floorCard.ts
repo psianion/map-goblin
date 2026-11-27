@@ -18,7 +18,7 @@ import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/sel
 import { editChildren, editKey } from './cardWrites';
 import { FLOOR_EDGE_OPTIONS, blendsFloorEdges, setFloorEdges } from './layerStyle';
 import { FLOOR_VERBS, openOutlineNodes } from './verbs';
-import { edgeBandOf, fillOf, layerBandOf, pickedFloors, state, type FillValue } from './floorModel';
+import { drawnWallSetOf, edgeBandOf, fillOf, pickedFloors, state, unpinnedBandOf, type FillValue } from './floorModel';
 import { ColourField, EdgePaintField, FillField, FloorEdgeField, LayerField, PAINTED_EDGE, PLAIN_WALLS as LAYER_WALLS, RockField, TextureField, WallsField } from './FloorFields';
 import { ShoreField } from '@/editor/families/terrain/MaterialsColumn';
 import { defaultShoreId, isWaterMaterial } from '@dnd/core/src/assets/materialKit';
@@ -96,18 +96,15 @@ const walls = defineCardField<'shape', string | null>({
   control: 'custom',
   render: WallsField,
   visibleWhen: (o) => !isBrushCave(o),
-  read: (o) => {
-    if (o.ground) return null;
-    const pin = o.styleOverrides?.wallTextureSetId;
-    // A walled floor with no pin of its own shows its layer's set.
-    return typeof pin === 'string' && pin !== '' ? pin : (styleOf(o)?.wallTextureSetId || o.edgeMaterial || LAYER_WALLS);
-  },
+  // What its outline is drawn with: its edge band, its own pin, else its layer's set.
+  read: (o) => (o.ground ? null : drawnWallSetOf(o) || o.edgeMaterial || LAYER_WALLS),
   write: (_store, ids, v) =>
     editChildren('Floor walls', ids, (c) => {
       if (c.childType !== 'shape') return null;
       if (v === null) return c.ground ? null : { ground: true };
       if (v === LAYER_WALLS) return c.ground ? { ground: undefined } : null;
-      return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v } };
+      // The set picked is what draws: an edge band of the floor's own would stand over it, so it goes.
+      return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v }, ...(c.edgeBand !== undefined ? { edgeBand: undefined } : {}) };
     }),
 });
 
@@ -373,8 +370,8 @@ const edgeBand = defineCardField<'shape', string | null>({
         if (!paint) return null;
         return { edgePaint: paint, edgeBand: edgeBandOf(c) !== null ? null : c.edgeBand };
       }
-      const layer = selectLayerForChild(state(), c.id);
-      return { edgePaint: undefined, edgeBand: v === layerBandOf(layer?.type === 'dungeon' ? (layer as DungeonLayer) : null) ? undefined : v };
+      // The band it would draw anyway (its pinned set's, or its layer's) unpins it.
+      return { edgePaint: undefined, edgeBand: v === unpinnedBandOf(c) ? undefined : v };
     }),
 });
 

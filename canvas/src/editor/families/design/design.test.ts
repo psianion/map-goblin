@@ -704,6 +704,33 @@ describe('the floor card', () => {
     expect(a().edgeBand).toBe('GG_Cave_Moss');
   });
 
+  it('shows on Walls and Edge band what the floor is drawn with, and a Walls pick is what draws', () => {
+    seed([shape('p', { edgeBand: 'GG_Cave_Moss', styleOverrides: { wallTextureSetId: 'GG_Brick' } }), shape('q', { styleOverrides: { wallTextureSetId: 'GG_Cave_Moss' } })], ['p']);
+    useStore.setState((s) => {
+      (s.layers[0] as DungeonLayer).style.wallTextureSetId = 'GG_Cave_Ink';
+    });
+    const p = () => child<ShapeChild>('p');
+    const q = () => child<ShapeChild>('q');
+    // Its own band stands over its pinned set.
+    expect(read('shape', 'card.floor.walls', p())).toBe('GG_Cave_Moss');
+    expect(read('shape', 'card.floor.edgeBand', p())).toBe('GG_Cave_Moss');
+    // A band pinned as its set draws, not the layer's.
+    expect(read('shape', 'card.floor.edgeBand', q())).toBe('GG_Cave_Moss');
+    expect(read('shape', 'card.floor.walls', q())).toBe('GG_Cave_Moss');
+    // Picking the band it already draws pins nothing more.
+    write('shape', 'card.floor.edgeBand', ['q'], 'GG_Cave_Moss');
+    expect(q().edgeBand).toBeUndefined();
+    // A Walls pick lets the floor's own band go, so the set picked is what draws.
+    write('shape', 'card.floor.walls', ['p'], 'GG_Fieldstone');
+    expect(p().edgeBand).toBeUndefined();
+    expect(p().styleOverrides?.wallTextureSetId).toBe('GG_Fieldstone');
+    expect(read('shape', 'card.floor.walls', p())).toBe('GG_Fieldstone');
+    expect(read('shape', 'card.floor.edgeBand', p())).toBeNull();
+    expect(undoManager.size()).toBe(1);
+    undoManager.undo();
+    expect(p().edgeBand).toBe('GG_Cave_Moss');
+  });
+
   it('picks Painted border as paint only: the band goes for it, stone walls stay, its texture and width set undoably', () => {
     seed([shape('a'), shape('b')], ['a', 'b']);
     useStore.setState((s) => {
