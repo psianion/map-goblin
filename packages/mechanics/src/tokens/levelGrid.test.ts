@@ -62,7 +62,6 @@ function gridOf(edit: (map: SerializedMapData) => void = () => {}, doors: Record
     settings: data.mapSettings,
     level,
     layers,
-    hasRooms: data.layers.some((l) => l.type === 'dungeon' && (l.rooms ?? []).length > 0),
     hiddenGround: mapHasHiddenGround(data),
     crossings: sceneCrossings(undefined, null),
   })
@@ -225,5 +224,45 @@ describe('the level reader, on the table’s walk cases', () => {
       ;(layer.children.find((c) => c.id === 'door-hall') as DoorChild).isSecret = true
     })
     expect(secret({ x: 13.5, y: 5.5 }, { x: 11.5, y: 5.5 })).toMatch(new RegExp(`^${MOVE_BLOCKED}:`))
+  })
+})
+
+describe('a picture-only map with rooms (rooms plan §5)', () => {
+  const picture = (rooms: unknown[], children: unknown[] = []): ReturnType<typeof levelWalkGrid> =>
+    levelWalkGrid({
+      frame: { minX: 0, minY: 0, maxX: 10, maxY: 8 },
+      settings: { name: 'Picture' } as SerializedMapData['mapSettings'],
+      level: null,
+      layers: [{ id: 'l', type: 'dungeon', levelId: '', children, standaloneWalls: [], rooms, mergedFloor: null } as unknown as DungeonLayer],
+      hiddenGround: false,
+      crossings: sceneCrossings(undefined, null),
+    })
+  const square = (x: number, y: number): [number, number][] => [[x, y], [x + 3, y], [x + 3, y + 3], [x, y + 3]]
+
+  it('stays walkable everywhere with outlined rooms on it', () => {
+    const grid = picture([
+      { id: 'a', name: 'Hall', anchor: [2, 2], boundary: square(1, 1) },
+      { id: 'b', name: 'Yard', anchor: [7, 5], boundary: square(6, 4) },
+    ])
+    expect([...grid.cell].every((c) => c === STANDABLE)).toBe(true)
+  })
+
+  it('stays walkable everywhere with a room that has no shape at all', () => {
+    expect([...picture([{ id: 'a', name: 'Lost', anchor: [2, 2] }]).cell].every((c) => c === STANDABLE)).toBe(true)
+  })
+
+  it('keeps tokens to the floor once the map has floor of its own', () => {
+    const grid = picture([], [])
+    const floored = levelWalkGrid({
+      frame: { minX: 0, minY: 0, maxX: 10, maxY: 8 },
+      settings: { name: 'Floor' } as SerializedMapData['mapSettings'],
+      level: null,
+      layers: [{ id: 'l', type: 'dungeon', levelId: '', children: [], standaloneWalls: [], rooms: [], mergedFloor: [square(1, 1)] } as unknown as DungeonLayer],
+      hiddenGround: false,
+      crossings: sceneCrossings(undefined, null),
+    })
+    expect([...grid.cell].every((c) => c === STANDABLE)).toBe(true)
+    expect(floored.cell[2 * floored.cols + 2]).toBe(STANDABLE)
+    expect(floored.cell[6 * floored.cols + 8]).not.toBe(STANDABLE)
   })
 })

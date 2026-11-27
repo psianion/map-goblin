@@ -241,12 +241,12 @@ export const CAVE = {
   inHall: { x: 10.5, y: 7.5 },
 } as const;
 
-/** A campaign holding the outdoor-cave map and a Bram PC type, with no session open. */
-export async function standUpOutdoorCave(name: string): Promise<{ campaignId: string; campaignName: string; sceneId: string; mapId: string; token: string }> {
+/** A campaign holding the outdoor-cave map (or `file`) and a Bram PC type, with no session open. */
+export async function standUpOutdoorCave(name: string, file = OUTDOOR_CAVE): Promise<{ campaignId: string; campaignName: string; sceneId: string; mapId: string; token: string }> {
   const campaign = await api<{ campaignId: string; token: string }>('/api/campaigns', postJson({ name }), ADMIN_PASS());
   const map = await api<{ sceneId: string; mapId: string }>(
     `/api/campaigns/${campaign.campaignId}/maps`,
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(OUTDOOR_CAVE, 'utf8') },
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(file, 'utf8') },
     campaign.token,
   );
   // The PC type has to exist before the session the wizard opens; a throwaway session adds it.
