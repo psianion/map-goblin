@@ -48,7 +48,7 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
   const captions = await panel.locator('[data-section]').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.section))
   expect(captions).toEqual(['Placement', 'Edge'])
   await expect(panel.getByText('Snap to grid')).toBeVisible()
-  await expect(panel.getByText('Blend with neighbours')).toBeVisible()
+  await expect(panel.getByText('Floor edges')).toBeVisible()
   // Nothing in both, and the floor tools no longer carry the wall width.
   await expect(panel.locator('[data-setting="floor.shape"], [data-setting="edit.nodeMode"], [data-setting="wall.width"]')).toHaveCount(0)
   await expect(dock.locator('[data-setting="wall.width"], [data-setting="grid.snap"]')).toHaveCount(0)
@@ -89,9 +89,9 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
   expect((await tools(page)).sides).toBe(7)
   expect((await box(dock)).height).toBe(112)
 
-  // A panel setting: Blend with neighbours is the layer's own switch, so it undoes.
+  // A panel setting: Floor edges is the layer's own choice, so it undoes.
   expect(before.blend).toBe(true)
-  await panel.locator('[data-setting="floor.blend"]').getByRole('switch').click()
+  await panel.locator('[data-setting="floor.blend"]').getByRole('button', { name: 'Sharp' }).click()
   expect((await map(page)).blend).toBe(false)
 
   // Undo takes back the switch, then the floor.
