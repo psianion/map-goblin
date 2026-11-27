@@ -10,7 +10,7 @@ import { syncRooms } from '@dnd/core/src/store/roomSync'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the frame and base ground rooms are cut with
 import { roomContextOf } from '@dnd/core/src/shared/roomFloor'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: Suggest, as the editor runs it
-import { suggestRooms } from '@dnd/core/src/shared/suggestRooms'
+import { suggestDivides, suggestRooms } from '@dnd/core/src/shared/suggestRooms'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the editor's own room migration, pure data
 import { migrateRooms } from '@dnd/core/src/store/roomMigration'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
@@ -117,6 +117,47 @@ describe('walls over ground pieces', () => {
     for (const room of scene.rooms) {
       expect(room.boundary.length).toBeGreaterThanOrEqual(3)
       expect(room.boundary).toEqual(faces.get(room.id))
+    }
+  })
+})
+
+describe('painted floors with no walls', () => {
+  /** Two painted chambers and the passage between them, rooms and lines accepted from Suggest, as the editor saves it. */
+  function painted(): SerializedMapData {
+    const cave = JSON.parse(CAVE) as SerializedMapData
+    const layer = cave.layers.find(isDungeon)!
+    const piece = (id: string, x0: number, y0: number, x1: number, y1: number) => ({
+      id, name: id, childType: 'shape', visible: true, shapeType: 'polygon', ground: true, textureId: 'stone',
+      contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]], textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0, textureTint: '#ffffff',
+    })
+    const next: DungeonLayer = {
+      ...layer,
+      children: [piece('west', 2, 2, 10, 10), piece('way', 9, 5, 17, 7), piece('east', 16, 2, 24, 10)] as unknown as DungeonLayer['children'],
+      standaloneWalls: [],
+      thresholds: [],
+      rooms: [],
+      mergedFloor: null,
+    }
+    const data: SerializedMapData = { ...cave, layers: cave.layers.map((l) => (isDungeon(l) ? next : l)) }
+    const ctx = roomContextOf(data, next)
+    const divides = suggestDivides(next, ctx)
+    next.rooms = suggestRooms(next, ctx, divides).map(({ face: _face, ...room }) => room)
+    next.thresholds = divides
+    return data
+  }
+
+  it('Suggest makes pinned rooms, and the server places each on its painted part with the editor’s faces', () => {
+    const data = painted()
+    const rooms = data.layers.find(isDungeon)!.rooms!
+    expect(rooms).toHaveLength(3)
+    expect(rooms.every((r) => !r.boundary)).toBe(true)
+    const faces = editorFaces(data)
+    const { scene } = table(JSON.stringify(data), { x: 6, y: 6 })
+    expect(scene.rooms).toHaveLength(3)
+    for (const room of scene.rooms) {
+      expect(room.boundary.length).toBeGreaterThanOrEqual(3)
+      expect(room.boundary).toEqual(faces.get(room.id))
+      expect(scene.roomAt(room.anchor[0], room.anchor[1])).toBe(room.id)
     }
   })
 })

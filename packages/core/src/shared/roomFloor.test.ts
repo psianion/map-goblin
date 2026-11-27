@@ -191,7 +191,7 @@ describe('Suggest on floors painted as ground, with no walls', () => {
   // The Floor tool's default: ground pieces, here over base ground.
   const painted = () => layer({ children: FA_CAVE.map((ring, i) => shape(`g${i}`, ring, { ground: true, textureId: 'stone' })) });
 
-  it('gives the seven painted rectangles four rooms and three passages, each an outlined room', () => {
+  it('gives the seven painted rectangles four rooms and three passages, each a pinned room', () => {
     const l = painted();
     const divides = suggestDivides(l, FA_CTX);
     expect(divides).toHaveLength(6);
@@ -199,18 +199,50 @@ describe('Suggest on floors painted as ground, with no walls', () => {
     expect(ghosts).toHaveLength(7);
     expect(ghosts.filter((g) => g.name.startsWith('Room '))).toHaveLength(4);
     expect(ghosts.filter((g) => g.name.startsWith('Passage '))).toHaveLength(3);
-    for (const g of ghosts) expect(g.boundary).toEqual(g.face);
+    for (const g of ghosts) {
+      expect(g.boundary).toBeUndefined();
+      expect(pointInRing(g.anchor[0], g.anchor[1], g.face!)).toBe(true);
+    }
   });
 
   it('keeps seven distinct faces after accept and sync, and a second Suggest proposes nothing', () => {
     const { ghosts, accepted, rooms } = acceptAndSync(painted(), FA_CTX);
     expect(ghosts).toHaveLength(7);
     expect(rooms).toHaveLength(7);
-    expect(rooms.every((r) => !r.orphaned && (r.face?.length ?? 0) >= 3)).toBe(true);
+    expect(rooms.every((r) => !r.orphaned && !r.boundary && (r.face?.length ?? 0) >= 3)).toBe(true);
     expect(new Set(rooms.map((r) => JSON.stringify(r.face))).size).toBe(7);
+    for (const g of ghosts) expect(computeArea(rooms.find((r) => r.id === g.id)!.face!)).toBeCloseTo(computeArea(g.face!), 6);
     const synced = layer({ ...accepted, rooms });
     expect(suggestDivides(synced, FA_CTX)).toEqual([]);
     expect(suggestRooms(synced, FA_CTX, [])).toEqual([]);
+  });
+
+  it('a room follows its painted floor: growing the floor grows the room', () => {
+    const { accepted, rooms } = acceptAndSync(painted(), FA_CTX);
+    // The south-east chamber, piece g6, grown two cells east.
+    const roomOf = (rs: Room[]) => rs.find((r) => pointInRing(21, 21, r.face!))!;
+    const was = computeArea(roomOf(rooms).face!);
+    const grown = layer({
+      ...accepted,
+      rooms,
+      children: accepted.children.map((c) => (c.id === 'g6' ? { ...(c as ShapeChild), contours: [rect(17, 17, 28, 26)] } : c)),
+    });
+    const now = syncRooms(grown, 1, FA_CTX).rooms;
+    expect(computeArea(roomOf(now).face!)).toBeCloseTo(was + 18, 6);
+    expect(now.every((r) => !r.orphaned)).toBe(true);
+  });
+
+  it('keeps all seven placed when a wall is added elsewhere on the layer', () => {
+    const { accepted, rooms } = acceptAndSync(painted(), FA_CTX);
+    const walled = layer({ ...accepted, rooms, standaloneWalls: [wall('far', [[40, 40], [48, 40]])] });
+    const now = syncRooms(walled, 1, FA_CTX).rooms;
+    expect(now.every((r) => !r.orphaned)).toBe(true);
+    expect(now.map((r) => r.face)).toEqual(rooms.map((r) => r.face));
+  });
+
+  it('leaves a pin on bare base ground orphaned', () => {
+    const l = layer({ ...painted(), rooms: [{ id: 'bare', name: 'Bare', anchor: [29, 1] }] });
+    expect(syncRooms(l, 1, FA_CTX).rooms[0].orphaned).toBe(true);
   });
 
   it('keeps two touching patches of different textures apart', () => {
@@ -387,6 +419,15 @@ describe('the sync’s cost', () => {
       expect(difference).toHaveBeenCalledTimes(1);
       expect(placed.every((r) => !r.orphaned)).toBe(true);
       expect(placed.map((r) => r.face)).toEqual(syncRooms(walled, 1, NO_ROOM_CONTEXT).rooms.map((r) => r.face));
+      // Seven pins on painted floor: the painted areas are cut once for the whole sync.
+      difference.mockClear();
+      const { accepted, rooms: paintedRooms } = acceptAndSync(
+        layer({ children: FA_CAVE.map((ring, i) => shape(`g${i}`, ring, { ground: true, textureId: 'stone' })) }),
+        NO_ROOM_CONTEXT,
+      );
+      difference.mockClear();
+      expect(syncRooms(layer({ ...accepted, rooms: paintedRooms }), 1, NO_ROOM_CONTEXT).rooms.every((r) => !r.orphaned)).toBe(true);
+      expect(difference).toHaveBeenCalledTimes(1);
       // A pin off the walled floor still finds its closed ground face.
       difference.mockClear();
       const yard = layer({ ...walled, standaloneWalls: [...walled.standaloneWalls, wall('y', [[10, 0], [11, 0]])], rooms: [{ id: 'out', name: 'out', anchor: [11, 11] }] });

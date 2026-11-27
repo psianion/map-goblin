@@ -24,8 +24,8 @@ import { signedArea } from './roomUtils';
  * grown a little, it stays on the floor and the walls. The open outdoors never is.
  *
  * A layer drawn in ground alone (no walled floor, no wall) has no faces here; Suggest reads its
- * painted areas instead (`paintedGroundCuts`) and makes each one an outlined room, so once
- * accepted it is placed by its outline like any other.
+ * painted areas instead (`paintedGroundCuts`), and the sync places a pin that nothing else
+ * holds in the painted area under it (`paintedAreaCuts`), so the room follows the floor.
  */
 
 /** What a layer's rooms read beyond the layer itself: the map's frame, and whether its level has base ground. */
@@ -103,14 +103,22 @@ function boxOfRings(rings: readonly Polygon[]): Box {
 }
 
 /**
- * The cut of a layer drawn in ground alone (no walled floor, no wall), for Suggest: the visible
- * ground as painted, one region per texture (a later piece covers what it lies over), each cut
- * by the divide lines. Pieces of one texture that touch are one area; different textures stay
- * apart. Base ground is never among them. Null on a layer with a walled floor or a wall, where
- * the faces are `roomFaceCut`'s.
+ * The cut of a layer drawn in ground alone (no walled floor, no wall), for Suggest: its
+ * painted areas (`paintedAreaCuts`). Null on a layer with a walled floor or a wall, where
+ * Suggest reads `roomFaceCut`'s faces.
  */
 export function paintedGroundCuts(layer: DungeonLayer, extraThresholds: readonly ThresholdSegment[] = []): FaceCut[] | null {
   if (layer.standaloneWalls.length > 0 || walledFloorOf(layer).length > 0) return null;
+  return paintedAreaCuts(layer, extraThresholds);
+}
+
+/**
+ * The visible ground as painted, one region per texture (a later piece covers what it lies
+ * over), each cut by the layer's walls and divide lines. Pieces of one texture that touch are
+ * one area; different textures stay apart. Base ground is never among them. The sync's last
+ * place for a pin no walled or closed ground face holds, on any layer.
+ */
+export function paintedAreaCuts(layer: DungeonLayer, extraThresholds: readonly ThresholdSegment[] = []): FaceCut[] {
   const areas = new Map<string, { rings: Polygon[]; box: Box }>();
   for (const { texture, rings } of groundPieceList(layer)) {
     const box = boxOfRings(rings);
@@ -132,7 +140,7 @@ export function paintedGroundCuts(layer: DungeonLayer, extraThresholds: readonly
   const out: FaceCut[] = [];
   for (const { rings } of areas.values()) {
     if (rings.length === 0) continue;
-    const cut = cutFloor(rings, [], width, divides);
+    const cut = cutFloor(rings, layer.standaloneWalls, width, divides);
     const faces = facesOfParts(cut, 1);
     if (faces.length > 0) out.push({ faces, rings: cut });
   }
