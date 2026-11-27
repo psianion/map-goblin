@@ -3,8 +3,9 @@
 // lines and rooms accepted, and one outlined room on open ground. Written, never run by the
 // builders: the tester runs it once.
 //
-// The start list and the Map tab name the same rooms, every one with a shape; a token walks
-// through all four.
+// The start list and the Map tab name the same rooms, every one with a shape; a token starts in
+// the picked room, walks through the passage to the east chamber, and, set outside the closed
+// cave by the DM, walks into the outlined camp.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -28,6 +29,62 @@ function fixtureRooms(): FixtureRoom[] {
 
 /** The centre of the cell a room's pin is in: where a token stands in that room. */
 const cellOf = (room: FixtureRoom) => ({ x: Math.floor(room.anchor[0]) + 0.5, y: Math.floor(room.anchor[1]) + 0.5 });
+
+/** A cell of open ground between the cave and the camp, in no room. */
+const OPEN_GROUND = { x: 15.5, y: 16.5 };
+
+type TablePage = {
+  __sessionStore: {
+    getState(): {
+      session: { activeSceneId: string | null; modules: Record<string, unknown> } | null;
+      mapData: unknown;
+      sendCommand(module: string, action: string, payload: unknown): void;
+    };
+  };
+};
+
+/**
+ * The room a token stands in, as the table reads it: the room whose face, in the document this
+ * page's table loaded, holds the token. Asked of the DM's page, whose document has every room.
+ */
+async function roomOfToken(page: Page, name: string): Promise<string | null> {
+  return page.evaluate((wanted) => {
+    const state = (window as unknown as TablePage).__sessionStore.getState();
+    const session = state.session;
+    const tokens = (session?.modules.tokens as { byScene?: Record<string, Record<string, { name: string; x: number; y: number }>> } | undefined)?.byScene?.[
+      session?.activeSceneId ?? ''
+    ];
+    const token = tokens ? Object.values(tokens).find((t) => t.name === wanted) : undefined;
+    if (!token) return null;
+    const doc = state.mapData as { layers?: { type: string; rooms?: { id: string; boundary?: [number, number][] }[] }[] } | null;
+    const inside = (ring: [number, number][]) => {
+      let hit = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i]!;
+        const [xj, yj] = ring[j]!;
+        if (yi > token.y !== yj > token.y && token.x < ((xj - xi) * (token.y - yi)) / (yj - yi) + xi) hit = !hit;
+      }
+      return hit;
+    };
+    const rooms = (doc?.layers ?? []).flatMap((l) => (l.type === 'dungeon' ? (l.rooms ?? []) : []));
+    return rooms.find((r) => (r.boundary?.length ?? 0) >= 3 && inside(r.boundary!))?.id ?? null;
+  }, name);
+}
+
+/** The DM moves a token by name from their own page, over their own socket. */
+async function dmMove(page: Page, name: string, to: { x: number; y: number }): Promise<void> {
+  await page.evaluate(
+    ({ wanted, to }) => {
+      const state = (window as unknown as TablePage).__sessionStore.getState();
+      const sceneId = state.session?.activeSceneId ?? '';
+      const tokens = (state.session?.modules.tokens as { byScene?: Record<string, Record<string, { name: string }>> } | undefined)?.byScene?.[sceneId] ?? {};
+      const id = Object.entries(tokens).find(([, t]) => t.name === wanted)?.[0];
+      if (!id) throw new Error(`no token ${wanted} on the live scene`);
+      state.sendCommand('tokens', 'move', { sceneId, id, x: to.x, y: to.y });
+    },
+    { wanted: name, to },
+  );
+}
 
 /** The room ids the table's Map tab lists, in order. */
 async function mapTabRooms(page: Page): Promise<string[]> {
@@ -79,12 +136,26 @@ test.describe('@rooms rooms at the table', () => {
     await assertMapLoaded(player, CAVE_CHAMBERS_NAME);
     await expect.poll(() => tokenAt(player, 'Bram')).not.toBeNull();
 
-    // West chamber, the passage, the east chamber, and out round the cave to the camp: no room
-    // stops a step, the outlined camp on open ground included.
-    for (const room of rooms) {
+    // Start puts Bram in the room picked in the wizard, on the cell of its pin.
+    const [west, narrow, east, camp] = rooms as [FixtureRoom, FixtureRoom, FixtureRoom, FixtureRoom];
+    await expect.poll(() => tokenAt(player, 'Bram'), { message: 'Bram starts in West chamber' }).toEqual(cellOf(west));
+    await expect.poll(() => roomOfToken(page, 'Bram')).toBe(west.id);
+
+    // Through the passage into the east chamber, one move a player may make at a time.
+    for (const room of [narrow, east]) {
       const to = cellOf(room);
       await dragToken(player, 'Bram', to);
       await expect.poll(() => tokenAt(player, 'Bram'), { message: `Bram stands in ${room.name}` }).toEqual(to);
+      await expect.poll(() => roomOfToken(page, 'Bram')).toBe(room.id);
     }
+
+    // The cave has no mouth, so no player walks out of it: the DM sets Bram on the open ground
+    // south of it, and from there he walks into the outlined camp.
+    await dmMove(page, 'Bram', OPEN_GROUND);
+    await expect.poll(() => tokenAt(player, 'Bram'), { message: 'Bram is outside the cave' }).toEqual(OPEN_GROUND);
+    await expect.poll(() => roomOfToken(page, 'Bram')).toBeNull();
+    await dragToken(player, 'Bram', cellOf(camp));
+    await expect.poll(() => tokenAt(player, 'Bram'), { message: `Bram stands in ${camp.name}` }).toEqual(cellOf(camp));
+    await expect.poll(() => roomOfToken(page, 'Bram')).toBe(camp.id);
   });
 });

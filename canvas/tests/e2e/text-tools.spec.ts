@@ -54,8 +54,8 @@ test('text: a room with the texture strip and a panel setting, a styled label, u
   expect(drawn.walls).toBe(before.walls)
   expect(drawn.lastFloor?.textureId).toBe(picked)
 
-  // A label in the GM note style, typed in the card.
-  await page.getByTestId('shell-tool-panel').getByRole('button', { name: 'Label' }).click()
+  // A label in the GM note style, typed in the card. Label is the Text family's, on its flyout.
+  await pickTool(page, 'label')
   expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Size', 'Colour', 'styles'])
   await dock.getByRole('button', { name: 'GM note' }).click()
   expect(await page.evaluate(() => (window as Any).__store.getState().tools.settings.label.style)).toBe('gm-note')
@@ -729,12 +729,15 @@ async function pinColour(page: Page, section: Locator, hex: string): Promise<voi
   await waitFrame(page, 2)
 }
 
+/** A card's Walls section's set swatches: None first, then each installed set. */
+const wallSets = (section: Locator) => section.getByRole('group', { name: 'Wall set' })
+
 /** Pins the first installed wall set through a card's Walls section, so a wall tint has stones to colour. */
-async function pinFirstWallSet(page: Page, section: Locator): Promise<void> {
-  await section.getByRole('combobox', { name: 'Set' }).click()
-  const options = page.getByRole('option')
-  expect(await options.count()).toBeGreaterThan(1)
-  await options.nth(1).click()
+async function pinFirstWallSet(section: Locator): Promise<void> {
+  const swatches = wallSets(section).getByRole('button')
+  expect(await swatches.count()).toBeGreaterThan(1)
+  await swatches.nth(1).click()
+  await expect(swatches.nth(1)).toHaveAttribute('aria-pressed', 'true')
 }
 
 /** A box in canvas CSS px around a room's face (its bounding box), optionally grown by `pad` px. */
@@ -952,7 +955,7 @@ test('rooms: a wall tint pinned on one room recolours that room only, and undoes
   await selectIds(page, [hall.id])
   const walls = card(page).getByTestId('look-walls')
   await expect(walls.getByTestId('look-walls-source')).toHaveText(/^Inherits/)
-  await pinFirstWallSet(page, walls)
+  await pinFirstWallSet(walls)
   await pinColour(page, walls, '#ff2020')
   await expect(walls.getByTestId('look-walls-source')).toHaveText('Pinned')
   expect((await rooms(page)).find((r) => r.id === hall.id)?.look).toMatchObject({ wallTextureTint: '#ff2020' })
@@ -1126,7 +1129,7 @@ test('rooms: a new area from two rooms groups them; its wall pin reaches both, a
   await closeRooms(page)
   await expect(card(page)).toHaveAttribute('data-kind', 'area')
   const areaWalls = card(page).getByTestId('look-walls')
-  await pinFirstWallSet(page, areaWalls)
+  await pinFirstWallSet(areaWalls)
   await pinColour(page, areaWalls, '#2060ff')
   await expect(areaWalls.getByTestId('look-walls-source')).toHaveText('Pinned')
 
@@ -1395,13 +1398,13 @@ test('rooms: pinning a wall set on a room from the card and from the Wall toolâ€
   const grottoSet = async () => {
     await selectIds(page, [grotto.id])
     const walls = card(page).getByTestId('look-walls')
-    return [await walls.getByTestId('look-walls-source').textContent(), await walls.getByRole('combobox', { name: 'Set' }).textContent()]
+    return [await walls.getByTestId('look-walls-source').textContent(), await wallSets(walls).locator('[aria-pressed="true"]').getAttribute('aria-label')]
   }
   const grottoBefore = await grottoSet()
 
   await selectIds(page, [hall.id])
   const walls = card(page).getByTestId('look-walls')
-  await pinFirstWallSet(page, walls)
+  await pinFirstWallSet(walls)
   await expect(walls.getByTestId('look-walls-source')).toHaveText('Pinned')
   // The Wall tool's dock acts on the picked room: picking the tool drops the selection, so the room is picked again after.
   await pickTool(page, 'wall')

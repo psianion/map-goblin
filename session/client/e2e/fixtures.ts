@@ -250,9 +250,12 @@ export async function standUpOutdoorCave(name: string, file = OUTDOOR_CAVE): Pro
     campaign.token,
   );
   // The PC type has to exist before the session the wizard opens; a throwaway session adds it.
+  // Opening it also stored a party start area round the map's centre, and the wizard's start only
+  // lands on a scene without one, so it is cleared: the campaign is as fresh as a new publish.
   const first = await api<{ sessionId: string }>('/api/sessions', postJson({ campaignId: campaign.campaignId, sceneId: map.sceneId }), campaign.token);
   await sendCommands(campaign.token, [
     { module: 'tokens', action: 'library-upsert', payload: { name: 'Bram', kind: 'pc', size: 'medium', disposition: 'friendly', hp: { max: 24 } } },
+    { module: 'tokens', action: 'set-party-start', payload: { sceneId: map.sceneId, rect: null } },
   ]);
   await api(`/api/sessions/${first.sessionId}/end`, { method: 'POST' }, campaign.token);
   return { campaignId: campaign.campaignId, campaignName: name, sceneId: map.sceneId, mapId: map.mapId, token: campaign.token };
