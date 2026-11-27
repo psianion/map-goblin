@@ -131,3 +131,45 @@ Acceptance on the owner's maps, by hand on a copy: "FA cave dungeon" gets its fo
 ## 10. Not in this pass
 
 Click-to-fill, a room brush, automatic rooms while drawing, room controls at the table, one-click room reveal.
+
+## 11. Floors and walls follow rooms (second pass)
+
+Two reports from the owner on "Stairs check" (seven overlapping floor rectangles, doors on short walls in the passages, seven accepted rooms).
+
+### 11.1 What is wrong (checked in code and on that map's data)
+
+| # | What happens | Cause |
+|---|---|---|
+| 1 | Change one room's floor and a hard-edged square of the old floor stays just inside the room, where the passage's rectangle sticks one cell past the door. | Floors are painted per rectangle, whole, in draw order (`floorWallRenderer.ts:962`). Nothing ties a rectangle to a room. Since doors cut faces, that one-cell overhang is in the room's face but is still painted by the passage's rectangle. |
+| 2 | "Blend with neighbours" does not blend. | It lays a flat 40 % wash of the later floor's tint over the whole overlap, hard-edged (`edgeTransitions.ts:105-154`). |
+| 3 | A room on painted floor shows no floor look at all. | Room fills are clipped to walled floors (`floorWallRenderer.ts:601`). |
+| 4 | Pick an Edge band on a floor and nothing redraws until some other edit. | `edgeBand` is missing from the render keys (`subscribeToStore.ts:44, 652`). |
+| 5 | The passage's Walls and Edge band picks never show (on the map: Stone Redrock and Cliff Stone Earthy A1 are stored on the passage, cave rock is drawn). | A merged outline takes one look per ring, from the rectangle with the most ring corners on it (`wallLook.ts:220-287`). A passage between two chambers never wins. |
+| 6 | The floor card can show a band the map does not draw. | The card reads `edgeBand` only; the renderer falls back to the rectangle's wall set (`floorModel.ts:37`, `wallLook.ts:166`). |
+
+### 11.2 Floor edges: Sharp or Blend
+
+One choice per layer, the existing `style.showEdgeTransitions` (Blend is the default, as today).
+
+**Sharp.** Every floor is drawn to its own outline with a hard edge. No wash. A room's pinned floor fills its face with a hard edge. This is today's picture without the wash.
+
+**Blend.**
+- *One floor per room.* A room's floor is its pinned floor (room, then area); with no pin it is the texture and tint of the topmost visible walled floor under the room's pin. When any other visible floor with a different texture or tint overlaps the room's face, the room's floor is painted over the whole face, so an overhang takes the room's floor. A room whose face lies on one texture gets no fill.
+- *Soft seams.* Where a room's fill meets a different floor (the next room at a door, a short wall or a divide line; or plain floor outside any room), the fill runs half the layer's blend width past the face and its edge is a true alpha ramp one blend width wide, built the way a ground piece's Edge softness is. No stacked steps. Along the floor's outer outline the fill stays clipped hard, under the wall.
+- *The wash goes where rooms are.* The flat wash is drawn only on floor that no room's face covers.
+- *Painted floors.* A room whose face comes from painted floor paints its pinned floor over that ground. The no-pin rule above applies to walled floors only.
+
+**Where the choice is shown.** A two-option control "Floor edges: Sharp | Blend" on the Floor card, in the Room card's Floor section and in the Floor tool's panel (in place of the "Blend with neighbours" switch). The Layer sheet keeps its switch. All four write the same layer flag in one undo step.
+
+### 11.3 Walls follow the stretch they run along
+
+- `edgeBand` joins the render keys, so a pick redraws at once.
+- Each edge of a merged outline takes, in this order: the wall look pinned on the room it bounds (as today); else the pins of the floor whose own outline that edge lies on (band, wall set, width, tint; the later floor where two coincide); else the layer's. Runs of the same look are laid as one walk, the way room looks already split a ring.
+- The floor card's Walls and Edge band show what is drawn for that floor.
+- Not changed: drawn walls, including the short ones that carry doors, keep their own set. Brush caves keep their own rock.
+
+### 11.4 Speed and tests
+
+Floors rebuild no more often than today. A guard test counts room fills built per rebuild: none on a map whose rooms each lie on one texture. Map open and one floor edit are timed before and after on the seven-room cave and on `goblin-warren`, cold and warm.
+
+Unit tests: a room's floor with and without a pin; when a fill is needed; the wash mask; the edge-to-floor rule on the seven rectangles (the passage's two long sides take the passage's pins, the chambers keep theirs); the render keys. One browser spec, `canvas/tests/e2e/rooms-looks.spec.ts`: a chamber and an overlapping passage with a door wall; change the chamber's floor; the overhang cell reads the chamber's floor in Blend and the passage's in Sharp; samples across the door seam rise steadily; a band pick on the passage changes its long side at once.
