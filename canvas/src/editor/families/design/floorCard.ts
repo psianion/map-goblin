@@ -1,6 +1,6 @@
 // The floor card (frame D): Size, Layer, Walls (a brush piece's own Rock instead) with their width and Height, then Look (Colour with Reset, Texture with
-// Change, Tint, Opacity, the Fill fold), then Edge (Edge band, and a painted border's texture
-// and width). Colour shows for floors
+// Change, Tint, Opacity, the Fill fold), then Edge (Edge band, a painted border's texture and
+// width, and the layer's Floor edges). Colour shows for floors
 // without a texture, Tint and Fill for textured ones: each row only where it changes something.
 
 import { z } from 'zod';
@@ -16,6 +16,7 @@ import type { DungeonLayer, DungeonStyle, ShapeChild } from '@/store/types';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren, editKey } from './cardWrites';
+import { FLOOR_EDGE_OPTIONS, blendsFloorEdges, setFloorEdges } from './layerStyle';
 import { FLOOR_VERBS, openOutlineNodes } from './verbs';
 import { edgeBandOf, fillOf, layerBandOf, pickedFloors, state, type FillValue } from './floorModel';
 import { ColourField, EdgePaintField, FillField, FloorEdgeField, LayerField, PAINTED_EDGE, PLAIN_WALLS as LAYER_WALLS, RockField, TextureField, WallsField } from './FloorFields';
@@ -377,6 +378,25 @@ const edgeBand = defineCardField<'shape', string | null>({
     }),
 });
 
+/** Floor edges on the floor's layer, Sharp or Blend: the layer's one choice, written for every layer the picked floors lie on. */
+const floorEdges = defineCardField<'shape', boolean>({
+  id: 'card.floor.edges',
+  label: 'Floor edges',
+  schema: z.boolean(),
+  default: true,
+  home: 'card',
+  control: 'seg',
+  section: 'Edge',
+  options: [...FLOOR_EDGE_OPTIONS],
+  read: (o) => blendsFloorEdges(dungeonLayerOf(o)),
+  write: (_store, ids, blend) =>
+    setFloorEdges(
+      state(),
+      ids.flatMap((id) => selectLayerForChild(state(), id)?.id ?? []),
+      blend,
+    ),
+});
+
 const hasPaint = (o: ShapeChild) => !!o.edgePaint;
 
 /** A painted border's texture: an outdoor floor. */
@@ -416,5 +436,5 @@ export const floorCard = defineCard<'shape'>({
   kind: 'shape',
   title: () => 'Floor',
   verbs: FLOOR_VERBS,
-  fields: [size, layer, walls, rock, wallWidth, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth],
+  fields: [size, layer, walls, rock, wallWidth, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth, floorEdges],
 });

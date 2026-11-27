@@ -643,6 +643,19 @@ describe('the floor card', () => {
     expect(a()).toMatchObject({ textureScale: 1, textureFillRotation: 0, textureOffsetX: 0 });
   });
 
+  it("sets the layer's Floor edges from the card, Sharp or Blend, in one undo step", () => {
+    seed([shape('a'), shape('b')], ['a', 'b']);
+    expect(read('shape', 'card.floor.edges', child<ShapeChild>('a'))).toBe(true);
+    write('shape', 'card.floor.edges', ['a', 'b'], false);
+    expect(layer().style.showEdgeTransitions).toBe(false);
+    expect(read('shape', 'card.floor.edges', child<ShapeChild>('b'))).toBe(false);
+    expect(undoManager.size()).toBe(1);
+    // The tool panel reads the same choice.
+    expect(settings.getSetting('floor.blend')).toBe(false);
+    undoManager.undo();
+    expect(layer().style.showEdgeTransitions).toBe(true);
+  });
+
   it('sets the texture, undoably', () => {
     seed([shape('a')], ['a']);
     write('shape', 'card.floor.texture', ['a'], 'p:moss');

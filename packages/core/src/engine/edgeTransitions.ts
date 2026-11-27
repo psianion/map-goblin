@@ -56,6 +56,20 @@ export interface TransitionStrip {
   polygons: Polygon[];
   colorA: string;
   colorB: string;
+  /** Cut round the rooms: its rings wound negative are holes. */
+  cut?: true;
+}
+
+function signedArea(poly: Polygon): number {
+  let a = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) a += poly[j][0] * poly[i][1] - poly[i][0] * poly[j][1];
+  return a / 2;
+}
+
+function trace(g: Graphics, poly: Polygon): void {
+  g.moveTo(poly[0][0], poly[0][1]);
+  for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]);
+  g.closePath();
 }
 
 /**
@@ -122,6 +136,26 @@ export function detectEdgeTransitions(
 }
 
 /**
+ * The wash a layer draws: its edge transition strips (Blend only, between walled floors),
+ * less what `cover` hands back (where the layer's rooms lie: each room's floor blends at its
+ * own seams). `cover` is asked only when there is a strip to cut.
+ */
+export function washStrips(layer: DungeonLayer, cover?: () => Polygon[]): TransitionStrip[] {
+  const s = layer.style;
+  if (!s.showEdgeTransitions || s.edgeTransitionWidth <= 0) return [];
+  // Between walled floors only: the strips are clipped to their union, where no ground piece is.
+  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !c.ground);
+  if (shapeChildren.length < 2) return [];
+  const strips = detectEdgeTransitions(shapeChildren, s.edgeTransitionWidth);
+  if (strips.length === 0 || !cover) return strips;
+  const off = cover();
+  if (off.length === 0) return strips;
+  return strips
+    .map((strip): TransitionStrip => ({ ...strip, polygons: clipper2Engine.difference(strip.polygons, off), cut: true }))
+    .filter((strip) => strip.polygons.length > 0);
+}
+
+/**
  * Render edge transition strips into the floor sublayer.
  * Strips are rendered as semi-transparent filled polygons
  * that blend the colors of adjacent texture regions.
@@ -129,19 +163,30 @@ export function detectEdgeTransitions(
 export function renderEdgeTransitions(
   parent: Container,
   layer: DungeonLayer,
+  cover?: () => Polygon[],
 ): void {
-  const s = layer.style;
-  if (!s.showEdgeTransitions || s.edgeTransitionWidth <= 0) return;
-  // Between walled floors only: the strips are clipped to their union, where no ground piece is.
-  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && !c.ground);
-  if (shapeChildren.length < 2) return;
-
-  const strips = detectEdgeTransitions(shapeChildren, s.edgeTransitionWidth);
-  if (strips.length === 0) return;
-
-  for (const strip of strips) {
+  for (const strip of washStrips(layer, cover)) {
     const g = new Graphics();
     g.alpha = 0.4; // Semi-transparent blend
+
+    if (strip.cut) {
+      // Outers filled, the rooms' holes cut.
+      const rings = strip.polygons.filter((p) => p.length >= 3);
+      const outers = rings.filter((p) => signedArea(p) >= 0);
+      const holes = rings.filter((p) => signedArea(p) < 0);
+      if (outers.length === 0) {
+        g.destroy();
+        continue;
+      }
+      for (const p of outers) trace(g, p);
+      g.fill({ color: parseColor(strip.colorB) });
+      if (holes.length > 0) {
+        for (const p of holes) trace(g, p);
+        g.cut();
+      }
+      parent.addChild(g);
+      continue;
+    }
 
     for (const poly of strip.polygons) {
       if (poly.length < 3) continue;

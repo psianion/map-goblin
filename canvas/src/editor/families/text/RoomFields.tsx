@@ -5,7 +5,8 @@
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
-import type { MapBuilderStore } from '@/store/types';
+import type { DungeonLayer, MapBuilderStore } from '@/store/types';
+import { FLOOR_EDGE_OPTIONS, blendsFloorEdges, setFloorEdges } from '@/editor/families/design/layerStyle';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { roomKeyOf } from '@dnd/core/src/shared/prep';
 import { Caption, ColourRow, InputRow, PlaceTiles, SecondaryButton, Seg, SelectRow, SettingRow, SliderRow } from '@dnd/ui';
@@ -164,7 +165,27 @@ export function FloorSection({ value: target }: SettingProps<LookTarget>) {
           queueCommit(() => tint.commit());
         }}
       />
+      {target.kind !== 'level' && <FloorEdgesRow layerId={target.layerId} />}
     </div>
+  );
+}
+
+/** Floor edges on the room's layer, Sharp or Blend: the layer's one choice, as on the Floor card. */
+function FloorEdgesRow({ layerId }: { layerId: string }) {
+  const blend = useStore((s) => {
+    const layer = s.layers.find((l) => l.id === layerId);
+    return layer?.type === 'dungeon' ? blendsFloorEdges(layer as DungeonLayer) : null;
+  });
+  if (blend === null) return null;
+  return (
+    <SettingRow label="Floor edges">
+      <Seg
+        aria-label="Floor edges"
+        value={blend ? 'blend' : 'sharp'}
+        onValueChange={(v) => setFloorEdges(useStore.getState(), [layerId], v === 'blend')}
+        options={FLOOR_EDGE_OPTIONS.map((o) => ({ value: o.value ? 'blend' : 'sharp', label: o.label }))}
+      />
+    </SettingRow>
   );
 }
 

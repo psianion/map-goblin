@@ -8,7 +8,7 @@ import type { ToolType } from '@/store/types';
 import { defineSetting, defineTool } from '@/editor/registry/define';
 import type { DockColumnDef, EditorState, HintLine } from '@/editor/registry/types';
 import { editCurve, editNodeMode, gridSnap, gridSnapStep } from '@/editor/registry/shared';
-import { activeDungeonLayer, setActiveStyle } from './layerStyle';
+import { FLOOR_EDGE_OPTIONS, activeDungeonLayer, blendsFloorEdges, setFloorEdges } from './layerStyle';
 import { FloorLook } from './LookColumn';
 import { EdgeBandField, WallsField } from './FloorFields';
 import { layerBandOf } from './floorModel';
@@ -126,21 +126,25 @@ export const floorRockOnCut = defineSetting<boolean>({
 });
 
 /**
- * Edge transitions between floors of different textures on the layer being drawn on: the
- * layer's own switch (also in the layer sheet), so it is not saved with the tool.
+ * Floor edges on the layer being drawn on, Sharp or Blend: the layer's own choice (also on the
+ * Floor card, the Room card and the layer sheet), so it is not saved with the tool.
  */
 export const floorBlend = defineSetting<boolean>({
   id: 'floor.blend',
-  label: 'Blend with neighbours',
+  label: 'Floor edges',
   schema: z.boolean(),
   default: true,
   home: 'panel',
-  control: 'switch',
+  control: 'seg',
   section: 'Edge',
+  options: [...FLOOR_EDGE_OPTIONS],
   persist: false,
   bind: {
-    read: (s) => activeDungeonLayer(s)?.style.showEdgeTransitions ?? true,
-    write: (store, on) => setActiveStyle(store.getState(), 'showEdgeTransitions', on, 'Blend with neighbours'),
+    read: (s) => blendsFloorEdges(activeDungeonLayer(s)),
+    write: (store, blend) => {
+      const layer = activeDungeonLayer(store.getState());
+      if (layer) setFloorEdges(store.getState(), [layer.id], blend);
+    },
   },
 });
 
