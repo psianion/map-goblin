@@ -147,14 +147,14 @@ describe('rooms and a painted cave inside a floor', () => {
     const l = layerOf([floor('base', square(-10, -10, 30)), cave('a', square(0, 0, 4))]);
     const faces = layerFaces(l);
     expect(faces.length).toBeGreaterThanOrEqual(2);
-    const proposed = suggestRooms(l, null);
+    const proposed = suggestRooms(l, { frame: null, baseGround: false });
     // One proposal sits inside the cave.
     expect(proposed.some((r) => r.anchor[0] > 0 && r.anchor[0] < 4 && r.anchor[1] > 0 && r.anchor[1] < 4)).toBe(true);
   });
 
   it('anchors the room round a cave outside it, even with the cave at the floor’s centre', () => {
     const l = layerOf([floor('base', square(-10, -10, 20)), cave('a', square(-2, -2, 4))]);
-    const proposed = suggestRooms(l, null);
+    const proposed = suggestRooms(l, { frame: null, baseGround: false });
     const inCave = (r: { anchor: [number, number] }) => Math.abs(r.anchor[0]) < 2 && Math.abs(r.anchor[1]) < 2;
     expect(proposed).toHaveLength(2);
     expect(proposed.filter(inCave)).toHaveLength(1);

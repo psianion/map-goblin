@@ -1,6 +1,6 @@
 import type { DungeonLayer } from '../store/types';
-import type { Room } from './types';
-import type { WorldBounds } from './mapBounds';
+import type { Room, ThresholdSegment } from './types';
+import type { RoomContext } from './roomFloor';
 import { roomFaces } from '../engine/roomDetection';
 import { computeMergedFloor } from '../engine/mergedFloor';
 import { ROOM_GRID_SIZE } from '../store/roomSync';
@@ -68,7 +68,14 @@ export function anchorOutside(face: [number, number][], faces: readonly [number,
   return best;
 }
 
-export function suggestRooms(layer: DungeonLayer, frame: WorldBounds | null): Room[] {
+/** Divide lines Suggest proposes where a floor narrows (plan 3.1). Fresh uuid per line. */
+export function suggestDivides(_layer: DungeonLayer, _ctx: RoomContext): ThresholdSegment[] {
+  return [];
+}
+
+/** Ghost rooms for every closed face with no room, given the divide lines the DM kept. */
+export function suggestRooms(layer: DungeonLayer, ctx: RoomContext, divides: readonly ThresholdSegment[] = []): Room[] {
+  const frame = ctx.frame;
   const mergedFloor = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
   const wallsOnly = mergedFloor.length === 0;
   if (wallsOnly && !frame) return [];
@@ -88,7 +95,7 @@ export function suggestRooms(layer: DungeonLayer, frame: WorldBounds | null): Ro
     ROOM_GRID_SIZE,
     layer.style?.wallWidth ?? 0,
     // A painted cave's edge cuts like a threshold, so a cave inside a floor is proposed on its own.
-    [...(layer.thresholds ?? []), ...caveCutters(layer)],
+    [...(layer.thresholds ?? []), ...divides, ...caveCutters(layer)],
   );
   if (wallsOnly) {
     faces = faces.filter((face) =>

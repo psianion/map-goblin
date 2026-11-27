@@ -7,6 +7,7 @@ import { faceMetrics, pointInRing } from '../shared/roomUtils';
 import { buildRoomIndex, type RoomIndex } from '../shared/roomIndex';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
 import { caveCutters } from '../shared/caveFloor';
+import type { RoomContext } from '../shared/roomFloor';
 
 /*
  * Geometry refresh for rooms. Pure: no store, so the session server runs the same
@@ -94,7 +95,7 @@ export function layerFaces(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): Poly
  *
  * Never creates or removes a room: rooms are authored, this only places them.
  */
-export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): RoomSyncResult {
+export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE, _ctx?: RoomContext): RoomSyncResult {
   const before = layer.rooms ?? [];
   const needFaces = before.some((r) => !(r.boundary && r.boundary.length >= 3));
   const faces = needFaces ? layerFaces(layer, gridSize) : [];

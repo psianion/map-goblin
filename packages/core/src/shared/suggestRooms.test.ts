@@ -54,10 +54,11 @@ function layer(patch: Partial<DungeonLayer>): DungeonLayer {
 }
 
 const FRAME = { minX: -2, minY: -2, maxX: 32, maxY: 14 };
+const CTX = { frame: FRAME, baseGround: false };
 
 describe('suggestRooms', () => {
   it('proposes one room per face of a two-floor map, numbered in reading order', () => {
-    const out = suggestRooms(layer({ mergedFloor: [rect(0, 0, 10, 10), rect(20, 0, 30, 10)] }), FRAME);
+    const out = suggestRooms(layer({ mergedFloor: [rect(0, 0, 10, 10), rect(20, 0, 30, 10)] }), CTX);
     expect(out.map((r) => r.name)).toEqual(['Room 1', 'Room 2']);
     expect(out.map((r) => r.number)).toEqual([1, 2]);
     expect(out[0].anchor[0]).toBeLessThan(out[1].anchor[0]);
@@ -71,7 +72,7 @@ describe('suggestRooms', () => {
     const existing: Room = { id: 'keep', name: 'Hall', number: 4, anchor: [5, 5] };
     const out = suggestRooms(
       layer({ mergedFloor: [rect(0, 0, 10, 10), rect(20, 0, 30, 10)], rooms: [existing] }),
-      FRAME,
+      CTX,
     );
     expect(out).toHaveLength(1);
     expect(out[0].anchor[0]).toBeGreaterThan(20);
@@ -85,7 +86,7 @@ describe('suggestRooms', () => {
         standaloneWalls: [wall('w', [[10, 0], [10, 10]])],
         thresholds: [{ id: 't', points: [[20, 0], [20, 10]] }],
       }),
-      FRAME,
+      CTX,
     );
     expect(out).toHaveLength(3);
   });
@@ -98,14 +99,14 @@ describe('suggestRooms', () => {
           wall('b', [[20, 0], [30, 0], [30, 10], [20, 10], [20, 0]]),
         ],
       }),
-      FRAME,
+      CTX,
     );
     expect(out).toHaveLength(2);
     for (const r of out) expect(r.anchor[1]).toBeGreaterThan(0);
   });
 
   it('proposes nothing on an empty layer', () => {
-    expect(suggestRooms(layer({}), null)).toEqual([]);
-    expect(suggestRooms(layer({}), FRAME)).toEqual([]);
+    expect(suggestRooms(layer({}), { frame: null, baseGround: false })).toEqual([]);
+    expect(suggestRooms(layer({}), { frame: FRAME, baseGround: false })).toEqual([]);
   });
 });

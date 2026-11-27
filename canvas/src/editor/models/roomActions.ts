@@ -14,7 +14,7 @@ import { undoManager } from '@/store/undoManager';
 import { createDungeonLayer } from '@/store/factories';
 import { notify } from '@dnd/ui/toast';
 import { suggestRooms } from '@dnd/core/src/shared/suggestRooms';
-import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
+import { roomContextOf } from '@dnd/core/src/shared/roomFloor';
 import { emptyRoomKey, roomKeyOf } from '@dnd/core/src/shared/prep';
 import type { DungeonLayer, Layer, MapBuilderStore, Room, RoomKey } from '@/store/types';
 import { jumpToPoint } from './jumpTo';
@@ -39,8 +39,7 @@ export function suggestOnActiveLayer(): number {
     notify.warning('Pick a map layer first');
     return 0;
   }
-  const frame = computeMapFrame(state.layers, state.mapSettings.terrain?.bounds ?? null, state.mapSettings.fixedSize ?? null);
-  const found = suggestRooms(layer, frame);
+  const found = suggestRooms(layer, roomContextOf(state, layer));
   if (found.length === 0) {
     state.setRoomSuggestions(null);
     notify.info('No enclosed floor without a room');
