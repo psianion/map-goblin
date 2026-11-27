@@ -3,9 +3,10 @@
 // both work out the same ids for the same click.
 
 import type { Layer } from '../store/types';
-import type { Level, LightChild } from './types';
+import type { Level, LightChild, Room } from './types';
 import { levelOf } from './lookScope';
 import { pointInRing, roomFace } from './roomUtils';
+import { buildRoomIndex, type RoomIndex } from './roomIndex';
 
 /** Anything shaped like a map: its layers and, for rooms, its levels. */
 export interface LightMap {
@@ -66,9 +67,27 @@ export function lightsOnProp(layers: readonly Layer[], propId: string): LightChi
   return allLights(layers).filter((l) => l.attachedTo === propId);
 }
 
+const levelIndexMemo = new WeakMap<readonly Layer[], Map<string, RoomIndex>>();
+
+/** One index over every room on a level, built once per layers array. */
+function levelRoomIndex(map: LightMap, levelId: string): RoomIndex {
+  let byLevel = levelIndexMemo.get(map.layers);
+  if (!byLevel) levelIndexMemo.set(map.layers, (byLevel = new Map()));
+  let index = byLevel.get(levelId);
+  if (!index) {
+    const levels = map.levels ?? [];
+    const rooms: Room[] = [];
+    for (const layer of map.layers) {
+      if (layer.type === 'dungeon' && levelOf(levels, layer).id === levelId) rooms.push(...(layer.rooms ?? []));
+    }
+    byLevel.set(levelId, (index = buildRoomIndex(rooms)));
+  }
+  return index;
+}
+
 /**
  * The lights in room `roomId`: those whose position lies inside the room's face, on layers of
- * the room's level. None for an unknown room or one without a face.
+ * the room's level, and in no smaller room there. None for an unknown room or one without a face.
  */
 export function lightsInRoom(map: LightMap, roomId: string): LightChild[] {
   const levels = map.levels ?? [];
@@ -79,11 +98,15 @@ export function lightsInRoom(map: LightMap, roomId: string): LightChild[] {
     const face = roomFace(room);
     if (face.length < 3) return [];
     const levelId = levelOf(levels, layer).id;
+    const index = levelRoomIndex(map, levelId);
     const out: LightChild[] = [];
     for (const other of map.layers) {
       if (other.type !== 'dungeon' || levelOf(levels, other).id !== levelId) continue;
       for (const c of other.children) {
-        if (c.childType === 'light' && pointInRing(c.position.x, c.position.y, face)) out.push(c);
+        // A light in a room inside this one (an outlined corner, a cave in a field) is that room's.
+        if (c.childType === 'light' && pointInRing(c.position.x, c.position.y, face) && index.roomAt(c.position.x, c.position.y)?.id === roomId) {
+          out.push(c);
+        }
       }
     }
     return out;

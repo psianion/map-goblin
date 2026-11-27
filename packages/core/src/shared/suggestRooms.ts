@@ -1,27 +1,23 @@
 import type { DungeonLayer } from '../store/types';
 import type { Room, ThresholdSegment } from './types';
-import type { RoomContext } from './roomFloor';
-import { roomFaces } from '../engine/roomDetection';
-import { computeMergedFloor } from '../engine/mergedFloor';
+import { roomFaceCut, type RoomContext } from './roomFloor';
 import { ROOM_GRID_SIZE } from '../store/roomSync';
-import { interiorPoint, nextRoomNumber, pointInRing, readingOrder, roomFace } from './roomUtils';
-import { caveCutters } from './caveFloor';
+import { computeArea, interiorPoint, isPathway, nextRoomNumber, pointInRing, readingOrder, roomFace } from './roomUtils';
+import { asThresholds, faceDivides, faceIsPassage } from './passageSplit';
 
-/** How close a face's edge may come to the frame before it counts as the outside. */
-const FRAME_EPSILON = 1e-3;
+/** The smallest face Suggest offers as a room, square cells. */
+const MIN_SUGGESTED_AREA = 1;
 
-/**
- * Rooms the layer's geometry implies but nobody has placed yet: one per face of
- * (floor − walls − thresholds) that holds no room's anchor. Existing rooms are
- * never touched. Pure; the editor keeps the result in `ui.roomSuggestions` as
- * ghosts and `AcceptRoomsCommand` adds the ones the DM keeps.
+/*
+ * Rooms the layer's geometry implies but nobody has placed yet: one per closed face that
+ * holds no room. Existing rooms are never touched. Pure; the editor keeps the result in
+ * `ui.roomSuggestions` as ghosts and `AcceptRoomsCommand` adds the ones the DM keeps.
  *
- * A walls-only import has no floor to cut. There the map frame stands in for the
- * floor, and the face left touching the frame — the outside of every wall — is
- * dropped, so what remains is what the walls enclose.
+ * A walls-only import has no floor to cut. There the map frame stands in for the floor, and
+ * only what the walls close off is offered (`roomFaceCut`).
  *
- * Each suggestion gets a uuid, the next free number and the name `Room N`, and is
- * anchored at a point inside its face, numbered in reading order.
+ * Each suggestion gets a uuid, the next free number and its name, and is anchored at a point
+ * inside its face, numbered in reading order.
  */
 function ringArea(ring: readonly [number, number][]): number {
   let a = 0;
@@ -68,62 +64,48 @@ export function anchorOutside(face: [number, number][], faces: readonly [number,
   return best;
 }
 
-/** Divide lines Suggest proposes where a floor narrows (plan 3.1). Fresh uuid per line. */
-export function suggestDivides(_layer: DungeonLayer, _ctx: RoomContext): ThresholdSegment[] {
-  return [];
+/**
+ * Divide lines Suggest proposes where a floor narrows (plan 3.1): across every place a
+ * chamber meets a passage or another chamber, in every face of the layer, each checked by
+ * cutting along it. Fresh uuid per line. The layer's own divide lines are kept as they are.
+ */
+export function suggestDivides(layer: DungeonLayer, ctx: RoomContext): ThresholdSegment[] {
+  const { faces, rings } = roomFaceCut(layer, ctx);
+  return asThresholds(faces.flatMap((face) => faceDivides(face, rings)));
 }
 
-/** Ghost rooms for every closed face with no room, given the divide lines the DM kept. */
+/**
+ * Ghost rooms for every closed face with no room, given the divide lines the DM kept.
+ * Faces are the ones the sync gives a room (`roomFaceCut`), so an accepted ghost keeps its
+ * face. A face under a square cell is never offered. A face that reads as a corridor is
+ * named `Passage N`, numbered in the same run as the rooms.
+ */
 export function suggestRooms(layer: DungeonLayer, ctx: RoomContext, divides: readonly ThresholdSegment[] = []): Room[] {
-  const frame = ctx.frame;
-  const mergedFloor = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
-  const wallsOnly = mergedFloor.length === 0;
-  if (wallsOnly && !frame) return [];
-  const floor = wallsOnly
-    ? [
-        [
-          [frame!.minX, frame!.minY],
-          [frame!.maxX, frame!.minY],
-          [frame!.maxX, frame!.maxY],
-          [frame!.minX, frame!.maxY],
-        ] as [number, number][],
-      ]
-    : mergedFloor;
-  let faces = roomFaces(
-    floor,
-    layer.standaloneWalls,
-    ROOM_GRID_SIZE,
-    layer.style?.wallWidth ?? 0,
-    // A painted cave's edge cuts like a threshold, so a cave inside a floor is proposed on its own.
-    [...(layer.thresholds ?? []), ...divides, ...caveCutters(layer)],
-  );
-  if (wallsOnly) {
-    faces = faces.filter((face) =>
-      face.every(
-        ([x, y]) =>
-          x > frame!.minX + FRAME_EPSILON &&
-          x < frame!.maxX - FRAME_EPSILON &&
-          y > frame!.minY + FRAME_EPSILON &&
-          y < frame!.maxY - FRAME_EPSILON,
-      ),
-    );
-  }
+  const cut = roomFaceCut(layer, ctx, divides);
+  const faces = cut.faces;
 
+  // A room holds the smallest face round its pin; an outlined room, every face its outline covers.
   const rooms = layer.rooms ?? [];
+  const areas = faces.map((f) => computeArea(f));
+  const heldFaces = new Set<[number, number][]>();
+  for (const r of rooms) {
+    let best = -1;
+    for (let i = 0; i < faces.length; i++) {
+      if ((best < 0 || areas[i] < areas[best]) && pointInRing(r.anchor[0], r.anchor[1], faces[i])) best = i;
+    }
+    if (best >= 0) heldFaces.add(faces[best]);
+  }
   const held = (face: [number, number][]): boolean =>
-    rooms.some(
-      (r) =>
-        pointInRing(r.anchor[0], r.anchor[1], face) ||
-        // A hand-traced room holds whatever face its own outline covers.
-        (r.boundary && r.boundary.length >= 3 && pointInRing(...interiorPoint(face), roomFace(r))),
-    );
+    heldFaces.has(face) ||
+    rooms.some((r) => r.boundary && r.boundary.length >= 3 && pointInRing(...interiorPoint(face), roomFace(r)));
 
   const free = faces
-    .filter((face) => !held(face))
+    .filter((face, i) => areas[i] >= MIN_SUGGESTED_AREA && !held(face))
     .map((face) => ({ face, anchor: anchorOutside(face, faces), centroid: interiorPoint(face) }));
   let n = nextRoomNumber(rooms);
   return readingOrder(free).map(({ face, anchor }) => {
     const number = n++;
-    return { id: crypto.randomUUID(), name: `Room ${number}`, number, anchor, face };
+    const passage = isPathway(face, ROOM_GRID_SIZE) || faceIsPassage(face, cut.rings);
+    return { id: crypto.randomUUID(), name: `${passage ? 'Passage' : 'Room'} ${number}`, number, anchor, face };
   });
 }

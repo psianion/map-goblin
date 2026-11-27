@@ -72,6 +72,17 @@ describe('lightsInRoom', () => {
     expect(lightsInRoom({ layers: LAYERS, levels: LEVELS }, 'r1').map((l) => l.id)).toEqual(['l1', 'l2', 'l4', 'l5']);
   });
 
+  it('gives a light in a room inside another to the inner room only', () => {
+    const nested = [
+      layer('a', 'ground', [light('torch', 3, 3), light('lamp', 8, 8)], [
+        { id: 'hall', name: 'Hall', anchor: [8, 8], face: square(0, 0, 10) },
+        { id: 'nook', name: 'Nook', anchor: [3, 3], boundary: square(2, 2, 2) },
+      ]),
+    ];
+    expect(lightsInRoom({ layers: nested, levels: LEVELS }, 'nook').map((l) => l.id)).toEqual(['torch']);
+    expect(lightsInRoom({ layers: nested, levels: LEVELS }, 'hall').map((l) => l.id)).toEqual(['lamp']);
+  });
+
   it('leaves out another level`s lights and an unknown room', () => {
     expect(lightsInRoom({ layers: LAYERS, levels: LEVELS }, 'r2')).toEqual([]);
     expect(lightsInRoom({ layers: LAYERS, levels: LEVELS }, 'nope')).toEqual([]);

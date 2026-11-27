@@ -1,5 +1,6 @@
 import type { DoorChild } from '../shared/types';
-import { syncRooms } from './roomSync';
+import { syncRooms, ROOM_GRID_SIZE } from './roomSync';
+import { roomContextOf } from '../shared/roomFloor';
 import { useStore } from './store';
 
 /** How long wall/floor edits must settle before rooms are refreshed. */
@@ -20,9 +21,10 @@ export function refreshRooms(): void {
     clearTimeout(timer);
     timer = null;
   }
-  for (const layer of useStore.getState().layers) {
+  const state = useStore.getState();
+  for (const layer of state.layers) {
     if (layer.type !== 'dungeon') continue;
-    const { rooms, doorRooms, changed } = syncRooms(layer);
+    const { rooms, doorRooms, changed } = syncRooms(layer, ROOM_GRID_SIZE, roomContextOf(state, layer));
 
     const doorsMoved = layer.children.some((c) => {
       if (c.childType !== 'door') return false;

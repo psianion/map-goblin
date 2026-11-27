@@ -1,13 +1,10 @@
 import type { DungeonLayer, Room } from './types';
 import type { Polygon } from '../geometry/GeometryEngine';
-import { roomFaces } from '../engine/roomDetection';
-import { computeMergedFloor } from '../engine/mergedFloor';
 import { bindDoorToRooms } from '../shared/roomBinding';
-import { faceMetrics, pointInRing } from '../shared/roomUtils';
+import { faceMetrics, pointInRing, signedArea } from '../shared/roomUtils';
 import { buildRoomIndex, type RoomIndex } from '../shared/roomIndex';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
-import { caveCutters } from '../shared/caveFloor';
-import type { RoomContext } from '../shared/roomFloor';
+import { NO_ROOM_CONTEXT, outlineFace, roomFacesOf, type RoomContext } from '../shared/roomFloor';
 
 /*
  * Geometry refresh for rooms. Pure: no store, so the session server runs the same
@@ -70,36 +67,33 @@ function sameIds(a: readonly string[] | undefined, b: readonly string[] | undefi
 }
 
 /**
- * The faces a layer's rooms can sit in: merged floor minus standalone walls minus
- * thresholds and painted caves' edges. Suggest cuts its faces the same way.
+ * The faces a layer's rooms can sit in (`roomFacesOf`); without a context, the walled floor's
+ * alone. Suggest cuts its faces the same way.
  */
-export function layerFaces(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): Polygon[] {
-  // A layer fresh off disk carries `mergedFloor: null` until the engine unions it;
-  // the server never has one. Union it here rather than reading "no floor".
-  const floor: Polygon[] = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
-  // A painted cave's edge cuts the faces as a threshold does, so a cave inside a floor is a face of its own.
-  return roomFaces(floor, layer.standaloneWalls, gridSize, layer.style?.wallWidth ?? 0, [...(layer.thresholds ?? []), ...caveCutters(layer)]);
+export function layerFaces(layer: DungeonLayer, _gridSize = ROOM_GRID_SIZE, ctx: RoomContext = NO_ROOM_CONTEXT): Polygon[] {
+  return roomFacesOf(layer, ctx);
 }
 
 /**
  * Refresh one dungeon layer's rooms from its geometry:
  *
- * 1. Cutters: the standalone walls and the thresholds (0.1 of a cell wide).
- * 2. Faces: the merged floor minus the cutters. A layer with no floor has no faces
- *    — Suggest is what covers a walls-only import.
- * 3. Each room's face is the one holding its anchor. None does: the room is
+ * 1. Faces: `roomFacesOf` — the walled floor less walls, thresholds and painted caves'
+ *    edges, and on a layer with walls the closed spaces in its ground too (`ctx`).
+ * 2. Each room's face is the smallest one holding its anchor. None does: the room is
  *    `orphaned` and keeps the face it last had. Two anchors in one face both get
  *    it; the overlay flags that, and the DM merges by hand.
- * 4. A room with a hand-traced `boundary` (image-only maps) takes that as its face.
- * 5. Doors bind to the rooms on either side, and each room lists its doors.
+ * 3. A room with an outline (`boundary`) takes the outline cut to the ground under it.
+ * 4. Doors bind to the rooms on either side, and each room lists its doors.
  *
  * Never creates or removes a room: rooms are authored, this only places them.
  */
-export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE, _ctx?: RoomContext): RoomSyncResult {
+export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE, ctx: RoomContext = NO_ROOM_CONTEXT): RoomSyncResult {
   const before = layer.rooms ?? [];
-  const needFaces = before.some((r) => !(r.boundary && r.boundary.length >= 3));
-  const faces = needFaces ? layerFaces(layer, gridSize) : [];
+  const outlined = (r: Room): boolean => !!r.boundary && r.boundary.length >= 3;
+  const needFaces = before.some((r) => !outlined(r));
+  const faces = needFaces ? roomFacesOf(layer, ctx) : [];
   const boxes = faces.map(bboxOf);
+  const areas = faces.map((f) => Math.abs(signedArea(f)));
 
   // The smallest face holding the point: a face is its outer ring only, so a room sealed
   // inside another (a tower in a field) sits inside both, and the outer one is the wrong answer.
@@ -109,20 +103,16 @@ export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE, _ctx?:
     for (let i = 0; i < faces.length; i++) {
       const [x0, y0, x1, y1] = boxes[i];
       if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      if (!pointInRing(x, y, faces[i])) continue;
-      const area = (x1 - x0) * (y1 - y0);
-      if (area < bestArea) {
-        best = faces[i];
-        bestArea = area;
-      }
+      if (areas[i] >= bestArea || !pointInRing(x, y, faces[i])) continue;
+      best = faces[i];
+      bestArea = areas[i];
     }
     return best;
   };
 
   // Faces first, doors second: binding reads the faces just placed.
   const placed = before.map((room) => {
-    const own = room.boundary && room.boundary.length >= 3 ? room.boundary : null;
-    const hit = own ?? faceAt(room.anchor[0], room.anchor[1]);
+    const hit = outlined(room) ? outlineFace(layer, ctx, room.boundary!) : faceAt(room.anchor[0], room.anchor[1]);
     return { room, face: hit ?? room.face, orphaned: !hit };
   });
   const provisional: Room[] = placed.map(({ room, face }) => ({ ...room, face }));
