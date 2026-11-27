@@ -860,16 +860,20 @@ test('rooms: the warren opens with seven numbered, named rooms and the room tool
 
   // Text holds Label and Zone only; the room tools are the Rooms family's, on the rail.
   await page.getByTestId('shell-rail').getByRole('button', { name: 'Text' }).click()
-  let flyout = page.getByTestId('shell-flyout')
+  const flyout = page.getByTestId('shell-flyout')
   await expect(flyout.getByRole('button')).toHaveCount(2)
   await expect(flyout.getByRole('button', { name: /^(Rooms|Outline|Divide|Draw room)/ })).toHaveCount(0)
   await key(page, 'Escape')
+  // Rooms opens straight on Outline, Suggest showing; the other tools are on the panel header.
   await page.getByTestId('shell-rail').getByRole('button', { name: 'Rooms' }).click()
-  flyout = page.getByTestId('shell-flyout')
+  await expect(page.getByTestId('shell-flyout')).toHaveCount(0)
+  const panel = page.getByTestId('shell-tool-panel')
+  await expect(panel).toHaveAttribute('data-tool', 'roomOutline')
+  await expect(page.getByTestId('rooms-suggest-button')).toBeVisible()
   for (const tool of ['Outline', 'Divide', 'Draw room']) {
-    await expect(flyout.getByRole('button', { name: new RegExp(`^${tool}`) })).toBeVisible()
+    await expect(panel.getByRole('button', { name: new RegExp(`^${tool}`) })).toBeVisible()
   }
-  await flyout.getByRole('button', { name: /^Draw room/ }).click()
+  await panel.getByRole('button', { name: /^Draw room/ }).click()
   await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'roomDraw')
   await expect(page.getByTestId('rooms-suggest')).toContainText('7 rooms')
   const shape = dock(page).getByRole('group', { name: 'Shape' })

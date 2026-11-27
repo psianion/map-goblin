@@ -187,6 +187,51 @@ describe('ground counts as floor where walls close it in', () => {
   });
 });
 
+describe('Suggest on floors painted as ground, with no walls', () => {
+  // The Floor tool's default: ground pieces, here over base ground.
+  const painted = () => layer({ children: FA_CAVE.map((ring, i) => shape(`g${i}`, ring, { ground: true, textureId: 'stone' })) });
+
+  it('gives the seven painted rectangles four rooms and three passages, each an outlined room', () => {
+    const l = painted();
+    const divides = suggestDivides(l, FA_CTX);
+    expect(divides).toHaveLength(6);
+    const ghosts = suggestRooms(l, FA_CTX, divides);
+    expect(ghosts).toHaveLength(7);
+    expect(ghosts.filter((g) => g.name.startsWith('Room '))).toHaveLength(4);
+    expect(ghosts.filter((g) => g.name.startsWith('Passage '))).toHaveLength(3);
+    for (const g of ghosts) expect(g.boundary).toEqual(g.face);
+  });
+
+  it('keeps seven distinct faces after accept and sync, and a second Suggest proposes nothing', () => {
+    const { ghosts, accepted, rooms } = acceptAndSync(painted(), FA_CTX);
+    expect(ghosts).toHaveLength(7);
+    expect(rooms).toHaveLength(7);
+    expect(rooms.every((r) => !r.orphaned && (r.face?.length ?? 0) >= 3)).toBe(true);
+    expect(new Set(rooms.map((r) => JSON.stringify(r.face))).size).toBe(7);
+    const synced = layer({ ...accepted, rooms });
+    expect(suggestDivides(synced, FA_CTX)).toEqual([]);
+    expect(suggestRooms(synced, FA_CTX, [])).toEqual([]);
+  });
+
+  it('keeps two touching patches of different textures apart', () => {
+    const l = layer({
+      children: [shape('a', rect(0, 0, 6, 6), { ground: true, textureId: 'grass' }), shape('b', rect(6, 0, 12, 6), { ground: true, textureId: 'dirt' })],
+    });
+    const ghosts = suggestRooms(l, FA_CTX, suggestDivides(l, FA_CTX));
+    expect(ghosts).toHaveLength(2);
+    expect(ghosts.map((g) => computeArea(g.face!)).sort()).toEqual([36, 36]);
+  });
+
+  it('proposes nothing for the patches on a layer with a walled floor', () => {
+    const l = layer({
+      children: [shape('f', rect(0, 0, 6, 6)), shape('p', rect(20, 0, 26, 6), { ground: true, textureId: 'grass' })],
+    });
+    const ghosts = suggestRooms(l, FA_CTX, suggestDivides(l, FA_CTX));
+    expect(ghosts.every((g) => g.face!.every(([x]) => x <= 6))).toBe(true);
+    expect(ghosts.every((g) => !g.boundary)).toBe(true);
+  });
+});
+
 describe('outlined rooms', () => {
   const cave = layer({ children: [shape('c', rect(0, 0, 10, 10)), shape('p', rect(10, 4, 16, 6))] });
 
@@ -261,11 +306,21 @@ describe("the owner's maps keep their rooms", () => {
     for (const ghost of suggestRooms(l, ctx, suggestDivides(l, ctx))) expect(computeArea(ghost.face!)).toBeGreaterThanOrEqual(1);
   });
 
-  it('testing-cave without its divide lines: Suggest puts the four pins in four faces', () => {
+  it('testing-cave as saved: Suggest proposes no line and no room, so no passage is cut off a room', () => {
+    const data = readMap('testing-cave.ggvtt');
+    const l = dungeon(data);
+    const ctx = roomContextOf(data, l);
+    expect(suggestDivides(l, ctx)).toEqual([]);
+    expect(suggestRooms(l, ctx, [])).toEqual([]);
+  });
+
+  it('testing-cave without its divide lines: Suggest puts the four pins in four faces with three lines', () => {
     const data = readMap('testing-cave.ggvtt');
     const l = { ...dungeon(data), thresholds: [] };
     const ctx = roomContextOf(data, l);
-    const faces = roomFacesOf(l, ctx, suggestDivides(l, ctx));
+    const divides = suggestDivides(l, ctx);
+    expect(divides).toHaveLength(3);
+    const faces = roomFacesOf(l, ctx, divides);
     const held = (l.rooms ?? []).map((r) => {
       let best = -1;
       faces.forEach((f, i) => {
@@ -317,6 +372,26 @@ describe('the sync’s cost', () => {
       syncRooms(layer({ mergedFloor: [rect(0, 0, 10, 10)], standaloneWalls: [wall('w', [[0, 5], [10, 5]])], rooms: [{ id: 'r', name: 'r', anchor: [2, 2] }] }), 1, NO_ROOM_CONTEXT);
       expect(union).not.toHaveBeenCalled();
       expect(difference).toHaveBeenCalledTimes(1);
+      union.mockClear();
+      difference.mockClear();
+      // The same walled layer on base ground, every pin on the walled floor: the ground is never
+      // cut, so it costs exactly the one cut it did before ground counted.
+      const onBase: RoomContext = { frame: { minX: -2, minY: -2, maxX: 12, maxY: 12 }, baseGround: true };
+      const walled = layer({
+        mergedFloor: [rect(0, 0, 10, 10)],
+        standaloneWalls: [wall('w', [[0, 5], [10, 5]])],
+        rooms: [{ id: 'a', name: 'a', anchor: [2, 2] }, { id: 'b', name: 'b', anchor: [2, 8] }],
+      });
+      const placed = syncRooms(walled, 1, onBase).rooms;
+      expect(union).not.toHaveBeenCalled();
+      expect(difference).toHaveBeenCalledTimes(1);
+      expect(placed.every((r) => !r.orphaned)).toBe(true);
+      expect(placed.map((r) => r.face)).toEqual(syncRooms(walled, 1, NO_ROOM_CONTEXT).rooms.map((r) => r.face));
+      // A pin off the walled floor still finds its closed ground face.
+      difference.mockClear();
+      const yard = layer({ ...walled, standaloneWalls: [...walled.standaloneWalls, wall('y', [[10, 0], [11, 0]])], rooms: [{ id: 'out', name: 'out', anchor: [11, 11] }] });
+      syncRooms(yard, 1, onBase);
+      expect(difference.mock.calls.length).toBeGreaterThan(1);
     } finally {
       union.mockRestore();
       difference.mockRestore();

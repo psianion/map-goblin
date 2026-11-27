@@ -268,6 +268,32 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(clipper2Engine.union).not.toHaveBeenCalled();
   });
 
+  it('base ground and the map size resync the rooms on ground', () => {
+    seed({
+      children: [shape('s1', 500, 500)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+      rooms: [{ id: 'r1', name: 'Yard', anchor: [50, 50] }],
+    });
+    unsub = start();
+    vi.clearAllMocks();
+
+    useStore.setState((s) => {
+      s.mapSettings.ground = { color: '#556b2f' };
+    });
+    expect(scheduleRoomSync).toHaveBeenCalledTimes(1);
+    vi.clearAllMocks();
+    useStore.setState((s) => {
+      s.mapSettings.fixedSize = { width: 2000, height: 2000, locked: true };
+    });
+    expect(scheduleRoomSync).toHaveBeenCalledTimes(1);
+    vi.clearAllMocks();
+    // A look-only edit of the ground moves no face.
+    useStore.setState((s) => {
+      s.mapSettings.ground = { color: '#223344' };
+    });
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+  });
+
   // The signature used to be id/type/direction, so a wall whose points moved
   // matched its own previous key: nothing redrew, no room was re-detected, and
   // a door anchored to that wall kept drawing where the wall used to be.

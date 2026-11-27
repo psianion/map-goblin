@@ -66,14 +66,15 @@ test('rooms: find Rooms on the rail, Suggest on a brushed cave, take a line away
   }`)
   await lookAt(page, { x: 12, y: 8 }, 40)
 
-  // Rooms is on the rail, not under Text: its flyout opens on Outline.
+  // Rooms is on the rail, not under Text: a click lands on Outline with Suggest showing, no flyout.
   const railRooms = page.getByTestId('shell-rail').getByRole('button', { name: 'Rooms', exact: true })
   await expect(railRooms).toBeVisible()
   await railRooms.click()
-  const flyout = page.getByTestId('shell-flyout')
-  await expect(flyout).toHaveAttribute('data-family', 'rooms')
-  await expect(flyout.getByRole('button')).toHaveCount(3)
-  await expect(flyout.getByRole('button').first()).toContainText('Outline')
+  await expect(page.getByTestId('shell-flyout')).toHaveCount(0)
+  const panel = page.getByTestId('shell-tool-panel')
+  await expect(panel).toHaveAttribute('data-tool', 'roomOutline')
+  await expect(page.getByTestId('rooms-suggest-button')).toBeVisible()
+  for (const tool of ['Outline', 'Divide', 'Draw room']) await expect(panel.getByRole('button', { name: new RegExp(`^${tool}`) })).toBeVisible()
   await page.keyboard.press('Escape')
 
   // A cave of brush strokes: two wide chambers, a narrow passage between them.
@@ -98,11 +99,15 @@ test('rooms: find Rooms on the rail, Suggest on a brushed cave, take a line away
   expect(before.ghosts.some((g: Any) => /^Passage \d+$/.test(g.name))).toBe(true)
   await expect(page.getByTestId('rooms-suggest-lines')).toContainText(`${before.lines.length} dividing line`)
 
-  // Take one line away by its ✕ at the line's middle: the spaces either side join.
+  // Take one line away by its ✕, past one end of the line and clear of every ghost's chip: the spaces either side join.
   const line = before.lines[0]
+  const at = await page.evaluate((id) => (window as Any).__roomOverlay.lineMarkAt(id) as [number, number] | null, line.id)
+  expect(at).toBeTruthy()
   const a = line.points[0]
   const b = line.points[line.points.length - 1]
-  const mark = await toScreen(page, { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 })
+  const offMiddle = Math.hypot(at![0] - (a[0] + b[0]) / 2, at![1] - (a[1] + b[1]) / 2)
+  expect(offMiddle).toBeGreaterThanOrEqual(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2)
+  const mark = await toScreen(page, { x: at![0], y: at![1] })
   await page.mouse.click(mark.x, mark.y)
   await waitFrame(page, 4)
   const after = await state(page)

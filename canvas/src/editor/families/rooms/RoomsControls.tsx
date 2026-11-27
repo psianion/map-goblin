@@ -41,10 +41,11 @@ export function SuggestPanel() {
   const onLevel = useStore((s) => levelDungeons(s.layers, s.levels, s.ui.activeLevelId).reduce((n, l) => n + (l.rooms?.length ?? 0), 0));
   const hasLayer = useStore((s) => activeDungeon(s) !== null);
   const activeLayerId = useStore((s) => s.ui.activeLayerId);
-  // The last Suggest found nothing: its words stay until the map or the layer changes.
-  const [nothing, setNothing] = useState(false);
+  // The last Suggest found nothing: its words stay until the map or the layer changes. Kept
+  // with the layers array and layer it was found for, so either changing clears it.
+  const [nothingFor, setNothingFor] = useState<{ layers: unknown; layerId: typeof activeLayerId } | null>(null);
   const layers = useStore((s) => s.layers);
-  useEffect(() => setNothing(false), [layers, activeLayerId]);
+  const nothing = nothingFor !== null && nothingFor.layers === layers && nothingFor.layerId === activeLayerId;
   // Per-ghost accept and reject can empty the list; an empty list is no proposal at all.
   useEffect(() => {
     const list = useStore.getState().ui.roomSuggestions;
@@ -86,7 +87,11 @@ export function SuggestPanel() {
             className="self-start"
             disabled={!hasLayer}
             data-testid="rooms-suggest-button"
-            onClick={() => setNothing(suggestOnActiveLayer() === 0)}
+            onClick={() => {
+              const found = suggestOnActiveLayer();
+              const s = useStore.getState();
+              setNothingFor(found === 0 ? { layers: s.layers, layerId: s.ui.activeLayerId } : null);
+            }}
           >
             Suggest rooms
           </SecondaryButton>

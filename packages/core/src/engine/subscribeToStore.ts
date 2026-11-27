@@ -32,6 +32,7 @@ import { drawLayerMaterials } from './material/materialRenderer';
 import { drawLayerPaths, pathsKey } from './path/pathRenderer';
 import { drawTraceLayer } from './trace/traceRenderer';
 import { computeMapFrame } from '../shared/mapBounds';
+import { roomContextOf, type RoomContext } from '../shared/roomFloor';
 
 /**
  * The part of a piece's render key that is its dressing: what the floor bake draws round the
@@ -70,6 +71,12 @@ function refId(obj: object | undefined): number {
 /** The thresholds' geometry: they cut room faces, so they ride into the room key. */
 function thresholdKeyOf(thresholds: readonly ThresholdSegment[] | undefined): string {
   return (thresholds ?? []).map((t) => `${t.id}:${t.points.map((p) => `${p[0]}_${p[1]}`).join(';')}`).join(',');
+}
+
+/** A room context as a key: the frame's edges and the base ground flag. */
+function roomContextKeyOf(ctx: RoomContext): string {
+  const f = ctx.frame;
+  return `${f ? `${f.minX},${f.minY},${f.maxX},${f.maxY}` : ''}|${ctx.baseGround ? 1 : 0}`;
 }
 
 const digestCache = new WeakMap<RingGeometry & object, number>();
@@ -688,6 +695,9 @@ export function subscribeToStore(
           // only. Their commands already refresh the rooms; this covers any write
           // that reaches the store without one.
           thresholdKey: thresholdKeyOf(l.thresholds),
+          // What else the room faces read (`roomContextOf`): the map's frame and whether the
+          // layer's level has base ground. The frame is measured once per layers array.
+          roomContextKey: roomContextKeyOf(roomContextOf(state, l)),
           // The rooms and areas themselves, by identity: a room's look (and later
           // its mood) changes the lighting, so a new array re-sweeps the lights.
           // Not in roomKey — syncRooms writes `rooms`, and keying the refresh on
@@ -710,7 +720,7 @@ export function subscribeToStore(
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomsRef, areasRef, propOccluders, plateauKey, openingsRef, rockLinesRef } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, doorGeometryKey, doorStateKey, floorTextureEpoch, thresholdKey, roomContextKey, roomsRef, areasRef, propOccluders, plateauKey, openingsRef, rockLinesRef } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -725,11 +735,12 @@ export function subscribeToStore(
           // What the walls are a function of, and so what the stones and the
           // lights are drawn against.
           const detectionKey = `${floorKey}|${wallCount}|${wallSignature}`;
-          // What the room faces are a function of: the walls plus the thresholds.
+          // What the room faces are a function of: the walls plus the thresholds, and the
+          // frame and base ground the ground faces read.
           // A floor vertex drag reaches the store through UpdateChildCommand —
           // which carries no `affectsRooms` — so this debounce is what refreshes
           // the faces after it.
-          const roomKey = `${detectionKey}|${thresholdKey}`;
+          const roomKey = `${detectionKey}|${thresholdKey}|${roomContextKey}`;
           // Everything that forces a full rebuild (stone re-layout): floor
           // and wall geometry, the shapes' dressing, door GEOMETRY, and
           // the hand stone edits —
@@ -859,6 +870,7 @@ export function subscribeToStore(
           item.wallSignature === b[i].wallSignature &&
           item.wallEditsKey === b[i].wallEditsKey &&
           item.thresholdKey === b[i].thresholdKey &&
+          item.roomContextKey === b[i].roomContextKey &&
           item.roomsRef === b[i].roomsRef &&
           item.areasRef === b[i].areasRef &&
           item.propOccluders === b[i].propOccluders &&

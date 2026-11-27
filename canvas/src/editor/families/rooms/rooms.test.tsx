@@ -18,6 +18,7 @@ import { RAIL_TOOLS } from '@/editor/registry/rail';
 import { SHARED_SETTINGS } from '@/editor/registry/shared';
 import { createSettings } from '@/editor/registry/settings';
 import { cards, families } from '@/editor/families';
+import { registryShortcuts } from '@/shortcuts/registryShortcuts';
 import {
   acceptAllSuggestions,
   acceptSuggestedRoom,
@@ -81,6 +82,20 @@ describe('the Rooms family', () => {
     expect(validateRegistry(input(), createDefaultState())).toEqual([]);
     expect(roomsFamily.key).toBe('U');
     expect(registry.families.map((f) => f.id)).toContain('rooms');
+  });
+
+  it('U puts Outline in hand with no flyout; every other family still opens its flyout', () => {
+    const shell = { flyout: vi.fn(() => null), setFlyout: vi.fn(), pickTool: vi.fn(), activeTool: () => undefined, lastTool: () => undefined, card: () => null };
+    const keys = registryShortcuts(registry, settings, shell);
+    keys.find((k) => k.id === 'family.rooms')!.run();
+    expect(shell.setFlyout).toHaveBeenCalledWith(null);
+    expect(shell.pickTool).toHaveBeenCalledWith(roomsFamily.tools[0]);
+    expect(registry.families.filter((f) => f.opensOnFirstTool).map((f) => f.id)).toEqual(['rooms']);
+    shell.setFlyout.mockClear();
+    shell.pickTool.mockClear();
+    keys.find((k) => k.id === 'family.text')!.run();
+    expect(shell.setFlyout).toHaveBeenCalledWith('text');
+    expect(shell.pickTool).not.toHaveBeenCalled();
   });
 
   it('opens on Outline, then Divide and Draw room, each with its own key', () => {

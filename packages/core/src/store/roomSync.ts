@@ -4,7 +4,7 @@ import { bindDoorToRooms } from '../shared/roomBinding';
 import { faceMetrics, pointInRing, signedArea } from '../shared/roomUtils';
 import { buildRoomIndex, type RoomIndex } from '../shared/roomIndex';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
-import { NO_ROOM_CONTEXT, outlineFace, roomFacesOf, type RoomContext } from '../shared/roomFloor';
+import { groundFaceCut, NO_ROOM_CONTEXT, outlineFace, roomFacesOf, walledFaceCut, walledFloorOf, type RoomContext } from '../shared/roomFloor';
 
 /*
  * Geometry refresh for rooms. Pure: no store, so the session server runs the same
@@ -53,6 +53,13 @@ function bboxOf(ring: readonly [number, number][]): [number, number, number, num
   return [x0, y0, x1, y1];
 }
 
+/** Whether a point lies on a cut floor: inside an odd number of its rings (holes and islands count). */
+function onRings(x: number, y: number, rings: readonly Polygon[]): boolean {
+  let n = 0;
+  for (const ring of rings) if (pointInRing(x, y, ring)) n++;
+  return n % 2 === 1;
+}
+
 function sameRing(a: readonly [number, number][] | undefined, b: readonly [number, number][] | undefined): boolean {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
@@ -78,7 +85,8 @@ export function layerFaces(layer: DungeonLayer, _gridSize = ROOM_GRID_SIZE, ctx:
  * Refresh one dungeon layer's rooms from its geometry:
  *
  * 1. Faces: `roomFacesOf` — the walled floor less walls, thresholds and painted caves'
- *    edges, and on a layer with walls the closed spaces in its ground too (`ctx`).
+ *    edges, and on a layer with walls the closed spaces in its ground too (`ctx`), cut only
+ *    when some pin sits off the walled floor.
  * 2. Each room's face is the smallest one holding its anchor. None does: the room is
  *    `orphaned` and keeps the face it last had. Two anchors in one face both get
  *    it; the overlay flags that, and the DM merges by hand.
@@ -90,8 +98,19 @@ export function layerFaces(layer: DungeonLayer, _gridSize = ROOM_GRID_SIZE, ctx:
 export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE, ctx: RoomContext = NO_ROOM_CONTEXT): RoomSyncResult {
   const before = layer.rooms ?? [];
   const outlined = (r: Room): boolean => !!r.boundary && r.boundary.length >= 3;
-  const needFaces = before.some((r) => !outlined(r));
-  const faces = needFaces ? roomFacesOf(layer, ctx) : [];
+  const pinned = before.filter((r) => !outlined(r));
+  let faces: Polygon[] = [];
+  if (pinned.length > 0) {
+    const walled = walledFloorOf(layer);
+    const own = walledFaceCut(layer, [], walled);
+    faces = own.faces;
+    // The ground is cut only when a pin sits off the walled floor. A pin on it is held by a
+    // walled face smaller than any ground face round it (ground faces never cover walled floor).
+    if (pinned.some((r) => !onRings(r.anchor[0], r.anchor[1], own.rings))) {
+      const ground = groundFaceCut(layer, ctx, [], walled);
+      if (ground) faces = [...faces, ...ground.faces];
+    }
+  }
   const boxes = faces.map(bboxOf);
   const areas = faces.map((f) => Math.abs(signedArea(f)));
 

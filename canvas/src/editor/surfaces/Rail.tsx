@@ -54,7 +54,11 @@ export function Rail() {
           data-tip={f.label}
           data-tip-key={f.key}
           data-tip-side="right"
-          onClick={() => useShell.getState().setFlyout(flyout === f.id ? null : f.id)}
+          onClick={() => {
+            if (!f.opensOnFirstTool) return useShell.getState().setFlyout(flyout === f.id ? null : f.id);
+            useShell.getState().setFlyout(null);
+            pickTool(f.tools[0]);
+          }}
         />
       ))}
     </nav>

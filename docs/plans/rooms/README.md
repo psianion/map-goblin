@@ -10,7 +10,7 @@ Decisions taken with the owner:
 
 - Rooms appear on a **button** (Suggest rooms), never by themselves.
 - Rooms **and corridors** can be marked as rooms.
-- Floor with no walls round it is marked by **drawing an outline**. No click-to-fill, no room brush, and Suggest does not list loose painted patches.
+- Floor with no walls round it is marked by **drawing an outline**. No click-to-fill, no room brush. On a layer with no walled floor and no wall, the painted floors stand in as the floor for Suggest and are accepted as outlined rooms; with walls or walled floor present, loose patches are still outline only (§3.4).
 - The table gets **nothing new**. Rooms made in the editor must arrive and work.
 
 ## 2. What is wrong today (checked in code and on the owner's maps)
@@ -56,6 +56,8 @@ Accepted lines are ordinary `ThresholdSegment`s, the same as the Divide tool mak
 - Suggest and the sync share this one function, so an accepted room keeps its face.
 
 **3.3 Outlined rooms.** `boundary` gets its author. The room's face is the outline cut down to the standable ground under it (largest part); on a picture-only map it is the outline as drawn. So a loose outline round a cave chamber becomes that chamber.
+
+**3.4 Painted floors on a layer without walls (Suggest only).** When a layer has no walled floor and no standalone wall, its visible ground pieces stand in as the floor: pieces of one texture that touch are one area, different textures stay apart, and base ground is never a room. Each area is split at passages as in 3.1, and every ghost carries its own ring as `boundary`, so once accepted it is an outlined room (3.3) and no longer depends on this rule. With walls or walled floor present, loose patches are still outline only.
 
 Also:
 

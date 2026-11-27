@@ -220,8 +220,8 @@ interface Parts {
   count: number;
   /** Part number → whether it is a corridor (no chamber core of its own). */
   corridor: boolean[];
-  /** Whether the face holds any chamber core. */
-  hasCore: boolean;
+  /** How many chamber cores the face holds. */
+  cores: number;
 }
 
 function splitParts(raster: FaceRaster): Parts {
@@ -293,7 +293,7 @@ function splitParts(raster: FaceRaster): Parts {
     }
   }
   for (const [comp, l] of assign) for (const i of comp) grown[i] = l;
-  return { label: grown, count, corridor, hasCore: cores.length > 0 };
+  return { label: grown, count, corridor, cores: cores.length };
 }
 
 /** One straight line across each place two parts meet. */
@@ -421,15 +421,16 @@ function cutAreas(region: Polygon[], lines: readonly [number, number][][]): numb
 
 /**
  * The divide lines one face of a cut floor asks for (`rings` = every ring of that cut,
- * holes included). Empty when the face is one space, or when no line survives the check.
+ * holes included). Empty when the face is one space, when it holds fewer than `minCores`
+ * chamber cores, or when no line survives the check.
  */
-export function faceDivides(face: Polygon, rings: readonly Polygon[]): [number, number][][] {
+export function faceDivides(face: Polygon, rings: readonly Polygon[], minCores = 0): [number, number][][] {
   if (!isClipperReady() || signedArea(face) < CORE_MIN_AREA + PART_MIN_AREA) return [];
   const fr = faceRings(face, rings);
   const raster = rasterise(fr);
   if (!raster) return [];
   const parts = splitParts(raster);
-  if (parts.count < 2) return [];
+  if (parts.count < 2 || parts.cores < minCores) return [];
   const bounds = [fr.face, ...fr.holes, ...fr.islands];
   const candidates = candidateLines(raster, parts, bounds).sort(
     (a, b) => Math.hypot(a[1][0] - a[0][0], a[1][1] - a[0][1]) - Math.hypot(b[1][0] - b[0][0], b[1][1] - b[0][1]),
@@ -457,7 +458,7 @@ export function faceIsPassage(face: Polygon, rings: readonly Polygon[]): boolean
   if (!raster) return false;
   let maxClear = 0;
   for (let i = 0; i < raster.clear.length; i++) if (raster.clear[i] > maxClear) maxClear = raster.clear[i];
-  if (maxClear >= CORE_CLEARANCE - 1e-6 && splitParts(raster).hasCore) return false;
+  if (maxClear >= CORE_CLEARANCE - 1e-6 && splitParts(raster).cores > 0) return false;
   const width = 2 * maxClear;
   return width > 0 && signedArea(face) >= 1.75 * width * width;
 }

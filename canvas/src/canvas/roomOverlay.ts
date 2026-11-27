@@ -10,6 +10,7 @@ import { clipper2Engine, isClipperReady } from '@dnd/core/src/geometry/Clipper2E
 import { dashSpine } from '@dnd/core/src/engine/wallNodeRenderer';
 import { onAnchorPreview, type AnchorPreview } from '@dnd/core/src/engine/roomAnchorDrag';
 import { ROOM_BADGE_RADIUS_PX } from '@dnd/core/src/engine/hitTest';
+import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
 
 /*
  * The editor's room overlay: what makes the rooms visible while authoring. Rooms
@@ -70,6 +71,8 @@ const GAP_PX = 4;
 const BADGE_R = 10;
 const CHIP_GAP = 4;
 const GLYPH = 18;
+/** Clear screen px kept round a proposed line's ✕. */
+const MARK_GAP_PX = 3;
 /** Zoom must hold this long before the outlines are retessellated at it. */
 const ZOOM_SETTLE_MS = 140;
 /** How long a room's outline takes to appear or go: the editor's hover transition. */
@@ -216,13 +219,67 @@ export function rejectSuggestion(roomId: string): void {
   rejectSuggestedRoom(roomId);
 }
 
-/** Where a proposed line's ✕ sits: the middle of the line. */
-export function lineMark(t: ThresholdSegment): [number, number] {
+/** A box in world units: centre and half sizes. */
+export interface MarkBox {
+  x: number;
+  y: number;
+  hw: number;
+  hh: number;
+}
+
+/** How many pushes of its own size a line's ✕ may take before that end is given up. */
+const MARK_PUSHES = 40;
+
+/**
+ * Where a proposed line's ✕ sits: just past one end of the line (both ends lie outside the
+ * floor), pushed further out along the line until its box (half size `half`) clears every box
+ * in `avoid` (the ghosts' chips with their ✓ and ✕), and kept inside `frame`. The end that
+ * needs the shorter push wins; the first end on a tie.
+ */
+export function lineMark(
+  t: ThresholdSegment,
+  avoid: readonly MarkBox[] = [],
+  half = 0,
+  frame: { minX: number; minY: number; maxX: number; maxY: number } | null = null,
+): [number, number] {
   const pts = t.points;
   if (pts.length === 0) return [0, 0];
-  const a = pts[0];
-  const b = pts[pts.length - 1];
-  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const ends: [[number, number], [number, number]][] = [
+    [pts[0], pts[pts.length - 1]],
+    [pts[pts.length - 1], pts[0]],
+  ];
+  const inFrame = (x: number, y: number): boolean =>
+    !frame || (x - half >= frame.minX && x + half <= frame.maxX && y - half >= frame.minY && y + half <= frame.maxY);
+  const clear = (x: number, y: number): boolean =>
+    avoid.every((b) => Math.abs(x - b.x) >= half + b.hw || Math.abs(y - b.y) >= half + b.hh);
+  let best: [number, number] | null = null;
+  let bestPush = Infinity;
+  for (const [end, other] of ends) {
+    const len = Math.hypot(end[0] - other[0], end[1] - other[1]);
+    const ux = len > 0 ? (end[0] - other[0]) / len : 0;
+    const uy = len > 0 ? (end[1] - other[1]) / len : 0;
+    const step = Math.max(half, 1e-3);
+    for (let k = 0; k < Math.min(bestPush, MARK_PUSHES); k++) {
+      const x = end[0] + ux * (half + k * step);
+      const y = end[1] + uy * (half + k * step);
+      if (!inFrame(x, y)) break;
+      if (!clear(x, y)) continue;
+      best = [x, y];
+      bestPush = k;
+      break;
+    }
+  }
+  if (best) return best;
+  // Nowhere clear inside the frame: just past the first end, kept on the map.
+  const [end, other] = ends[0];
+  const len = Math.hypot(end[0] - other[0], end[1] - other[1]) || 1;
+  let x = end[0] + ((end[0] - other[0]) / len) * half;
+  let y = end[1] + ((end[1] - other[1]) / len) * half;
+  if (frame) {
+    x = Math.min(Math.max(x, frame.minX + half), frame.maxX - half);
+    y = Math.min(Math.max(y, frame.minY + half), frame.maxY - half);
+  }
+  return [x, y];
 }
 
 // ─── Drawing ───────────────────────────────────────────────────────────────
@@ -292,6 +349,8 @@ interface GhostView {
   /** Glyph boxes, screen px relative to the anchor. */
   accept: { x: number; y: number; w: number; h: number };
   reject: { x: number; y: number; w: number; h: number };
+  /** The whole chip's size, screen px, centred on the anchor. */
+  chip: { w: number; h: number };
   room: Room;
   layerId: string;
   key: string;
@@ -319,6 +378,8 @@ export interface RoomOverlayHandle {
   stats(): RoomOverlayStats;
   /** A room's label (badge + chip) bounds in canvas px, or null when it has none drawn. */
   labelRect(roomId: string): { x: number; y: number; width: number; height: number } | null;
+  /** Where a proposed line's ✕ is drawn, world units, or null when the line has none. */
+  lineMarkAt(lineId: string): [number, number] | null;
 }
 
 /** Strokes the ink line `px` wide over a light halo; `trace` lays the path down (called twice). */
@@ -386,7 +447,7 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
 
   const views = new Map<string, RoomView>();
   const ghostViews = new Map<string, GhostView>();
-  /** Each proposed line's ✕, screen sized, at the middle of the line. */
+  /** Each proposed line's ✕, screen sized, past one end of the line (`lineMark`). */
   const lineViews = new Map<string, { mark: Graphics; at: [number, number] }>();
   let anchorPreview: AnchorPreview | null = null;
 
@@ -560,6 +621,7 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
     const w = tw + 12 + 2 * (GLYPH + 4);
     const x0 = -w / 2;
     const y0 = -h / 2;
+    gv.chip = { w, h };
     gv.name.position.set(x0 + 6, 0);
     gv.accept = { x: x0 + 6 + tw + 6, y: -GLYPH / 2, w: GLYPH, h: GLYPH };
     gv.reject = { x: gv.accept.x + GLYPH + 4, y: -GLYPH / 2, w: GLYPH, h: GLYPH };
@@ -666,25 +728,6 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
       if (t.points.length < 2) continue;
       haloStroke(divideG, () => dashSpine(divideG, t.points, DASH_PX / zoom, GAP_PX / zoom), PROPOSED_PX, zoom, pal.ink, 1);
     }
-    const lineLive = new Set<string>();
-    for (const t of model.divides) {
-      lineLive.add(t.id);
-      let lv = lineViews.get(t.id);
-      if (!lv) {
-        const mark = new Graphics();
-        labels.addChild(mark);
-        lv = { mark, at: [0, 0] };
-        lineViews.set(t.id, lv);
-      }
-      lv.at = lineMark(t);
-      lv.mark.position.set(lv.at[0], lv.at[1]);
-      drawLineMark(lv.mark);
-    }
-    for (const [id, lv] of [...lineViews]) {
-      if (lineLive.has(id)) continue;
-      lv.mark.destroy();
-      lineViews.delete(id);
-    }
 
     // Suggestions: ghosts with their own ✓ / ✕.
     const ghostLive = new Set<string>();
@@ -703,7 +746,7 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
         ghosts.addChild(groot);
         labels.addChild(label);
         const box = { x: 0, y: 0, w: 0, h: 0 };
-        gv = { root: groot, outline, label, bg, name, accept: box, reject: box, room, layerId: '', key: '' };
+        gv = { root: groot, outline, label, bg, name, accept: box, reject: box, chip: { w: 0, h: 0 }, room, layerId: '', key: '' };
         ghostViews.set(room.id, gv);
       }
       gv.room = room;
@@ -719,6 +762,36 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
       gv.root.destroy({ children: true });
       gv.label.destroy({ children: true });
       ghostViews.delete(id);
+    }
+
+    // Each line's ✕ past one end of it, clear of every ghost's chip, on the map.
+    const chips: MarkBox[] = [...ghostViews.values()].map((gv) => ({
+      x: gv.room.anchor[0],
+      y: gv.room.anchor[1],
+      hw: gv.chip.w / 2 / zoom,
+      hh: gv.chip.h / 2 / zoom,
+    }));
+    const markHalf = (GLYPH / 2 + MARK_GAP_PX) / zoom;
+    const mapFrame =
+      model.divides.length > 0 ? computeMapFrame(state.layers, state.mapSettings.terrain?.bounds ?? null, state.mapSettings.fixedSize ?? null) : null;
+    const lineLive = new Set<string>();
+    for (const t of model.divides) {
+      lineLive.add(t.id);
+      let lv = lineViews.get(t.id);
+      if (!lv) {
+        const mark = new Graphics();
+        labels.addChild(mark);
+        lv = { mark, at: [0, 0] };
+        lineViews.set(t.id, lv);
+      }
+      lv.at = lineMark(t, chips, markHalf, mapFrame);
+      lv.mark.position.set(lv.at[0], lv.at[1]);
+      drawLineMark(lv.mark);
+    }
+    for (const [id, lv] of [...lineViews]) {
+      if (lineLive.has(id)) continue;
+      lv.mark.destroy();
+      lineViews.delete(id);
     }
 
     scaleLabels(zoomNow());
@@ -844,6 +917,10 @@ export function mountRoomOverlay(engine: RenderEngine): RoomOverlayHandle {
       if (!v || !v.label.visible || (!v.badgeBg.visible && !v.chipBg.visible)) return null;
       const b = v.label.getBounds();
       return { x: b.x, y: b.y, width: b.width, height: b.height };
+    },
+    lineMarkAt(lineId) {
+      const lv = lineViews.get(lineId);
+      return lv ? [lv.at[0], lv.at[1]] : null;
     },
     destroy() {
       ticker?.remove(follow);

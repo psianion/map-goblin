@@ -36,10 +36,14 @@ export async function openEditor(page: Page, theme: 'light' | 'dark' = 'light', 
   await waitFrame(page, 2)
 }
 
+/** Families that open straight on their first tool with no flyout; the others are on the panel header. */
+const OPENS_ON_FIRST_TOOL = new Set(['Rooms'])
+
 /** Opens a family's flyout and picks one of its tools. */
 export async function pickFromFlyout(page: Page, family: string, tool: string): Promise<void> {
   await page.getByTestId('shell-rail').getByRole('button', { name: family }).click()
-  await page.getByTestId('shell-flyout').getByRole('button', { name: new RegExp(`^${tool}`) }).click()
+  const from = OPENS_ON_FIRST_TOOL.has(family) ? page.getByTestId('shell-tool-panel') : page.getByTestId('shell-flyout')
+  await from.getByRole('button', { name: new RegExp(`^${tool}`) }).click()
   await waitFrame(page, 2)
 }
 

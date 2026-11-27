@@ -22,6 +22,10 @@ import { signedArea } from './roomUtils';
  * floor at all, a walls-only import). That ground is cut apart from the walled floor, so a
  * walled floor's faces never change, and a ground face is offered only when it is closed:
  * grown a little, it stays on the floor and the walls. The open outdoors never is.
+ *
+ * A layer drawn in ground alone (no walled floor, no wall) has no faces here; Suggest reads its
+ * painted areas instead (`paintedGroundCuts`) and makes each one an outlined room, so once
+ * accepted it is placed by its outline like any other.
  */
 
 /** What a layer's rooms read beyond the layer itself: the map's frame, and whether its level has base ground. */
@@ -66,15 +70,71 @@ function filled(ring: Polygon): Polygon {
   return signedArea(ring) < 0 ? [...ring].reverse() : ring;
 }
 
-/** Each visible ground piece as the region it covers (its own holes out). Pieces kept to the floors add nothing. */
-function groundPieces(layer: DungeonLayer): Polygon[] {
-  const out: Polygon[] = [];
+/** Each visible ground piece, in drawing order, as the region it covers (its own holes out), with its texture. Pieces kept to the floors add nothing. */
+function groundPieceList(layer: DungeonLayer): { texture: string; rings: Polygon[] }[] {
+  const out: { texture: string; rings: Polygon[] }[] = [];
   for (const c of layer.children) {
     if (!isGroundPiece(c) || c.visible === false || (c as ShapeChild).keptToFloors) continue;
     const [outer, ...holes] = pieceRings(c as ShapeChild).filter((r) => r.length >= 3);
     if (!outer) continue;
-    if (holes.length === 0) out.push(filled(outer));
-    else out.push(...clipper2Engine.difference([outer], holes));
+    const rings = holes.length === 0 ? [filled(outer)] : clipper2Engine.difference([outer], holes);
+    out.push({ texture: (c as ShapeChild).textureId ?? '', rings });
+  }
+  return out;
+}
+
+function groundPieces(layer: DungeonLayer): Polygon[] {
+  return groundPieceList(layer).flatMap((p) => p.rings);
+}
+
+type Box = [number, number, number, number];
+
+function boxOfRings(rings: readonly Polygon[]): Box {
+  const b: Box = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const ring of rings) {
+    for (const [x, y] of ring) {
+      if (x < b[0]) b[0] = x;
+      if (y < b[1]) b[1] = y;
+      if (x > b[2]) b[2] = x;
+      if (y > b[3]) b[3] = y;
+    }
+  }
+  return b;
+}
+
+/**
+ * The cut of a layer drawn in ground alone (no walled floor, no wall), for Suggest: the visible
+ * ground as painted, one region per texture (a later piece covers what it lies over), each cut
+ * by the divide lines. Pieces of one texture that touch are one area; different textures stay
+ * apart. Base ground is never among them. Null on a layer with a walled floor or a wall, where
+ * the faces are `roomFaceCut`'s.
+ */
+export function paintedGroundCuts(layer: DungeonLayer, extraThresholds: readonly ThresholdSegment[] = []): FaceCut[] | null {
+  if (layer.standaloneWalls.length > 0 || walledFloorOf(layer).length > 0) return null;
+  const areas = new Map<string, { rings: Polygon[]; box: Box }>();
+  for (const { texture, rings } of groundPieceList(layer)) {
+    const box = boxOfRings(rings);
+    for (const [t, area] of areas) {
+      if (t === texture || area.rings.length === 0) continue;
+      const b = area.box;
+      if (box[0] >= b[2] || box[2] <= b[0] || box[1] >= b[3] || box[3] <= b[1]) continue;
+      area.rings = clipper2Engine.difference(area.rings, rings);
+    }
+    const area = areas.get(texture);
+    if (!area) areas.set(texture, { rings: [...rings], box });
+    else {
+      area.rings.push(...rings);
+      area.box = [Math.min(area.box[0], box[0]), Math.min(area.box[1], box[1]), Math.max(area.box[2], box[2]), Math.max(area.box[3], box[3])];
+    }
+  }
+  const width = layer.style?.wallWidth ?? 0;
+  const divides = [...(layer.thresholds ?? []), ...extraThresholds];
+  const out: FaceCut[] = [];
+  for (const { rings } of areas.values()) {
+    if (rings.length === 0) continue;
+    const cut = cutFloor(rings, [], width, divides);
+    const faces = facesOfParts(cut, 1);
+    if (faces.length > 0) out.push({ faces, rings: cut });
   }
   return out;
 }
@@ -137,20 +197,42 @@ export interface FaceCut {
 /** {@link roomFacesOf}, with the cut floor's rings alongside. */
 export function roomFaceCut(layer: DungeonLayer, ctx: RoomContext, extraThresholds: readonly ThresholdSegment[] = []): FaceCut {
   const walled = walledFloorOf(layer);
+  const own = walledFaceCut(layer, extraThresholds, walled);
+  const ground = groundFaceCut(layer, ctx, extraThresholds, walled);
+  return ground ? { faces: [...own.faces, ...ground.faces], rings: [...own.rings, ...ground.rings] } : own;
+}
+
+/** The walled floor's faces alone: the walled floor less walls, thresholds and painted caves' edges. */
+export function walledFaceCut(
+  layer: DungeonLayer,
+  extraThresholds: readonly ThresholdSegment[] = [],
+  walled: Polygon[] = walledFloorOf(layer),
+): FaceCut {
   const width = layer.style?.wallWidth ?? 0;
   const divides = [...(layer.thresholds ?? []), ...extraThresholds];
   const rings = cutFloor(walled, layer.standaloneWalls, width, [...divides, ...caveCutters(layer)]);
-  const faces = facesOfParts(rings, 1);
+  return { faces: facesOfParts(rings, 1), rings };
+}
+
+/** The closed faces in a layer's ground (§3.2), cut apart from its walled floor; null where no ground counts. */
+export function groundFaceCut(
+  layer: DungeonLayer,
+  ctx: RoomContext,
+  extraThresholds: readonly ThresholdSegment[] = [],
+  walled: Polygon[] = walledFloorOf(layer),
+): FaceCut | null {
   const ground = groundFloorOf(layer, ctx, walled);
-  if (!ground) return { faces, rings };
+  if (!ground) return null;
+  const width = layer.style?.wallWidth ?? 0;
+  const divides = [...(layer.thresholds ?? []), ...extraThresholds];
 
   // The ground is cut on its own, with the walled floor taken out (the plan's thin cut along
   // every walled ring, done exactly): a walled floor's faces stay what they were. A lone
   // merged ring comes back from the union untouched, wound either way.
   const walledFilled = walled.length === 1 ? [filled(walled[0])] : walled;
   // Taken out wound the way the wall and threshold cuts are, so none cancels another where they overlap.
-  // ponytail: this second cut against every wall is what base ground costs a walled dungeon
-  // (about one more sync's worth). Cut only near walls off the floor if that is ever felt.
+  // This second cut against every wall is what base ground costs a walled dungeon; the sync
+  // pays it only when some pin sits off the walled floor (`syncRooms`).
   const walledCut = walledFilled.map((r) => [...r].reverse());
   const groundRings = cutFloor(ground.ground, layer.standaloneWalls, width, [...divides, ...doorCutters(layer)], walledCut);
   let inside: Polygon[] | null = null;
@@ -161,7 +243,7 @@ export function roomFaceCut(layer: DungeonLayer, ctx: RoomContext, extraThreshol
     inside ??= clipper2Engine.union([...walledFilled, ...ground.ground, ...wallRects(layer)], []);
     return patchArea(clipper2Engine.difference(clipper2Engine.inflate([face], CLOSED_GROW), inside)) < AREA_EPSILON;
   });
-  return { faces: [...faces, ...closed], rings: [...rings, ...groundRings] };
+  return { faces: closed, rings: groundRings };
 }
 
 /** Closed faces a room can sit in (plan 3.2), with extra divide lines applied on top of the layer's own. */

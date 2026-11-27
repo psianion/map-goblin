@@ -1,4 +1,4 @@
-// The Rooms family: Outline (first, so the family opens on it), Divide and Draw room, and the
+// The Rooms family: Outline (first: the rail and U open straight on it), Divide and Draw room, and the
 // cards for rooms, areas and levels. Suggest rooms, the Room outlines switch and the rooms
 // list ride in every tool's panel. The rooms list, a room's key and the Prep overview are
 // sheets (text/sheets.tsx); the cards and their fields still live beside them in text/.
@@ -17,6 +17,8 @@ export const rooms = defineFamily({
   // R is the Floor tool's Rectangle key while Floor is in hand, and a family key is live
   // under every tool; U was the free letter.
   key: 'U',
+  // Straight onto Outline, so Suggest rooms shows at once; Divide and Draw room sit on its panel header.
+  opensOnFirstTool: true,
   tools: [outlineTool, divideTool, withTabs(drawRoomTool, [WALLS_TAB, DOORS_TAB])],
 });
 

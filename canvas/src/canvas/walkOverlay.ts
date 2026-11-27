@@ -62,7 +62,6 @@ export function editorWalkGrid(state: MapBuilderStore): WalkGrid | null {
       ...layer,
       children: layer.children.map((c) => (c.childType === 'door' ? savedDoor(c) : c)),
     })),
-    hasRooms: layers.some((l) => l.type === 'dungeon' && (l.rooms?.length ?? 0) > 0),
     hiddenGround: mapHasHiddenGround(state),
     crossings: sceneCrossings(undefined, null),
   });

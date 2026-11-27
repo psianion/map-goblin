@@ -33,11 +33,6 @@ export interface LevelWalkMap {
   level: Level | null
   /** The level's dungeon layers, every door already in the state to walk by. */
   layers: readonly DungeonLayer[]
-  /**
-   * No longer read: whether the frame is all walkable now follows the level's authored floor
-   * (rooms plan §5), so a room with no shape or only an outline never restricts walking.
-   */
-  hasRooms?: boolean
   /** Whether the map has ground to hide with no room on it ({@link mapHasHiddenGround}). */
   hiddenGround: boolean
   /** The crossing overrides in play; empty for the map's own rules. */

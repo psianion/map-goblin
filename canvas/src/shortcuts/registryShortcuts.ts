@@ -74,7 +74,11 @@ export function registryShortcuts(registry: Registry, settings: Settings, shell:
   for (const f of registry.families) {
     out.push({
       ...base, kind: 'family', id: `family.${f.id}`, combo: lower(f.key), label: f.label, family: f.id, source: f.id,
-      run: () => shell.setFlyout(shell.flyout() === f.id ? null : f.id),
+      run: () => {
+        if (!f.opensOnFirstTool) return shell.setFlyout(shell.flyout() === f.id ? null : f.id);
+        shell.setFlyout(null);
+        shell.pickTool(f.tools[0]);
+      },
     });
     for (const t of f.tools) {
       out.push({

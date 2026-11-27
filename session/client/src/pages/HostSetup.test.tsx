@@ -30,7 +30,7 @@ const MAP = {
   version: '3.0',
   mapSettings: { name: 'Emberhold Crypt' },
   grid: {},
-  layers: [{ id: 'layer-1', type: 'dungeon', rooms: [{ id: 'r-vestibule', name: 'Vestibule of Ash' }] }],
+  layers: [{ id: 'layer-1', type: 'dungeon', rooms: [{ id: 'r-vestibule', name: 'Vestibule of Ash', boundary: [[0, 0], [4, 0], [4, 4], [0, 4]] }] }],
 };
 
 beforeEach(() => {
