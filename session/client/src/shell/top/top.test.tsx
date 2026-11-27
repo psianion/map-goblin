@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSceneLibrary } from '../../modules/scene/store';
@@ -175,6 +175,7 @@ describe('SessionMenu', () => {
     expect(screen.queryByRole('combobox')).toBeNull();
     fireEvent.click(screen.getByTestId('open-party-seats'));
     expect(openSheetNow()?.id).toBe('party');
+    await waitFor(() => expect(screen.queryByTestId('session-popover')).toBeNull());
     closeSheet();
   });
 

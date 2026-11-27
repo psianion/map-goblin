@@ -221,10 +221,11 @@ function DmControls() {
 /** Top right: the Session menu. The DM runs the table from it; a player can leave. */
 export function SessionMenu() {
   const role = useSessionStore((s) => s.you?.role);
+  const [open, setOpen] = useState(false);
   if (!role) return null;
   const dm = role === 'dm';
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
           <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" data-testid="session-menu">
@@ -237,7 +238,7 @@ export function SessionMenu() {
         <Caption>At the table</Caption>
         <Roster dm={dm} />
         {dm && (
-          <Button variant="outline" size="sm" className="self-start" data-testid="open-party-seats" onClick={() => openSheet('party')}>
+          <Button variant="outline" size="sm" className="self-start" data-testid="open-party-seats" onClick={() => { setOpen(false); openSheet('party'); }}>
             Hand out characters
           </Button>
         )}
