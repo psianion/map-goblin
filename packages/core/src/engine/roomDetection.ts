@@ -44,8 +44,12 @@ function polylineToRects(points: readonly [number, number][], halfW: number): Po
  * corner still seal — an unsealed corner leaks two rooms into one.
  */
 export function wallToRects(wall: WallSegment, layerWallWidth: number): Polygon[] {
-  const halfW = Math.max(wallWidthOf(wall, layerWallWidth) / 2, MIN_HALF_WIDTH);
-  return polylineToRects(wall.points, halfW);
+  return polylineToRects(wall.points, wallCutHalfWidth(wall, layerWallWidth));
+}
+
+/** How far a wall's cut reaches either side of its line, and past each end. */
+export function wallCutHalfWidth(wall: WallSegment, layerWallWidth: number): number {
+  return Math.max(wallWidthOf(wall, layerWallWidth) / 2, MIN_HALF_WIDTH);
 }
 
 /** A threshold's cut: the same rectangles at a tenth of a cell wide. */

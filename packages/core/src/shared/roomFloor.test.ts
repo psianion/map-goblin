@@ -264,6 +264,92 @@ describe('Suggest on floors painted as ground, with no walls', () => {
   });
 });
 
+describe('short walls and doors close the gaps they nearly span', () => {
+  const room = (gapAtEnd: number) =>
+    layer({ children: [shape('f', rect(0, 0, 10, 6))], standaloneWalls: [wall('w', [[5, -0.2], [5, 6 - gapAtEnd]])] });
+
+  it('a wall 0.5 of a cell short of the edge seals; 1.5 and a full cell short do not', () => {
+    expect(roomFacesOf(room(0.5), NO_ROOM_CONTEXT)).toHaveLength(2);
+    expect(roomFacesOf(room(1.5), NO_ROOM_CONTEXT)).toHaveLength(1);
+    expect(roomFacesOf(room(1), NO_ROOM_CONTEXT)).toHaveLength(1);
+  });
+
+  it('a door across a gap on walled floor is a room edge, with no wall under it', () => {
+    const door = {
+      id: 'd', name: 'Door', childType: 'door', visible: true, wallId: '', position: [5, 3], angle: Math.PI / 2, width: 5.2,
+      style: 'single', state: 'closed', isSecret: false, freestanding: true,
+    } as DoorChild;
+    expect(roomFacesOf(layer({ children: [shape('f', rect(0, 0, 10, 6)), door] }), NO_ROOM_CONTEXT)).toHaveLength(2);
+  });
+
+  // The owner's cave: the seven floors, a short wall with its door inside each end of every passage.
+  const SHORT_WALLS: Ring[] = [
+    [[5.12, 17.54], [6.5, 17.54]],
+    [[13.28, 21.56], [13.28, 22.45]],
+    [[16.91, 22.5], [16.91, 21.49]],
+    [[5.52, 12.38], [6.46, 12.38]],
+    [[11.15, 7.48], [11.15, 6.53]],
+    [[14.66, 7.45], [14.66, 6.53]],
+  ];
+  const DOORS: [number, number, number, number][] = [
+    [5.81, 17.54, 0, 1.38],
+    [13.28, 22.01, 1.57, 0.88],
+    [16.91, 22, -1.57, 1.01],
+    [5.99, 12.38, 0, 0.94],
+    [11.15, 7.005, -Math.PI / 2, 0.95],
+    [14.66, 6.99, -Math.PI / 2, 0.92],
+  ];
+  const doored = () =>
+    layer({
+      children: [
+        ...FA_CAVE.map((ring, i) => shape(`f${i}`, ring)),
+        ...DOORS.map(([x, y, angle, width], i) => ({
+          id: `d${i}`, name: `Door ${i}`, childType: 'door', visible: true, wallId: `w${i}`, position: [x, y], angle, width,
+          style: 'single', state: 'closed', isSecret: false, freestanding: true,
+        }) as DoorChild),
+      ],
+      standaloneWalls: SHORT_WALLS.map((points, i) => wall(`w${i}`, points)),
+    });
+  /** The four chambers' centres, and each chamber shrunk half a cell. */
+  const CHAMBERS = [FA_CAVE[0], FA_CAVE[2], FA_CAVE[4], FA_CAVE[6]];
+  const centre = (r: Ring): [number, number] => [(r[0][0] + r[2][0]) / 2, (r[0][1] + r[2][1]) / 2];
+
+  it('gives the four chambers four ghosts, none named Passage, and runs no line into a chamber', () => {
+    const l = doored();
+    const divides = suggestDivides(l, FA_CTX);
+    const ghosts = suggestRooms(l, FA_CTX, divides);
+    expect(ghosts.length).toBeGreaterThanOrEqual(4);
+    const holders = CHAMBERS.map((r) => ghosts.filter((g) => pointInRing(...centre(r), g.face!)));
+    for (const h of holders) expect(h).toHaveLength(1);
+    expect(new Set(holders.map((h) => h[0].id)).size).toBe(4);
+    for (const [g] of holders) expect(g.name).toMatch(/^Room \d+$/);
+    for (const d of divides) {
+      const [[x0, y0], [x1, y1]] = d.points;
+      for (let t = 0; t <= 1; t += 0.02) {
+        const [x, y] = [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t];
+        for (const r of CHAMBERS) expect(x > r[0][0] + 0.5 && x < r[2][0] - 0.5 && y > r[0][1] + 0.5 && y < r[2][1] - 0.5).toBe(false);
+      }
+    }
+  });
+
+  it('keeps every accepted ghost’s face through the sync, distinct and none orphaned', () => {
+    const { ghosts, rooms } = acceptAndSync(doored(), FA_CTX);
+    expect(rooms.every((r) => !r.orphaned)).toBe(true);
+    expect(new Set(rooms.map((r) => JSON.stringify(r.face))).size).toBe(rooms.length);
+    for (const g of ghosts) expect(computeArea(rooms.find((r) => r.id === g.id)!.face!)).toBeCloseTo(computeArea(g.face!), 6);
+  });
+
+  it('splits a walled cave on base ground beside a stray wall, with no cave edge cutting it', () => {
+    // The ground's hole where the walled floor lies is no hole in the walled floor.
+    const l = layer({ ...faCave(), standaloneWalls: [wall('stray', [[28, 28], [29, 28]])] });
+    const divides = suggestDivides(l, FA_CTX);
+    expect(divides).toHaveLength(6);
+    const ghosts = suggestRooms(l, FA_CTX, divides);
+    expect(ghosts.filter((g) => g.name.startsWith('Room '))).toHaveLength(4);
+    expect(ghosts.filter((g) => g.name.startsWith('Passage '))).toHaveLength(3);
+  });
+});
+
 describe('outlined rooms', () => {
   const cave = layer({ children: [shape('c', rect(0, 0, 10, 10)), shape('p', rect(10, 4, 16, 6))] });
 

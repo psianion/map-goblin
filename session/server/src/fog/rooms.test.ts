@@ -162,6 +162,65 @@ describe('painted floors with no walls', () => {
   })
 })
 
+describe('a cave with short walls and doors in its passages', () => {
+  /** Seven floors on base ground, a short wall and its door inside each end of every passage, rooms accepted from Suggest. */
+  function doored(): SerializedMapData {
+    const cave = JSON.parse(CAVE) as SerializedMapData
+    const layer = cave.layers.find(isDungeon)!
+    const floors: [number, number][][] = [
+      [[2, 3], [11, 3], [11, 12], [2, 12]], [[10, 6], [16, 6], [16, 8], [10, 8]], [[15, 2], [27, 2], [27, 13], [15, 13]],
+      [[5, 11], [7, 11], [7, 19], [5, 19]], [[3, 18], [13, 18], [13, 27], [3, 27]], [[12, 21], [18, 21], [18, 23], [12, 23]],
+      [[17, 17], [26, 17], [26, 26], [17, 26]],
+    ]
+    const walls: [number, number][][] = [
+      [[5.12, 17.54], [6.5, 17.54]], [[13.28, 21.56], [13.28, 22.45]], [[16.91, 22.5], [16.91, 21.49]],
+      [[5.52, 12.38], [6.46, 12.38]], [[11.15, 7.48], [11.15, 6.53]], [[14.66, 7.45], [14.66, 6.53]],
+    ]
+    const doors: [number, number, number, number][] = [
+      [5.81, 17.54, 0, 1.38], [13.28, 22.01, 1.57, 0.88], [16.91, 22, -1.57, 1.01],
+      [5.99, 12.38, 0, 0.94], [11.15, 7.005, -Math.PI / 2, 0.95], [14.66, 6.99, -Math.PI / 2, 0.92],
+    ]
+    const next: DungeonLayer = {
+      ...layer,
+      children: [
+        ...floors.map((ring, i) => ({ id: `f${i}`, name: `Floor ${i}`, childType: 'shape', visible: true, shapeType: 'polygon', contours: [ring] })),
+        ...doors.map(([x, y, angle, width], i) => ({
+          id: `d${i}`, name: `Door ${i}`, childType: 'door', visible: true, wallId: `w${i}`, position: [x, y], angle, width,
+          style: 'single', state: 'closed', isSecret: false, freestanding: true,
+        })),
+      ] as unknown as DungeonLayer['children'],
+      standaloneWalls: walls.map((points, i) => ({ id: `w${i}`, points, wallType: 'normal', direction: 'both', color: '#000000', roughness: 0 })) as DungeonLayer['standaloneWalls'],
+      style: { ...layer.style, wallWidth: 0.5 },
+      thresholds: [],
+      rooms: [],
+      mergedFloor: null,
+    }
+    const data: SerializedMapData = {
+      ...cave,
+      mapSettings: { ...cave.mapSettings, ground: { color: '#556b2f' }, fixedSize: { width: 30, height: 30, locked: true } },
+      layers: cave.layers.map((l) => (isDungeon(l) ? next : l)),
+    }
+    const ctx = roomContextOf(data, next)
+    const divides = suggestDivides(next, ctx)
+    next.rooms = suggestRooms(next, ctx, divides).map(({ face: _face, ...room }) => room)
+    next.thresholds = divides
+    return data
+  }
+
+  it('the server places every room Suggest made with the editor’s faces, each its own', () => {
+    const data = doored()
+    expect(data.layers.find(isDungeon)!.rooms!.length).toBeGreaterThanOrEqual(4)
+    const faces = editorFaces(data)
+    const { scene } = table(JSON.stringify(data), { x: 6, y: 7 })
+    expect(scene.rooms).toHaveLength(data.layers.find(isDungeon)!.rooms!.length)
+    expect(new Set(scene.rooms.map((r) => JSON.stringify(r.boundary))).size).toBe(scene.rooms.length)
+    for (const room of scene.rooms) {
+      expect(room.boundary.length).toBeGreaterThanOrEqual(3)
+      expect(room.boundary).toEqual(faces.get(room.id))
+    }
+  })
+})
+
 describe('a picture with outlined rooms', () => {
   function picture(): string {
     const cave = JSON.parse(CAVE) as SerializedMapData

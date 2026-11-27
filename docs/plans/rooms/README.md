@@ -43,7 +43,8 @@ Three changes to how faces are found, all in shared core so editor and server ag
 - Grow each core back by the same distance, nearest core wins. What is left is passage.
 - A passage that touches one chamber and is under 3 square cells joins that chamber. Otherwise it is a corridor.
 - One straight divide line per place a chamber meets a corridor or another chamber, run 0.3 of a cell past the floor edge at both ends.
-- Keep a line only if it raises the face count and leaves no part under 1 square cell.
+- Keep a line only if it raises the count of faces of at least 1 square cell. A scrap under 1 square cell beside a wall is let be; it is never offered as a room.
+- A face with a chamber core is never named a passage.
 - A face with fewer than two parts gets no lines.
 
 Accepted lines are ordinary `ThresholdSegment`s, the same as the Divide tool makes. Constants are fixed in code, not settings.
@@ -56,6 +57,8 @@ Accepted lines are ordinary `ThresholdSegment`s, the same as the Divide tool mak
 - Suggest and the sync share this one function, so an accepted room keeps its face.
 
 **3.3 Outlined rooms.** `boundary` gets its author. The room's face is the outline cut down to the standable ground under it (largest part); on a picture-only map it is the outline as drawn. So a loose outline round a cave chamber becomes that chamber.
+
+**3.3a Short walls and doors.** For room faces only, a standalone wall or a door that stops short of the floor's edge by less than 1 cell is run on along its own line to that edge, closing the gap; a full cell or more stays open. A door across a gap cuts room faces on walled floor too, not only on ground. Sight, light, walking and drawing read the walls as drawn.
 
 **3.4 Painted floors on a layer without walls.** When a layer has no walled floor and no standalone wall, Suggest reads its visible ground pieces as the floor: pieces of one texture that touch are one area, different textures stay apart (a later piece covers what it lies over), and base ground is never a room. Each area is split at passages as in 3.1. The ghosts are ordinary pinned rooms, an anchor inside each part, and the kept lines become thresholds. The sync places a pin that no walled or closed ground face holds in the painted area under it, cut by the layer's walls and thresholds, on any layer: so a painted-floor room follows its floor when it is repainted or reshaped, and keeps it when walls or walled floor are added later. A pin on bare base ground stays open. With walls or walled floor present, Suggest does not propose loose patches; they are outline only.
 

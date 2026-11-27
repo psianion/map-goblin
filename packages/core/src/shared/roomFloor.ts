@@ -1,15 +1,15 @@
 import type { DungeonLayer, Layer, MapSettings } from '../store/types';
-import type { DoorChild, Level, ShapeChild, ThresholdSegment } from './types';
+import type { DoorChild, Level, ShapeChild, ThresholdSegment, WallSegment } from './types';
 import type { Polygon } from '../geometry/GeometryEngine';
 import { clipper2Engine, isClipperReady } from '../geometry/Clipper2Engine';
 import { computeMapFrame, type WorldBounds } from './mapBounds';
 import { baseGroundOf, frameRing, isGroundPiece, pieceRings } from './pieces';
 import { levelOf } from './lookScope';
-import { cutFloor, facesOfParts, wallToRects } from '../engine/roomDetection';
+import { cutFloor, facesOfParts, THRESHOLD_HALF_WIDTH, wallCutHalfWidth, wallToRects } from '../engine/roomDetection';
 import { computeMergedFloor } from '../engine/mergedFloor';
 import { caveCutters } from './caveFloor';
 import { patchArea } from './materialPatch';
-import { signedArea } from './roomUtils';
+import { pointInRing, signedArea } from './roomUtils';
 
 /*
  * The floor a layer's rooms sit in (rooms plan §3.2, §3.3). One function feeds Suggest, the
@@ -140,7 +140,7 @@ export function paintedAreaCuts(layer: DungeonLayer, extraThresholds: readonly T
   const out: FaceCut[] = [];
   for (const { rings } of areas.values()) {
     if (rings.length === 0) continue;
-    const cut = cutFloor(rings, layer.standaloneWalls, width, divides);
+    const cut = cutFloor(rings, sealedWalls(layer, rings), width, [...divides, ...doorCutters(layer, rings, true)]);
     const faces = facesOfParts(cut, 1);
     if (faces.length > 0) out.push({ faces, rings: cut });
   }
@@ -153,16 +153,111 @@ function wallRects(layer: DungeonLayer): Polygon[] {
   return layer.standaloneWalls.flatMap((w) => wallToRects(w, width).map(filled));
 }
 
-/** A door's cut: a threshold across its width, so a gap a door stands in closes the space behind it. */
-function doorCutters(layer: DungeonLayer): ThresholdSegment[] {
+/** A wall or door that stops short of the floor's edge by less than this closes that gap for room faces, cells. */
+const SEAL_REACH = 1;
+/** A door this close to the floor's own edge stands in that edge (a door in a floor's wall), cells. */
+const ON_EDGE = 0.1;
+
+/** Whether a point lies on a floor: inside an odd number of its rings. */
+function onFloor(x: number, y: number, floor: readonly Polygon[]): boolean {
+  let n = 0;
+  for (const ring of floor) if (pointInRing(x, y, ring)) n++;
+  return n % 2 === 1;
+}
+
+/** The distance from a point to the nearest edge of a floor. */
+function edgeDistance(x: number, y: number, floor: readonly Polygon[]): number {
+  let best = Infinity;
+  for (const ring of floor) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [x1, y1] = ring[j];
+      const [x2, y2] = ring[i];
+      const ex = x2 - x1;
+      const ey = y2 - y1;
+      const len2 = ex * ex + ey * ey;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - x1) * ex + (y - y1) * ey) / len2)) : 0;
+      best = Math.min(best, Math.hypot(x - (x1 + t * ex), y - (y1 + t * ey)));
+    }
+  }
+  return best;
+}
+
+/** From (x, y) along the unit (ux, uy), how far to the first floor edge; Infinity when none lies ahead. */
+function rayToEdge(x: number, y: number, ux: number, uy: number, floor: readonly Polygon[]): number {
+  let best = Infinity;
+  for (const ring of floor) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [x1, y1] = ring[j];
+      const [x2, y2] = ring[i];
+      const ex = x2 - x1;
+      const ey = y2 - y1;
+      const den = ux * ey - uy * ex;
+      if (Math.abs(den) < 1e-12) continue;
+      const wx = x1 - x;
+      const wy = y1 - y;
+      const t = (wx * ey - wy * ex) / den;
+      const s = (wx * uy - wy * ux) / den;
+      if (s >= 0 && s <= 1 && t > 0 && t < best) best = t;
+    }
+  }
+  return best;
+}
+
+/**
+ * A cutter's line with each end that stops on the floor short of its edge run on, along its
+ * own line, to that edge: when the cut's own reach past the end (`cap`) does not get there
+ * and the edge is under SEAL_REACH away. Wider gaps stay open. The same array when no
+ * end moves. Room faces only: sight, light and walking read the walls as drawn.
+ */
+function sealEnds(points: [number, number][], floor: readonly Polygon[], cap: number): [number, number][] {
+  const n = points.length;
+  if (n < 2 || floor.length === 0) return points;
+  const [fx, fy] = points[0];
+  const [lx, ly] = points[n - 1];
+  if (fx === lx && fy === ly) return points;
+  let out = points;
+  for (const [i, j] of [[0, 1], [n - 1, n - 2]] as const) {
+    const [px, py] = points[i];
+    const [qx, qy] = points[j];
+    const len = Math.hypot(px - qx, py - qy);
+    if (len < 1e-9 || !onFloor(px, py, floor)) continue;
+    const ux = (px - qx) / len;
+    const uy = (py - qy) / len;
+    const d = rayToEdge(px, py, ux, uy, floor);
+    // A full cell or more is a doorway-sized opening, and stays open.
+    if (d <= cap || d >= SEAL_REACH - 1e-9) continue;
+    if (out === points) out = points.slice();
+    out[i] = [px + ux * d, py + uy * d];
+  }
+  return out;
+}
+
+/** The layer's walls with their ends run on to the edge of `floor` where they stop just short of it (`sealEnds`). */
+function sealedWalls(layer: DungeonLayer, floor: readonly Polygon[]): WallSegment[] {
+  const width = layer.style?.wallWidth ?? 0;
+  return layer.standaloneWalls.map((w) => {
+    const points = sealEnds(w.points, floor, wallCutHalfWidth(w, width));
+    return points === w.points ? w : { ...w, points };
+  });
+}
+
+/**
+ * A door's cut: a threshold across its width, so a gap a door stands in closes the space behind
+ * it, its ends run on to the floor's edge as a wall's are. With `inGaps`, only the doors that
+ * stand in a gap of `floor`: one on a standalone wall (the wall cuts there), one in the floor's
+ * own edge and one off the floor cut nothing more.
+ */
+function doorCutters(layer: DungeonLayer, floor: readonly Polygon[], inGaps: boolean): ThresholdSegment[] {
+  const walls = inGaps ? new Set(layer.standaloneWalls.map((w) => w.id)) : null;
   const out: ThresholdSegment[] = [];
   for (const c of layer.children) {
     if (c.childType !== 'door') continue;
     const door = c as DoorChild;
     const [x, y] = door.position;
+    if (walls && (walls.has(door.wallId) || !onFloor(x, y, floor) || edgeDistance(x, y, floor) < ON_EDGE)) continue;
     const hx = (Math.cos(door.angle) * door.width) / 2;
     const hy = (Math.sin(door.angle) * door.width) / 2;
-    out.push({ id: `door:${door.id}`, points: [[x - hx, y - hy], [x + hx, y + hy]] });
+    out.push({ id: `door:${door.id}`, points: sealEnds([[x - hx, y - hy], [x + hx, y + hy]], floor, THRESHOLD_HALF_WIDTH) });
   }
   return out;
 }
@@ -218,7 +313,7 @@ export function walledFaceCut(
 ): FaceCut {
   const width = layer.style?.wallWidth ?? 0;
   const divides = [...(layer.thresholds ?? []), ...extraThresholds];
-  const rings = cutFloor(walled, layer.standaloneWalls, width, [...divides, ...caveCutters(layer)]);
+  const rings = cutFloor(walled, sealedWalls(layer, walled), width, [...divides, ...caveCutters(layer), ...doorCutters(layer, walled, true)]);
   return { faces: facesOfParts(rings, 1), rings };
 }
 
@@ -242,7 +337,7 @@ export function groundFaceCut(
   // This second cut against every wall is what base ground costs a walled dungeon; the sync
   // pays it only when some pin sits off the walled floor (`syncRooms`).
   const walledCut = walledFilled.map((r) => [...r].reverse());
-  const groundRings = cutFloor(ground.ground, layer.standaloneWalls, width, [...divides, ...doorCutters(layer)], walledCut);
+  const groundRings = cutFloor(ground.ground, sealedWalls(layer, ground.ground), width, [...divides, ...doorCutters(layer, ground.ground, false)], walledCut);
   let inside: Polygon[] | null = null;
   const closed = facesOfParts(groundRings, 1).filter((face) => {
     // On the frame's ground, a face is open exactly when it reaches the frame's edge.

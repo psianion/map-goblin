@@ -1,10 +1,10 @@
 import type { DungeonLayer } from '../store/types';
 import type { Room, ThresholdSegment } from './types';
 import type { Polygon } from '../geometry/GeometryEngine';
-import { paintedGroundCuts, roomFaceCut, type FaceCut, type RoomContext } from './roomFloor';
+import { groundFaceCut, paintedGroundCuts, walledFaceCut, walledFloorOf, type FaceCut, type RoomContext } from './roomFloor';
 import { ROOM_GRID_SIZE } from '../store/roomSync';
 import { computeArea, interiorPoint, isPathway, nextRoomNumber, pointInRing, readingOrder, roomFace } from './roomUtils';
-import { asThresholds, faceDivides, faceIsPassage } from './passageSplit';
+import { asThresholds, faceDivides, faceShape } from './passageSplit';
 
 /** The smallest face Suggest offers as a room, square cells. */
 const MIN_SUGGESTED_AREA = 1;
@@ -68,11 +68,17 @@ export function anchorOutside(face: [number, number][], faces: readonly [number,
 }
 
 /**
- * The cuts Suggest reads: the layer's room faces (`roomFaceCut`), or on a layer drawn in
- * ground alone (no walled floor, no wall) one cut per painted texture (`paintedGroundCuts`).
+ * The cuts Suggest reads: the walled floor's and the ground's (`roomFaceCut`'s two halves),
+ * or on a layer drawn in ground alone (no walled floor, no wall) one cut per painted texture
+ * (`paintedGroundCuts`). Kept apart, so a face is sampled against its own cut's rings only:
+ * the ground's hole where the walled floor lies is no hole in the walled floor.
  */
 function suggestCuts(layer: DungeonLayer, ctx: RoomContext, divides: readonly ThresholdSegment[]): FaceCut[] {
-  return paintedGroundCuts(layer, divides) ?? [roomFaceCut(layer, ctx, divides)];
+  const painted = paintedGroundCuts(layer, divides);
+  if (painted) return painted;
+  const walled = walledFloorOf(layer);
+  const ground = groundFaceCut(layer, ctx, divides, walled);
+  return [walledFaceCut(layer, divides, walled), ...(ground ? [ground] : [])];
 }
 
 /** Which faces hold a room already: the smallest face round each pin, and every face an outlined room covers. */
@@ -125,7 +131,9 @@ export function suggestRooms(layer: DungeonLayer, ctx: RoomContext, divides: rea
   let n = nextRoomNumber(rooms);
   return readingOrder(free).map(({ face, anchor }) => {
     const number = n++;
-    const passage = isPathway(face, ROOM_GRID_SIZE) || faceIsPassage(face, ringsOf.get(face)!);
+    // A face with a chamber in it is a room, however long and thin its outline reads.
+    const shape = faceShape(face, ringsOf.get(face)!);
+    const passage = !shape.chamber && (shape.passage || isPathway(face, ROOM_GRID_SIZE));
     return { id: crypto.randomUUID(), name: `${passage ? 'Passage' : 'Room'} ${number}`, number, anchor, face };
   });
 }

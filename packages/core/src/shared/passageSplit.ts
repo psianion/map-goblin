@@ -436,31 +436,34 @@ export function faceDivides(face: Polygon, rings: readonly Polygon[], minCores =
     (a, b) => Math.hypot(a[1][0] - a[0][0], a[1][1] - a[0][1]) - Math.hypot(b[1][0] - b[0][0], b[1][1] - b[0][1]),
   );
 
-  // Each line is kept only if it splits off another part and leaves none too small to hold a room.
+  // Each line is kept only if it splits off another part big enough to hold a room. A scrap it
+  // leaves beside a wall is let be: a part under PART_MIN_AREA is never offered as a room.
   const region = [fr.face, ...fr.holes];
+  const roomy = (areas: number[]): number => areas.filter((a) => a >= PART_MIN_AREA).length;
   const kept: [number, number][][] = [];
-  let faces = cutAreas(region, kept).length;
+  let faces = roomy(cutAreas(region, kept));
   for (const line of candidates) {
-    const areas = cutAreas(region, [...kept, line]);
-    if (areas.length <= faces || areas.some((a) => a < PART_MIN_AREA)) continue;
+    const count = roomy(cutAreas(region, [...kept, line]));
+    if (count <= faces) continue;
     kept.push(line);
-    faces = areas.length;
+    faces = count;
   }
   return kept;
 }
 
 /**
- * Whether a face reads as a passage rather than a room: no chamber core anywhere in it, and
- * longer than it is wide (its area at least 1.75 times the square of its widest span).
+ * How a face reads: whether it holds a chamber core, and whether it reads as a passage rather
+ * than a room (no chamber core anywhere in it, and longer than it is wide: its area at least
+ * 1.75 times the square of its widest span).
  */
-export function faceIsPassage(face: Polygon, rings: readonly Polygon[]): boolean {
+export function faceShape(face: Polygon, rings: readonly Polygon[]): { chamber: boolean; passage: boolean } {
   const raster = rasterise(faceRings(face, rings));
-  if (!raster) return false;
+  if (!raster) return { chamber: false, passage: false };
   let maxClear = 0;
   for (let i = 0; i < raster.clear.length; i++) if (raster.clear[i] > maxClear) maxClear = raster.clear[i];
-  if (maxClear >= CORE_CLEARANCE - 1e-6 && splitParts(raster).cores > 0) return false;
+  if (maxClear >= CORE_CLEARANCE - 1e-6 && splitParts(raster).cores > 0) return { chamber: true, passage: false };
   const width = 2 * maxClear;
-  return width > 0 && signedArea(face) >= 1.75 * width * width;
+  return { chamber: false, passage: width > 0 && signedArea(face) >= 1.75 * width * width };
 }
 
 /** Divide lines as the thresholds they become, each with a fresh id. */
