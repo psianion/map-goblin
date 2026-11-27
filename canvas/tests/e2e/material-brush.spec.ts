@@ -64,9 +64,11 @@ test('material brush: paint a piece, its rim is drawn', { tag: '@terrain' }, asy
   await page.mouse.move(1060, 220, { steps: 6 })
   await page.mouse.up()
   await waitFrame(page, 8)
-  const two = await drawn()
-  expect(two).toHaveLength(2)
-  expect(two[1]).toMatchObject({ edge: null, sprites: 0 })
+  // Paint over rooms is off, so a stroke the walled floors cut apart lands as more than one piece: the count is not fixed.
+  const pieces = await drawn()
+  expect(pieces.length).toBeGreaterThanOrEqual(2)
+  expect(pieces[pieces.length - 1]).toMatchObject({ edge: null, sprites: 0 })
+  for (const p of pieces.slice(0, -1)) expect(p.edge).toBe('GG_Cave_Ink')
 
   const undo = page.getByTestId('shell-top-actions').getByRole('button', { name: 'Undo' })
   await undo.click()
