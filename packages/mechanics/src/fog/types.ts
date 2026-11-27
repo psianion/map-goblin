@@ -50,8 +50,6 @@ export interface FogCommandPayloads {
   /** Every level at once. */
   'clear-all': { sceneId?: string }
   'fog-all': { sceneId?: string }
-  /** Puts back the record a Clear all or Fog all replaced (the toast's Undo). */
-  restore: { sceneId?: string; cleared: Record<string, RegionMask> }
   'set-auto-explore': { sceneId?: string; autoExplore: boolean }
   /** `null` clears back to the default look. */
   'set-fog-look': { sceneId?: string; look: Partial<FogLook> | null }

@@ -15,7 +15,9 @@ import { isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the editor's own room migration, pure data
 import { migrateRooms } from '@dnd/core/src/store/roomMigration'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: geometry only, the same function the editor and the table run
-import { syncRooms } from '@dnd/core/src/store/roomSync'
+import { ROOM_GRID_SIZE, syncRooms } from '@dnd/core/src/store/roomSync'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: the frame and base ground rooms are cut with
+import { roomContextOf } from '@dnd/core/src/shared/roomFloor'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: a cell-bucketed point-in-face lookup
 import { buildRoomIndex } from '@dnd/core/src/shared/roomIndex'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design: polygon arithmetic
@@ -329,8 +331,14 @@ function legacyRing(child: LegacyRoomChild): [number, number][] {
 function deriveRoomFaces(data: SerializedMapData, legacy: ReadonlyMap<string, [number, number][]>): void {
   for (const layer of data.layers) {
     if (!isDungeon(layer) || !layer.rooms?.length) continue
+    // The frame and base ground the editor syncs with, so a room on enclosed ground or an
+    // outlined room gets the face the editor gave it.
     const synced = isClipperReady()
-      ? syncRooms({ ...layer, children: layer.children ?? [], standaloneWalls: wallsOf(layer) as WallSegment[] }).rooms
+      ? syncRooms(
+          { ...layer, children: layer.children ?? [], standaloneWalls: wallsOf(layer) as WallSegment[] },
+          ROOM_GRID_SIZE,
+          roomContextOf(data, layer),
+        ).rooms
       : layer.rooms
     layer.rooms = synced.map((room) => {
       // `doors` lists every door bound to the room, secret ones included, and a player's copy

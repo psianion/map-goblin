@@ -135,6 +135,21 @@ describe('syncDoorsToLighting', () => {
     stop();
   });
 
+  it('shuts a door again when the table forgets it, as an undo of its first opening does', () => {
+    const stop = syncDoorsToLighting();
+    useSessionStore.setState({
+      session: session({ d1: { open: true, locked: false, revealed: true } }),
+    });
+    expect(doorBlocksLight()).toBe(false);
+
+    // The undo puts the scene back to "no door touched yet": the map's own state decides again.
+    useSessionStore.setState({ session: session({}) });
+
+    expect(liveSceneDoors()[0].live.open).toBe(false);
+    expect(doorBlocksLight()).toBe(true);
+    stop();
+  });
+
   it('settles instead of looping — the write it makes finds nothing left to change', () => {
     const stop = syncDoorsToLighting();
     let writes = 0;

@@ -22,7 +22,7 @@ import {
 import { createHandoffStore, type HandoffStore } from './handoff'
 import { writeCampaignExport } from './export'
 import { slug, type Mirror } from './mirror'
-import { fillTokenDefaults, reattachPc, spawnParty } from './party'
+import { ensurePartyStart, fillTokenDefaults, reattachPc, storePartyStart } from './party'
 import { PROTOCOL_VERSION } from './config'
 import {
   MAX_ASSET_BYTES,
@@ -34,11 +34,13 @@ import {
 } from './db/stores'
 import type { TriggerDeps } from '@dnd/mechanics/triggers'
 import type { Vision } from './fog/vision'
+import { roomAnchor } from './fog/sceneMap'
 import { parseMapFile, unwrapMapFile } from './mapImport'
 import type { ScenePrep, StoredScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
 // D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
 import { journalOf, normalizePrep, roomKeysOf, type TriggersState } from '@dnd/mechanics/triggers'
 import { reauthoredDoors, type DoorsState } from '@dnd/mechanics/doors'
+import { carryDismissals, type StoryState } from '@dnd/mechanics/story'
 import type { DoorChild } from '@dnd/core/src/shared/types'
 import { takeLineage } from './fog/roomLineage'
 import type { ModuleRegistry } from './modules/registry'
@@ -1097,6 +1099,13 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
   if (reattachPc(deps.stores, session.campaign_id, identity.id, identity.name, deps.sessionManager.seatsOf(session.id))) {
     deps.sessionManager.refreshScenes(session.campaign_id)
   }
+  // …and keeps the handout or title card that name hid for itself. Only this new seat's view
+  // changes, and it has not connected yet, so nobody is re-sent anything.
+  const story = deps.stores.moduleState.get(session.campaign_id, 'story') as StoryState | undefined
+  if (story) {
+    const carried = carryDismissals(story, identity.id, identity.name)
+    if (carried !== story) deps.stores.moduleState.put(session.campaign_id, 'story', carried)
+  }
   json(res, 200, {
     identityId: identity.id,
     campaignId: session.campaign_id,
@@ -1202,19 +1211,15 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
         broadcast: () => {},
       })
     }
-    // Decision 16: the party stands in the starting room before anyone is in the door.
-    spawnParty(deps.modules, deps.vision, {
-      campaignId,
-      sessionId: session.id,
-      sceneId: start.sceneId,
-      roomId: start.roomId,
-      dmId: dm.id,
-      levelId,
-    })
+    // Table lobby pass: the starting room is where the party appears when the DM starts the table.
+    const room = deps.vision.sceneMapOf(start.sceneId)?.rooms.find((r) => r.id === start!.roomId)
+    if (room) {
+      storePartyStart(deps.modules, { campaignId, sessionId: session.id, sceneId: start.sceneId, centre: roomAnchor(room), levelId, dmId: dm.id })
+    }
   }
 
-  // Table fix pass F18: a start at a point (the party start, or the centre of the map). The
-  // party stands there, fanned out on standable cells.
+  // Table fix pass F18: a start at a point (the party start, or the centre of the map), stored
+  // as the party start area like a starting room.
   if (point) {
     const ctx = {
       campaignId,
@@ -1228,15 +1233,12 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
     const levels = map?.data.levels ?? []
     const levelId = levels.length > 1 && levels.some((l) => l.id === point!.levelId) ? point.levelId : undefined
     if (levelId) deps.modules.dispatch('triggers', 'set-start-level', { sceneId: point.sceneId, levelId }, ctx)
-    spawnParty(deps.modules, deps.vision, {
-      campaignId,
-      sessionId: session.id,
-      sceneId: point.sceneId,
-      point: { x: point.x, y: point.y },
-      dmId: dm.id,
-      levelId,
-    })
+    storePartyStart(deps.modules, { campaignId, sessionId: session.id, sceneId: point.sceneId, centre: point, levelId, dmId: dm.id })
   }
+
+  // Finishing pass 12.1: with no start picked, the scene the table opens on still gets an area.
+  const opensOn = scene ?? deps.stores.scenes.listByCampaign(campaignId)[0]?.id
+  if (opensOn) ensurePartyStart(deps.modules, deps.vision, { campaignId, sessionId: session.id, sceneId: opensOn })
 
   json(res, 201, {
     sessionId: session.id,

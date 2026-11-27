@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { ModuleContext } from '../contract'
-import { STORY_INITIAL, storyModule, type StoryState } from './module'
+import { STORY_INITIAL, carryDismissals, storyModule, type StoryState } from './module'
 
 const ALICE: PlayerInfo = { identityId: 'alice', name: 'Alice', role: 'player', connected: true }
 const BOB: PlayerInfo = { identityId: 'bob', name: 'Bob', role: 'player', connected: true }
@@ -47,7 +47,7 @@ describe('story', () => {
     const t = table()
     t.run(DM, 'handout-upsert', { id: 'h1', caption: 'Map', assetId: 'a1' })
     t.run(DM, 'show', { handoutId: 'h1', audience: ['alice'], mode: 'full' })
-    expect(t.view(ALICE).shown).toEqual({ handoutId: 'h1', audience: ['alice'], mode: 'full' })
+    expect(t.view(ALICE).shown).toMatchObject({ handoutId: 'h1', audience: ['alice'], mode: 'full' })
     expect(t.view(ALICE).handouts.map((h) => h.id)).toEqual(['h1'])
     expect(t.view(BOB).shown).toBeNull()
     expect(t.view(BOB).handouts).toEqual([])
@@ -124,5 +124,70 @@ describe('a handout shown twice (F27)', () => {
     expect(rows[0].audience).toEqual(['alice', 'bob'])
     t.run(DM, 'show', { handoutId: 'h1' })
     expect(t.state().journal.filter((j) => j.ref === 'h1').map((j) => j.audience)).toEqual(['all'])
+  })
+})
+
+describe('"Hide for me" (table lobby pass §4)', () => {
+  const handout = { id: 'h1', caption: 'A letter', text: 'Dear all' }
+
+  it('hides it from that seat for good, a fresh snapshot included, and leaves it in the journal', () => {
+    const t = table()
+    t.run(DM, 'handout-upsert', handout)
+    t.run(DM, 'show', { handoutId: 'h1' })
+    const shownAt = t.state().shown!.shownAt
+    expect(t.run(ALICE, 'dismiss', { what: 'handout', shownAt })).toBeUndefined()
+    // A redact of the stored state is exactly what a reload's snapshot is.
+    expect(t.view(ALICE).shown).toBeNull()
+    expect(t.view(ALICE).handouts.map((h) => h.id)).toEqual(['h1'])
+    expect(t.view(BOB).shown).toMatchObject({ handoutId: 'h1' })
+    expect(t.state().shown!.dismissed).toEqual([{ id: 'alice', name: 'Alice' }])
+    // Twice is once.
+    t.run(ALICE, 'dismiss', { what: 'handout', shownAt })
+    expect(t.state().shown!.dismissed).toHaveLength(1)
+  })
+
+  it('a second showing reaches a seat that hid the first, and a stale dismissal does nothing', () => {
+    const t = table()
+    t.run(DM, 'handout-upsert', handout)
+    t.run(DM, 'show', { handoutId: 'h1' })
+    const first = t.state().shown!.shownAt
+    t.run(ALICE, 'dismiss', { what: 'handout', shownAt: first })
+    t.run(DM, 'hide', {})
+    t.run(DM, 'show', { handoutId: 'h1' })
+    // Same millisecond or not, the second showing is a new one with nobody on its list.
+    expect(t.state().shown!.shownAt).toBeGreaterThan(first)
+    expect(t.state().shown!.dismissed).toEqual([])
+    expect(t.view(ALICE).shown).toMatchObject({ handoutId: 'h1' })
+    t.run(ALICE, 'dismiss', { what: 'handout', shownAt: first })
+    expect(t.state().shown!.dismissed).toEqual([])
+  })
+
+  it('works on the title card the same way, and never sends a player the list', () => {
+    const t = table()
+    t.run(DM, 'title-show', { text: 'Chapter One' })
+    t.run(BOB, 'dismiss', { what: 'title', shownAt: t.state().titleCard!.shownAt })
+    expect(t.view(BOB).titleCard).toBeNull()
+    expect(t.view(ALICE).titleCard).toMatchObject({ text: 'Chapter One', dismissed: [] })
+    expect(t.view(DM).titleCard!.dismissed).toEqual([{ id: 'bob', name: 'Bob' }])
+    t.run(DM, 'handout-upsert', handout)
+    t.run(DM, 'show', { handoutId: 'h1' })
+    t.run(BOB, 'dismiss', { what: 'handout', shownAt: t.state().shown!.shownAt })
+    expect(t.view(ALICE).shown!.dismissed).toEqual([])
+    expect(t.run(DM, 'dismiss', { what: 'title', shownAt: 0 })).toMatchObject({ code: 'unauthorized' })
+    expect(t.run(BOB, 'dismiss', { what: 'map', shownAt: 0 })).toMatchObject({ code: 'invalid-command' })
+  })
+
+  it('a returning name keeps its dismissal; another name does not get it', () => {
+    const t = table()
+    t.run(DM, 'title-show', { text: 'Chapter One' })
+    t.run(ALICE, 'dismiss', { what: 'title', shownAt: t.state().titleCard!.shownAt })
+    const carried = carryDismissals(t.state(), 'alice-2', '  ALICE ')
+    expect(storyModule().redact!(carried, { role: 'player', identityId: 'alice-2' }).titleCard).toBeNull()
+    expect(carryDismissals(t.state(), 'carl', 'Carl')).toBe(t.state())
+  })
+
+  it('reads a row stored before it: what is on show has no dismissals yet', () => {
+    const old = { ...STORY_INITIAL, titleCard: { text: 'Old', mode: 'over', shownAt: 5 } } as unknown as StoryState
+    expect(storyModule().redact!(old, { role: 'player', identityId: 'alice' }).titleCard).toMatchObject({ text: 'Old', dismissed: [] })
   })
 })

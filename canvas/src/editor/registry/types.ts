@@ -187,11 +187,13 @@ export interface ToolDef {
 }
 
 export interface FamilyDef {
-  id: 'design' | 'terrain' | 'objects' | 'environment' | 'text';
+  id: 'design' | 'terrain' | 'objects' | 'environment' | 'rooms' | 'text';
   label: string;
   icon: LucideIcon;
   key: string;
   tools: ReadonlyArray<ToolDef>;
+  /** A click or the key puts its first tool in hand, panel showing, with no flyout. Every other family opens its flyout. */
+  opensOnFirstTool?: true;
 }
 
 /** What a card can be for: every child kind, drawn walls and rooms, and a plateau's stairs and cave mouths. */

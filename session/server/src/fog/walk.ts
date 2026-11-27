@@ -61,7 +61,6 @@ function buildLevelGrid(
     settings: map.data.mapSettings,
     level: map.data.levels?.find((l) => l.id === levelId) ?? null,
     layers: liveLayers(map, doors, levelId),
-    hasRooms: map.rooms.length > 0,
     hiddenGround: hasHiddenGround(map.data),
     crossings: live,
   })

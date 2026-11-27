@@ -1,10 +1,11 @@
 // @scenes: the Sky and Scenes tabs, and the campaign export (plan section 7). Unrun until step T.
-import { DEMO_NAME, SECOND_MAP, SECOND_NAME, expect, test } from './fixtures';
+import { DEMO_NAME, SECOND_MAP, SECOND_NAME, expect, startTable, test } from './fixtures';
 
 test.describe('@scenes world and scenes', () => {
   test('Sky: the time tiles set the time, and the title card chip follows for a second seat', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
     const player = await joinAsPlayer('Pia');
+    await startTable(page, player);
     await page.keyboard.press('6');
     const sky = page.getByTestId('world-body');
     await expect(sky.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true');

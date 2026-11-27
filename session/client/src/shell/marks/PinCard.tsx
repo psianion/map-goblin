@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { PIN_TEXT_MAX } from '@dnd/mechanics/pins';
 import { Button, SwitchRow } from '@dnd/ui';
 import { MapCard } from '../MapCard';
 import { useTableShell } from '../tableShell';
@@ -6,6 +7,12 @@ import { deletePin, updatePin, useLocalPins, usePins, type Pin } from './pins';
 
 function PinEditor({ pin }: { pin: Pin }) {
   const [text, setText] = useState(pin.text);
+  // The card is hidden until its first frame places it, and a hidden box cannot take focus:
+  // `autoFocus` would run too early, leaving the DM's typing to the tool keys.
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    box.current?.focus();
+  }, []);
   return (
     <MapCard testId="pin-card" title="Pin" at={() => ({ x: pin.x, y: pin.y })} onClose={() => useTableShell.getState().closeCard()}>
       <form
@@ -17,10 +24,10 @@ function PinEditor({ pin }: { pin: Pin }) {
         }}
       >
         <textarea
-          autoFocus
+          ref={box}
           value={text}
           rows={2}
-          maxLength={280}
+          maxLength={PIN_TEXT_MAX}
           aria-label="Pin text"
           data-testid="pin-text"
           placeholder="What is here"

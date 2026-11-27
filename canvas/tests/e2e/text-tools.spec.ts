@@ -29,8 +29,8 @@ test('text: a room with the texture strip and a panel setting, a styled label, u
     st.setActiveLayerId(st.layers.find((l: Any) => l.type === 'dungeon' && !l.locked).id)
   })
 
-  await pickFromFlyout(page, 'Text', 'Rooms')
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Draw', 'look'])
+  await pickFromFlyout(page, 'Rooms', 'Draw room')
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'look'])
   const dock = page.getByTestId('shell-dock')
   const panel = page.getByTestId('shell-tool-panel')
   await expect(panel.getByRole('button', { name: 'Suggest rooms' })).toBeVisible()
@@ -54,8 +54,8 @@ test('text: a room with the texture strip and a panel setting, a styled label, u
   expect(drawn.walls).toBe(before.walls)
   expect(drawn.lastFloor?.textureId).toBe(picked)
 
-  // A label in the GM note style, typed in the card.
-  await page.getByTestId('shell-tool-panel').getByRole('button', { name: 'Label' }).click()
+  // A label in the GM note style, typed in the card. Label is the Text family's, on its flyout.
+  await pickTool(page, 'label')
   expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'Size', 'Colour', 'styles'])
   await dock.getByRole('button', { name: 'GM note' }).click()
   expect(await page.evaluate(() => (window as Any).__store.getState().tools.settings.label.style)).toBe('gm-note')
@@ -729,12 +729,15 @@ async function pinColour(page: Page, section: Locator, hex: string): Promise<voi
   await waitFrame(page, 2)
 }
 
+/** A card's Walls section's set swatches: None first, then each installed set. */
+const wallSets = (section: Locator) => section.getByRole('group', { name: 'Wall set' })
+
 /** Pins the first installed wall set through a card's Walls section, so a wall tint has stones to colour. */
-async function pinFirstWallSet(page: Page, section: Locator): Promise<void> {
-  await section.getByRole('combobox', { name: 'Set' }).click()
-  const options = page.getByRole('option')
-  expect(await options.count()).toBeGreaterThan(1)
-  await options.nth(1).click()
+async function pinFirstWallSet(section: Locator): Promise<void> {
+  const swatches = wallSets(section).getByRole('button')
+  expect(await swatches.count()).toBeGreaterThan(1)
+  await swatches.nth(1).click()
+  await expect(swatches.nth(1)).toHaveAttribute('aria-pressed', 'true')
 }
 
 /** A box in canvas CSS px around a room's face (its bounding box), optionally grown by `pad` px. */
@@ -851,37 +854,50 @@ const bareRoomScreen = (page: Page, name: string) =>
 /** The sheet's Close button for the Rooms list. */
 const closeRooms = (page: Page) => roomSheet(page).getByRole('button', { name: 'Close Rooms' }).click()
 
-test('rooms: the warren opens with seven numbered, named rooms and the room tools in the Text flyout, counted in the panel and listed in the sheet', { tag: '@text' }, async ({ page }) => {
+test('rooms: the warren opens with seven numbered, named rooms and the room tools in their own Rooms family, counted in the panel and listed in the sheet', { tag: '@text' }, async ({ page }) => {
   await openWarren(page)
   const list = await rooms(page)
   expect(list).toHaveLength(7)
   expect(list.every((r) => typeof r.number === 'number' && r.name.length > 0)).toBe(true)
   expect(new Set(list.map((r) => r.number))).toEqual(new Set([1, 2, 3, 4, 5, 6, 7]))
 
-  // The Text family holds one Rooms tool beside Label and Zone; its dock picks the mode.
+  // Text holds Label and Zone only; the room tools are the Rooms family's, on the rail.
   await page.getByTestId('shell-rail').getByRole('button', { name: 'Text' }).click()
   const flyout = page.getByTestId('shell-flyout')
-  for (const tool of ['Label', 'Zone', 'Rooms']) {
-    await expect(flyout.getByRole('button', { name: new RegExp(`^${tool}`) })).toBeVisible()
+  await expect(flyout.getByRole('button')).toHaveCount(2)
+  await expect(flyout.getByRole('button', { name: /^(Rooms|Outline|Divide|Draw room)/ })).toHaveCount(0)
+  await key(page, 'Escape')
+  // Rooms opens straight on Outline, Suggest showing; the other tools are on the panel header.
+  await page.getByTestId('shell-rail').getByRole('button', { name: 'Rooms' }).click()
+  await expect(page.getByTestId('shell-flyout')).toHaveCount(0)
+  const panel = page.getByTestId('shell-tool-panel')
+  await expect(panel).toHaveAttribute('data-tool', 'roomOutline')
+  await expect(page.getByTestId('rooms-suggest-button')).toBeVisible()
+  for (const tool of ['Outline', 'Divide', 'Draw room']) {
+    await expect(panel.getByRole('button', { name: new RegExp(`^${tool}`) })).toBeVisible()
   }
-  await expect(flyout.getByRole('button', { name: /^(Rectangle room|Polygon room|Divide)/ })).toHaveCount(0)
-  await flyout.getByRole('button', { name: /^Rooms/ }).click()
+  await panel.getByRole('button', { name: /^Draw room/ }).click()
+  await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'roomDraw')
   await expect(page.getByTestId('rooms-suggest')).toContainText('7 rooms')
-  const draw = dock(page).getByRole('group', { name: 'Draw' })
-  for (const [mode, engine] of [['Polygon', 'roomPolygon'], ['Divide', 'divide'], ['Rectangle', 'roomRect']] as const) {
-    await draw.getByRole('button', { name: mode, exact: true }).click()
+  const shape = dock(page).getByRole('group', { name: 'Shape' })
+  for (const [mode, engine] of [['Polygon', 'roomPolygon'], ['Rectangle', 'roomRect']] as const) {
+    await shape.getByRole('button', { name: mode, exact: true }).click()
     expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe(engine)
-    await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'rooms')
-    // Divide swaps the floor look and the Walls row for the Divider row.
-    await expect(dock(page).locator('[data-column="look"]')).toHaveCount(mode === 'Divide' ? 0 : 1)
-    await expect(dock(page).getByRole('group', { name: 'Divider' })).toHaveCount(mode === 'Divide' ? 1 : 0)
+    await expect(dock(page).locator('[data-column="look"]')).toHaveCount(1)
   }
-  // The keys: P polygon, K divide, B rectangle, while the tool is in hand.
-  await key(page, 'k')
-  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('divide')
+  // The keys: P polygon, B rectangle while Draw room is in hand; K takes Divide, L Outline.
   await key(page, 'p')
   expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('roomPolygon')
   await key(page, 'b')
+  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('roomRect')
+  await key(page, 'k')
+  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('divide')
+  await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'roomDivide')
+  await expect(dock(page).locator('[data-column="look"]')).toHaveCount(0)
+  await expect(dock(page).getByRole('group', { name: 'Divider' })).toHaveCount(1)
+  await key(page, 'l')
+  expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('outline')
+  await key(page, 'r')
   expect(await inPage(page, `(s) => s().tools.activeTool`)).toBe('roomRect')
 
   // The tool's panel opens the rooms list without a room's card.
@@ -939,7 +955,7 @@ test('rooms: a wall tint pinned on one room recolours that room only, and undoes
   await selectIds(page, [hall.id])
   const walls = card(page).getByTestId('look-walls')
   await expect(walls.getByTestId('look-walls-source')).toHaveText(/^Inherits/)
-  await pinFirstWallSet(page, walls)
+  await pinFirstWallSet(walls)
   await pinColour(page, walls, '#ff2020')
   await expect(walls.getByTestId('look-walls-source')).toHaveText('Pinned')
   expect((await rooms(page)).find((r) => r.id === hall.id)?.look).toMatchObject({ wallTextureTint: '#ff2020' })
@@ -1041,7 +1057,7 @@ test('rooms: Divide across Warren Hall opens the split dialog; Split makes eight
   expect(await rooms(page)).toHaveLength(7)
 })
 
-test('rooms: the Rooms tool’s Polygon mode closes a floor and its room with Enter, and undo takes both back', { tag: '@text' }, async ({ page }) => {
+test('rooms: Draw room’s Polygon shape closes a floor and its room with Enter, and undo takes both back', { tag: '@text' }, async ({ page }) => {
   await openBlank(page)
   await pickTool(page, 'roomPolygon')
   await expect(status(page)).toContainText('Click the corners')
@@ -1113,7 +1129,7 @@ test('rooms: a new area from two rooms groups them; its wall pin reaches both, a
   await closeRooms(page)
   await expect(card(page)).toHaveAttribute('data-kind', 'area')
   const areaWalls = card(page).getByTestId('look-walls')
-  await pinFirstWallSet(page, areaWalls)
+  await pinFirstWallSet(areaWalls)
   await pinColour(page, areaWalls, '#2060ff')
   await expect(areaWalls.getByTestId('look-walls-source')).toHaveText('Pinned')
 
@@ -1382,13 +1398,13 @@ test('rooms: pinning a wall set on a room from the card and from the Wall tool�
   const grottoSet = async () => {
     await selectIds(page, [grotto.id])
     const walls = card(page).getByTestId('look-walls')
-    return [await walls.getByTestId('look-walls-source').textContent(), await walls.getByRole('combobox', { name: 'Set' }).textContent()]
+    return [await walls.getByTestId('look-walls-source').textContent(), await wallSets(walls).locator('[aria-pressed="true"]').getAttribute('aria-label')]
   }
   const grottoBefore = await grottoSet()
 
   await selectIds(page, [hall.id])
   const walls = card(page).getByTestId('look-walls')
-  await pinFirstWallSet(page, walls)
+  await pinFirstWallSet(walls)
   await expect(walls.getByTestId('look-walls-source')).toHaveText('Pinned')
   // The Wall tool's dock acts on the picked room: picking the tool drops the selection, so the room is picked again after.
   await pickTool(page, 'wall')

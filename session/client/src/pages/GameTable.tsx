@@ -24,6 +24,12 @@ import { TableRail } from '../shell/rail/Rail';
 import { SheetHost } from '../shell/sheets/SheetHost';
 import { TabColumn } from '../shell/sheets/TabColumn';
 import { TableToaster } from '../shell/TableToaster';
+import { Lobby } from '../shell/lobby/Lobby';
+import { LobbyStrip } from '../shell/lobby/LobbyStrip';
+import { useInLobby } from '../shell/lobby/lobbyState';
+import { PartyStartLayer } from '../shell/lobby/PartyStartLayer';
+import { PickCharacterCard } from '../shell/lobby/PickCharacterCard';
+import { useFrameMyToken } from '../shell/lobby/useFrameMyToken';
 import { InviteCard } from '../shell/top/InviteCard';
 import { TitleCard } from '../shell/top/TitleCard';
 import { TopRight } from '../shell/top/TopRight';
@@ -71,6 +77,12 @@ export default function GameTable() {
   // A player's seat while the DM has paused the table: grey and out of reach (PauseOverlay).
   const frozen = useFrozen();
 
+  // Table lobby pass: a player waits in the lobby, with no map, until the DM starts the table;
+  // then the camera goes to their token.
+  const lobby = useInLobby();
+  useFrameMyToken(role === 'player' && !lobby);
+  if (lobby) return <Lobby />;
+
   return (
     <div
       data-page="table"
@@ -83,6 +95,7 @@ export default function GameTable() {
         <div className="absolute inset-0">
           <GameRenderer />
           <MarksLayer />
+          <PartyStartLayer />
         </div>
 
         <CrossingMenu />
@@ -93,6 +106,7 @@ export default function GameTable() {
         <PinCard />
 
         <TitleCard />
+        <LobbyStrip />
         <TableRail />
         <TopRight />
         <CombatBar />
@@ -111,6 +125,7 @@ export default function GameTable() {
         <SheetLinkPrompt />
       </main>
       <PauseOverlay />
+      <PickCharacterCard />
     </div>
   );
 }

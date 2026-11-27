@@ -2,20 +2,22 @@
 // (`hostSession`: a DM page at a live table whose campaign has two PC token types, Bram and
 // Yara, and a starting room; `joinAsPlayer(name)`: a second page seated as that player).
 // Unrun until step T.
-import { expect, test, tokenPoint } from './fixtures';
+import { expect, startTable, test, tokenPoint } from './fixtures';
 
 test.describe('@play tokens and combat', () => {
-  test('PC tokens stand in the starting room when the session opens', async ({ hostSession }) => {
+  test('a picked PC stands in the party start area once the DM starts the table', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
+    await startTable(page, await joinAsPlayer('Sam'), 'Bram');
     await page.keyboard.press('3');
     await expect(page.getByTestId('tokens-body')).toBeVisible();
     await page.getByTestId('tokens-filter-pc').click();
     await expect(page.getByTestId('token-tile')).toHaveCount(2);
-    await expect(page.getByTestId('token-tile-count').first()).toHaveText('1');
+    await expect(page.getByTestId('token-tile').filter({ hasText: 'Bram' }).getByTestId('token-tile-count')).toHaveText('1');
   });
 
   test('a player claims their PC and uploads its art', async ({ hostSession, joinAsPlayer }) => {
     const player = await joinAsPlayer('Bram');
+    await startTable(hostSession.page, player, 'Bram');
     await player.getByTestId('game-canvas').click({ position: { x: 400, y: 300 } });
     const claim = player.getByTestId('token-card-claim');
     if (await claim.isVisible()) await claim.click();
@@ -55,6 +57,15 @@ test.describe('@play tokens and combat', () => {
   test('encounter: start, Next, damage with half on save, an effect ticks, End turn as player', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
     const player = await joinAsPlayer('Bram');
+    await startTable(page, player, 'Bram');
+    // Nobody picked Yara, so she is not on the map: the DM puts her there, and the order has two.
+    await page.evaluate(() => {
+      type Store = { session: { modules: { tokens: { library: Record<string, { id: string; name: string }> } } } | null; sendCommand(m: string, a: string, p: unknown): void };
+      const store = (window as unknown as { __sessionStore: { getState(): Store } }).__sessionStore.getState();
+      const yara = Object.values(store.session!.modules.tokens.library).find((d) => d.name === 'Yara')!;
+      store.sendCommand('tokens', 'place-pc', { defId: yara.id });
+    });
+    await expect.poll(() => tokenPoint(page, 'Yara').then(() => true, () => false)).toBe(true);
     await page.keyboard.press('4');
     await page.getByTestId('encounter-start').click();
     await page.getByTestId('encounter-roll-npcs').click();
@@ -102,8 +113,9 @@ test.describe('@play arming and the round', () => {
     await expect(page.getByTestId('armed-chip')).toHaveCount(0);
   });
 
-  test('the Encounter row reads Round 1 once the order is locked', async ({ hostSession }) => {
+  test('the Encounter row reads Round 1 once the order is locked', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
+    await startTable(page, await joinAsPlayer('Sam'), 'Bram');
     await page.keyboard.press('4');
     await page.getByTestId('encounter-start').click();
     await expect(page.getByTestId('dock-context')).toHaveText('Rolling initiative');

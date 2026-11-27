@@ -1,5 +1,5 @@
 // @shell: the table's chrome (plan section 7). Unrun until step T.
-import { expect, test } from './fixtures';
+import { expect, startTable, test } from './fixtures';
 
 test.describe('@shell chrome', () => {
   test('light by default, dark from the View menu, and the desk follows', async ({ hostSession }) => {
@@ -37,8 +37,12 @@ test.describe('@shell chrome', () => {
     const { page } = hostSession;
     await page.keyboard.press('m');
     await expect(page.getByTestId('rail-measure')).toHaveAttribute('aria-pressed', 'true');
+    // The armed tool's strip beside the rail names it and says what a drag does.
+    await expect(page.getByTestId('tool-strip')).toHaveAttribute('data-tool', 'measure');
+    await expect(page.getByTestId('tool-strip-hint')).toContainText('Alt');
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('rail-select')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('tool-strip')).toHaveCount(0);
     await page.getByTestId('rail-ping').click();
     await page.getByTestId('game-canvas').click({ position: { x: 400, y: 300 } });
     await expect(page.locator('[data-mark="ping"]')).toHaveCount(1);
@@ -71,6 +75,7 @@ test.describe('@shell chips, keys and dock heights', () => {
   test('Movement locked shows on a player seat, and a locked drag is told why', async ({ hostSession, joinAsPlayer }) => {
     const player = await joinAsPlayer('Bram');
     const { page } = hostSession;
+    await startTable(page, player);
     await page.keyboard.press('3');
     await page.getByRole('button', { name: 'Lock movement' }).click();
     await expect(player.getByTestId('locked-chip')).toHaveText('Movement locked');

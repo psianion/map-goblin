@@ -28,7 +28,7 @@ import { gridDivision, gridLineSet, gridStrokes } from './imageGridRenderer';
 import { edgeStyles, ringStyles, styleWallLook } from '../shared/wallLook';
 import { cliffRockLines, rockLineOf, storeRockLines } from './rockLines';
 import { layerDrawStyle, layerFloorFallback, layerLevelLook } from './levelLook';
-import { detachRoomFills, drawRoomFills } from './roomFillRenderer';
+import { detachRoomFills, drawGroundRoomFills, drawRoomFills, hasGroundRoomFills, roomCover } from './roomFillRenderer';
 import { healLegacyPaint } from './legacyPaint';
 import { drawPiece, drawPieceBorder, isWaterPiece, pieceOutline, type PieceCtx } from './pieceRenderer';
 import { paintRamp, pruneSoftMasks, rampMaskSprite } from './softPiece';
@@ -45,7 +45,7 @@ function parseColor(hex: string | undefined): number {
 
 /** The floor colour a style paints with, or the new-layer default when it names none. */
 const DEFAULT_FLOOR_COLOR = 0xf1ecdf;
-function floorColorOf(style: Partial<DungeonStyle> | undefined): number {
+export function floorColorOf(style: Partial<DungeonStyle> | undefined): number {
   const n = parseColor(style?.floorColor);
   return Number.isFinite(n) ? n : DEFAULT_FLOOR_COLOR;
 }
@@ -427,6 +427,8 @@ export function redrawRoomFills(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
   const { floor } = entry.sublayers;
   const walled = walledBoxOf(floor);
+  // Rooms on painted ground, over the pieces where the rebuild put them.
+  if (hasGroundRoomFills(floor)) drawGroundRoomFills(floor, layer);
   if (!layer.mergedFloor || layer.mergedFloor.length === 0 || walled.parent !== floor) return;
   // Above the floor's own fills, below the terrain paint: re-inserted where the rebuild put it.
   drawRoomFills(walled, layer);
@@ -605,7 +607,8 @@ function drawWalledExtras(
   walled.mask = mask;
 
   // ── Edge transitions (between differently-textured shapes) ───
-  renderEdgeTransitions(walled, layer);
+  // Only on floor no room covers: a room's floor blends at its own seams.
+  renderEdgeTransitions(walled, layer, () => roomCover(layer));
 
   // ── Floor looks pinned on rooms, areas and the level ─────────
   drawRoomFills(walled, layer);
@@ -727,6 +730,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   floor.mask = null;
   const walled = walledBoxOf(floor);
   detachRoomFills(walled);
+  detachRoomFills(floor);
   if (walled.parent === floor) floor.removeChild(walled);
   walled.mask = null;
   for (const child of walled.removeChildren()) child.destroy({ children: true });
@@ -976,6 +980,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   });
   // A union with no drawable floor behind it (rings too short to draw) still carries its extras.
   if (lastWalled < 0 && polygons.length > 0) walledExtras();
+  // Rooms on painted ground: their pinned floor over the pieces.
+  drawGroundRoomFills(floor, layer);
   drawWallShadow();
   pruneSoftMasks(layer.id, ctx.soft);
 

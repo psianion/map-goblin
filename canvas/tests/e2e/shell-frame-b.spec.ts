@@ -44,16 +44,16 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
   await expect(header.getByRole('button')).toHaveCount(4)
   await expect(header.getByRole('button', { name: 'Floor' })).toHaveAttribute('aria-pressed', 'true')
 
-  // Setup only. No Mode until Carve out lands, no Defaults until floor opacity renders.
+  // Setup only: Draw or Carve out, snapping, the edge choices, and what new floors start with.
   const captions = await panel.locator('[data-section]').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.section))
-  expect(captions).toEqual(['Placement', 'Edge'])
+  expect(captions).toEqual(['Mode', 'Placement', 'Edge', 'Defaults for new floors'])
   await expect(panel.getByText('Snap to grid')).toBeVisible()
-  await expect(panel.getByText('Blend with neighbours')).toBeVisible()
+  await expect(panel.getByText('Floor edges')).toBeVisible()
   // Nothing in both, and the floor tools no longer carry the wall width.
   await expect(panel.locator('[data-setting="floor.shape"], [data-setting="edit.nodeMode"], [data-setting="wall.width"]')).toHaveCount(0)
   await expect(dock.locator('[data-setting="wall.width"], [data-setting="grid.snap"]')).toHaveCount(0)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Edit', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'Walls', 'Edit', 'Height', 'look'])
   const look = dock.locator('[data-column="look"]')
   await expect(look.getByRole('button', { name: 'Colour' })).toBeVisible()
   await expect(look.getByRole('button', { name: /^Style presets/ })).toBeVisible()
@@ -61,7 +61,7 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
 
   const hint = page.getByTestId('shell-status-hint')
   await expect(hint).toContainText('Click points')
-  await expect(hint.locator('kbd')).toHaveText(['Enter', 'Shift', 'Esc'])
+  await expect(hint.locator('kbd')).toHaveText(['Enter', 'Shift', 'Alt', 'Esc'])
 
   await expectFrameGeometry(page)
   await expectSlot(page)
@@ -74,7 +74,7 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
     st.setActiveLayerId(l.id)
   })
   await dock.getByRole('button', { name: 'Rectangle', exact: true }).click()
-  await expect(hint.locator('kbd')).toHaveText(['Shift', 'Esc'])
+  await expect(hint.locator('kbd')).toHaveText(['Shift', 'Alt', 'Esc'])
   const before = await map(page)
   await drawRect(page, 1120, 220, 1240, 320)
   await waitFrame(page, 4)
@@ -89,9 +89,9 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
   expect((await tools(page)).sides).toBe(7)
   expect((await box(dock)).height).toBe(112)
 
-  // A panel setting: Blend with neighbours is the layer's own switch, so it undoes.
+  // A panel setting: Floor edges is the layer's own choice, so it undoes.
   expect(before.blend).toBe(true)
-  await panel.locator('[data-setting="floor.blend"]').getByRole('switch').click()
+  await panel.locator('[data-setting="floor.blend"]').getByRole('button', { name: 'Sharp' }).click()
   expect((await map(page)).blend).toBe(false)
 
   // Undo takes back the switch, then the floor.
@@ -105,7 +105,7 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
   await panel.getByRole('button', { name: 'Wall' }).click()
   expect((await tools(page)).active).toBe('wall')
   await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'wall')
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Draw', 'Type', 'Width', 'Edit', 'look'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Draw', 'Type', 'Width', 'Corner style', 'Edit', 'look'])
 })
 
 test('frame B in the dark theme', { tag: '@shell' }, async ({ page }) => {

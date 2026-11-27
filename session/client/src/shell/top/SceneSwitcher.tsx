@@ -4,6 +4,10 @@ import { usePreparedScenes, prepareScene, switchScene } from '../../modules/scen
 import { SceneThumb } from '../../modules/scene/SceneThumb';
 import { useSceneLibrary } from '../../modules/scene/store';
 import { useSessionStore } from '../../session/store';
+import type { SessionState } from '@dnd/core/src/shared/protocol';
+
+/** One empty list while the session is on its way, so the store never sees a fresh array per read. */
+const NO_SCENES: SessionState['scenes'] = [];
 
 /**
  * The title card's scene switcher (DM): search, every scene as a thumbnail row, Switch now
@@ -11,7 +15,7 @@ import { useSessionStore } from '../../session/store';
  */
 export function SceneSwitcher({ onDone }: { onDone?: () => void }) {
   const library = useSceneLibrary((s) => s.scenes);
-  const wire = useSessionStore((s) => s.session?.scenes ?? []);
+  const wire = useSessionStore((s) => s.session?.scenes ?? NO_SCENES);
   const activeId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const ready = usePreparedScenes((s) => s.ready);
   const pending = usePreparedScenes((s) => s.pending);

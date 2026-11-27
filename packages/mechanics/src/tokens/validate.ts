@@ -272,6 +272,12 @@ export function parseSpeed(v: unknown): number {
   return whole(v, 'speed', 0, SPEED_MAX)
 }
 
+/** A token's ring (table lobby pass): `#rrggbb`, lower or upper case, or `none`. */
+export function parseRing(v: unknown): string {
+  if (v === 'none' || (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v))) return v as string
+  return bad("ring must be '#rrggbb' or 'none'")
+}
+
 /**
  * Table v2 — a def or token with every new field filled: `kind` npc, `nameplate` hover,
  * `showHp` dm, no conditions, no effects. Rows written before the fields existed read through
@@ -306,6 +312,7 @@ export function parseDefFields(p: Record<string, unknown>, base?: TokenDef): Def
   const passive = optional(p, 'passive', base?.passive, parsePassive)
   const ownerIdentityId = optional(p, 'ownerIdentityId', base?.ownerIdentityId, (v) => str(v, 'ownerIdentityId', ID_MAX))
   const ownerName = optional(p, 'ownerName', base?.ownerName, (v) => str(v, 'ownerName', NAME_MAX))
+  const ring = optional(p, 'ring', base?.ring, parseRing)
   return {
     name: p.name !== undefined ? str(p.name, 'name', NAME_MAX) : (base?.name ?? bad('name is required')),
     imageAssetId:
@@ -331,5 +338,6 @@ export function parseDefFields(p: Record<string, unknown>, base?: TokenDef): Def
     ...(passive !== undefined ? { passive } : {}),
     ...(ownerIdentityId ? { ownerIdentityId } : {}),
     ...(ownerName ? { ownerName } : {}),
+    ...(ring ? { ring } : {}),
   }
 }

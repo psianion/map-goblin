@@ -35,14 +35,18 @@ async function withServer(
 
 const tables = new WeakMap<RunningServer, Map<string, SessionRow>>()
 
+const RUNNING = { paused: false, movementLocked: false, started: true, playersMakePcs: true, lobbyShowsScene: false }
+
 /** One campaign with one active session per logical table name, seeded on first use. */
-function table(server: RunningServer, name: string): SessionRow {
+function table(server: RunningServer, name: string, started = true): SessionRow {
   let byName = tables.get(server)
   if (!byName) tables.set(server, (byName = new Map()))
 
   let row = byName.get(name)
   if (!row) {
     row = startSession(server.stores.sessions, server.stores.campaigns.create(name).id)
+    // Past the lobby, unless a test is about the lobby itself.
+    server.stores.sessions.setTableFlags(row.id, { ...RUNNING, started })
     byName.set(name, row)
   }
   return row
@@ -777,6 +781,30 @@ describe('v6 frames (table v2)', () => {
       const relayed = next(dm, 'mark')
       late.send(JSON.stringify({ type: 'mark', mark: { kind: 'ping', x: 4, y: 4 } }))
       expect((await relayed).event).toMatchObject({ from: 'id-cy' })
+    })
+  })
+
+  it('a table in the lobby refuses a player roll and mark but not the lobby list, until the DM starts it', async () => {
+    await withServer({}, async (server) => {
+      table(server, 'LB', false)
+      const [dm, player] = await joinedPair(server, 'LB')
+      const notStarted = (m: { message: string }) => m.message.startsWith('table-not-started')
+
+      sendCommand(player, 'rolls', 'roll', { formula: '1d20' })
+      expect(notStarted(await next(player, 'error'))).toBe(true)
+      player.send(JSON.stringify({ type: 'mark', mark: { kind: 'ping', x: 2, y: 3 } }))
+      expect(notStarted(await next(player, 'error'))).toBe(true)
+      const ready = next(dm, 'state-update')
+      const seen = next(player, 'state-update')
+      sendCommand(player, 'table', 'ready', { key: 'scene-1:map-1' })
+      expect((await ready).state).toMatchObject({ started: false, ready: { 'id-bob': 'scene-1:map-1' } })
+      await seen
+
+      sendCommand(dm, 'table', 'start', { on: true })
+      expect((await next(player, 'state-update')).state).toMatchObject({ started: true })
+      const rolled = next(player, 'state-update')
+      sendCommand(player, 'rolls', 'roll', { formula: '1d20' })
+      expect((await rolled).module).toBe('rolls')
     })
   })
 

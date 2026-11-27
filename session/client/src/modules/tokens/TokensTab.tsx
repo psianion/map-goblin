@@ -5,11 +5,13 @@
 
 import { useMemo, useState } from 'react';
 import { AddTile, Caption, Chip, Input, SecondaryButton, SelectRow, Tile } from '@dnd/ui';
-import { EyeOff, Eye, Lock, Users } from '@dnd/ui/icons';
+import { EyeOff, Eye, Lock, SquareDashed, Users } from '@dnd/ui/icons';
 import type { TableState } from '@dnd/mechanics/table';
 import type { Disposition, HpVisibility, Nameplate, TokenSize, TokensState } from '@dnd/mechanics/tokens';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { armPartyStart } from '../../shell/lobby/lobbyState';
 import { openSheet } from '../../shell/sheets/registry';
+import { useActiveTool } from '../../session/tools';
 import { TOKEN_DEF_DRAG, lastMapPoint, useTokenInteraction } from './drag';
 import {
   DISPOSITION_LABEL,
@@ -47,6 +49,7 @@ export function TokensBody() {
   const tokens = useSceneTokens();
   const table = tableFlags(useModuleState<TableState>('table'));
   const selectedId = useTokenInteraction((s) => s.selectedId);
+  const partyStartArmed = useActiveTool((s) => s.activeTool === 'party-start');
 
   const npcs = tokens.filter((t) => kindOf(t) !== 'pc');
   const hide = (ids: string[], hidden: boolean) => ids.forEach((id) => sendTokens('hide', { id, hidden }));
@@ -89,6 +92,15 @@ export function TokensBody() {
         </SecondaryButton>
         <SecondaryButton icon={Users} data-testid="tokens-gather" disabled={party.length === 0} onClick={gather}>
           Gather party
+        </SecondaryButton>
+        <SecondaryButton
+          icon={SquareDashed}
+          active={partyStartArmed}
+          data-testid="tokens-party-start"
+          title="Drag a rectangle on the map where the party appears at Start"
+          onClick={() => (partyStartArmed ? useActiveTool.getState().setActiveTool(null) : armPartyStart())}
+        >
+          Party start
         </SecondaryButton>
         <SecondaryButton
           icon={Lock}
@@ -180,7 +192,7 @@ export function TokensStrip() {
                 onDoubleClick={() => openSheet('token-type', { defId: def.id })}
               >
                 <span className="flex size-full items-center justify-center">
-                  <TokenPortrait name={def.name} assetId={def.imageAssetId} className="size-8" />
+                  <TokenPortrait name={def.name} assetId={def.imageAssetId} ring={def.ring} className="size-8" />
                 </span>
                 <span className="absolute bottom-0.5 left-0.5 rounded-key bg-panel px-1 text-xs leading-none text-text-2">{KIND_LABEL[kindOf(def)]}</span>
                 {counts.get(def.id) ? (

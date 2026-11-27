@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { notify } from '@dnd/ui/toast';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type {
+  HistoryStep,
   Mark,
   MapDelta,
   PlayerInfo,
@@ -71,6 +72,11 @@ export interface SessionStore {
    * reason: a refused seat is not a transport state.
    */
   seatRefused: boolean;
+  /**
+   * The server answered `join` with `protocol-mismatch`: it was updated past this page. Terminal
+   * until a reload, which fetches the new client; the seat stays saved so the reload takes it back.
+   */
+  tableUpdated: boolean;
   you: PlayerInfo | null;
   session: SessionState | null;
   /** Roster changes seen this tab's lifetime, oldest first, capped. */
@@ -119,6 +125,8 @@ export interface SessionStore {
   } | null;
   /** v6, players — where the DM last pulled every camera (Shift+Alt+click ping). */
   cameraPull: { x: number; y: number; at: number } | null;
+  /** v7, DM seats — the step each of Undo and Redo would take now, as the server last said. */
+  history: { undo: HistoryStep | null; redo: HistoryStep | null };
 
   connect: (token: string, url?: string) => void;
   disconnect: () => void;
@@ -129,9 +137,12 @@ export interface SessionStore {
   ) => void;
   setInviteCode: (code: string | null) => void;
   applyServerMessage: (msg: ServerMessage) => void;
-  sendCommand: (module: string, action: string, payload: unknown) => void;
+  /** `group`: commands of one gesture (a drag, a stroke) that the DM's undo takes back as one. */
+  sendCommand: (module: string, action: string, payload: unknown, group?: string) => void;
   /** v6 — a ping, ruler, template or drawing for every seat; relayed, never stored. */
   sendMark: (mark: Mark) => void;
+  /** v7, DM — undo or redo the table's last step. */
+  sendHistory: (op: 'undo' | 'redo') => void;
 }
 
 // The seat survives a refresh: per-tab (sessionStorage dies with the tab, so two
@@ -170,7 +181,7 @@ function announceRepublish(prev: SessionState | null, sceneId: string, mapId: st
   notify.info('Map updated from the canvas');
 }
 
-/** Whether `next` lost any cell `prev` had set: a fog stroke, Fog all, or a restore. */
+/** Whether `next` lost any cell `prev` had set: a fog stroke, Fog all, or an undo. */
 function lostCells(prev: RegionMask | undefined, next: RegionMask | undefined): boolean {
   if (!prev) return false;
   const before = toBytes(prev.bits);
@@ -207,6 +218,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   connection: 'closed',
   sessionEnded: false,
   seatRefused: false,
+  tableUpdated: false,
   you: null,
   session: null,
   presence: [],
@@ -223,6 +235,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   rollRequested: null,
   effectsEnded: null,
   cameraPull: null,
+  history: { undo: null, redo: null },
 
   connect: (token, url) => {
     get().client?.close();
@@ -393,6 +406,12 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           break;
 
         case 'error':
+          // A server on a newer protocol will refuse every reconnect the same way: stop here
+          // rather than retry for ever, and let the page offer the reload (12.2).
+          if (msg.code === 'protocol-mismatch') {
+            get().client?.close();
+            set({ client: null, tableUpdated: true, connection: 'closed' });
+          }
           // Recorded, never rendered from here — the module whose command was refused owns
           // the wording. A locked door is the DM's drama, not a stack trace.
           set({ lastError: { code: msg.code, message: msg.message, at: Date.now() } });
@@ -410,10 +429,10 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           }
           if (event.from === me?.identityId) {
             // …and this seat's own template is re-keyed to the id that clear will name.
-            if (event.mark.kind === 'template') adoptOwnTemplate(event.mark, event.from, event.id);
+            if (event.mark.kind === 'template') adoptOwnTemplate(event.mark, event.from, event.id, event.sceneId);
             break;
           }
-          receiveMark(event.mark, event.from, Date.now(), { id: event.id, ttlMs: event.ttlMs });
+          receiveMark(event.mark, event.from, Date.now(), { id: event.id, ttlMs: event.ttlMs, sceneId: event.sceneId });
           // The DM's pull recentres every player camera on the ping (plan 4.3).
           if (event.mark.kind === 'ping' && event.mark.pull && me?.role !== 'dm') {
             const { x, y } = event.mark;
@@ -436,6 +455,10 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           set({ effectsEnded: { sceneId: msg.sceneId, ended: msg.ended, at: Date.now() } });
           break;
 
+        case 'history':
+          set({ history: { undo: msg.undo, redo: msg.redo } });
+          break;
+
         default:
           // ponytail: dm-* and pong land here. Nothing reads them from the store —
           // components that care add their cases.
@@ -446,15 +469,19 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     }
   },
 
-  sendCommand: (module, action, payload) => {
+  sendCommand: (module, action, payload, group) => {
     if (applyingRemote) return; // inbound-driven change: never round-trips back
     seq += 1;
-    get().client?.send({ type: 'command', module, action, payload, seq });
+    get().client?.send({ type: 'command', module, action, payload, seq, ...(group ? { group } : {}) });
   },
 
   sendMark: (mark) => {
     if (applyingRemote) return;
     get().client?.send({ type: 'mark', mark });
+  },
+
+  sendHistory: (op) => {
+    get().client?.send({ type: 'history', op });
   },
 }));
 
@@ -507,7 +534,7 @@ export function waitForSessionSnapshot(timeoutMs = 5000): Promise<SessionState |
  */
 export function resumeSeat(): void {
   const store = useSessionStore.getState();
-  if (store.client || store.sessionEnded || store.seatRefused) return;
+  if (store.client || store.sessionEnded || store.seatRefused || store.tableUpdated) return;
   try {
     const raw = sessionStorage.getItem(SEAT_KEY);
     if (!raw) return;

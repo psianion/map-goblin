@@ -3,8 +3,9 @@ import GameTable from './pages/GameTable';
 import HostSetup from './pages/HostSetup';
 import JoinSession from './pages/JoinSession';
 import Landing from './pages/Landing';
+import { TableUpdatedCard } from './shell/TableUpdatedCard';
 
-export default function App() {
+function Page() {
   const route = matchRoute(usePath());
 
   switch (route.name) {
@@ -18,4 +19,14 @@ export default function App() {
     default:
       return <Landing />;
   }
+}
+
+/** Every page, and the card that stops any of them once the server has moved on (12.2). */
+export default function App() {
+  return (
+    <>
+      <Page />
+      <TableUpdatedCard />
+    </>
+  );
 }

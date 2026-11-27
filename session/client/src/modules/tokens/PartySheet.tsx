@@ -4,10 +4,12 @@
 // frames that token.
 
 import { useMemo } from 'react';
-import { cn } from '@dnd/ui';
+import { Caption, cn } from '@dnd/ui';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import { frameWorldPoint } from '../../renderer/camera';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { SeatRoster } from '../../shell/lobby/SeatRoster';
 import { SheetFrame } from '../../shell/sheets/SheetFrame';
 import { closeSheet } from '../../shell/sheets/registry';
 import { seatColour } from '../../shell/seatColour';
@@ -15,15 +17,24 @@ import { useTokenInteraction } from './drag';
 import { conditionLabel, hpDanger, hpFraction, kindOf, sceneTokens } from './play';
 import { TokenPortrait } from './TokenPortrait';
 
+const NO_PLAYERS: readonly PlayerInfo[] = [];
+
 export function PartySheet() {
   const state = useModuleState<TokensState>('tokens');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const players = useSessionStore((s) => s.session?.players ?? []);
+  const players = useSessionStore((s) => s.session?.players ?? NO_PLAYERS);
   const isDm = useSessionStore((s) => s.you?.role === 'dm');
   const party = useMemo(() => sceneTokens(state, sceneId).filter((t) => kindOf(t) === 'pc'), [state, sceneId]);
 
   return (
     <SheetFrame title="Party" onClose={closeSheet} testId="party-sheet">
+      {/* The DM's seats once the lobby strip is gone: hand a character over, put it on the map. */}
+      {isDm && (
+        <section className="flex flex-col gap-1.5 border-b border-line px-3 pt-2.5" data-testid="party-seats">
+          <Caption>Seats</Caption>
+          <SeatRoster />
+        </section>
+      )}
       {party.length === 0 ? (
         <p className="px-3 py-3 text-xs text-text-3">No player characters on this scene yet.</p>
       ) : (
@@ -42,7 +53,7 @@ export function PartySheet() {
                     if (isDm) useTokenInteraction.getState().select(t.id);
                   }}
                 >
-                  <TokenPortrait name={t.name} assetId={t.imageAssetId} className="size-9" />
+                  <TokenPortrait name={t.name} assetId={t.imageAssetId} ring={t.ring} className="size-9" />
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex items-center gap-1.5">
                       <span className="truncate text-sm font-medium text-text">{t.name}</span>

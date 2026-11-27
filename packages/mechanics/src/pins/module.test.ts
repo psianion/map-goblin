@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ModuleContext, Viewer } from '../contract'
-import { tableModule, type TableState } from '../table/module'
+import { TABLE_INITIAL, tableModule, type TableState } from '../table/module'
 import { pinsModule, type PinsState } from './module'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm' }
@@ -60,7 +60,7 @@ describe('table', () => {
     const t = runner<TableState>(tableModule, tableModule.initialState)
     expect(t.run(DM, 'pause', { on: true })).toBeUndefined()
     expect(t.run(DM, 'lock-movement', { on: true })).toBeUndefined()
-    expect(t.state()).toEqual({ paused: true, movementLocked: true })
+    expect(t.state()).toMatchObject({ paused: true, movementLocked: true })
     t.run(DM, 'pause', { on: false })
     expect(t.state().paused).toBe(false)
     expect(t.run(P1, 'pause', { on: true })).toMatchObject({ code: 'unauthorized' })
@@ -71,7 +71,7 @@ describe('table', () => {
 describe('table sync', () => {
   it('is internal and sets both flags from the session row', () => {
     expect(tableModule.commands.sync).toBeUndefined()
-    let state: TableState = { paused: true, movementLocked: true }
+    let state: TableState = { ...TABLE_INITIAL, paused: true, movementLocked: true }
     tableModule.handler('sync', { paused: false, movementLocked: false }, {
       campaignId: 'c1',
       sessionId: 's1',
@@ -84,6 +84,6 @@ describe('table sync', () => {
       },
       broadcast: () => {},
     })
-    expect(state).toEqual({ paused: false, movementLocked: false })
+    expect(state).toMatchObject({ paused: false, movementLocked: false })
   })
 })

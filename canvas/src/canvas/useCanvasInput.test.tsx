@@ -537,7 +537,7 @@ describe('rooms', () => {
     seedRoom();
     expect(roomUnder({ x: 2, y: 2 }, 32)).toBeNull();
     setRoomPicking(true);
-    expect(roomUnder({ x: 2, y: 2 }, 32)).toEqual({ layerId: layer().id, anchor: [6, 4] });
+    expect(roomUnder({ x: 2, y: 2 }, 32)).toMatchObject({ layerId: layer().id, anchor: [6, 4], outlined: false });
   });
 
   it("a right-click on a room selects it and opens the room's menu", () => {

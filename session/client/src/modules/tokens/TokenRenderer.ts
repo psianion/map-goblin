@@ -35,6 +35,16 @@ export const DISPOSITION_COLOR: Record<Disposition, number> = {
   hostile: 0xf87171,
 };
 
+/**
+ * The ring a token draws (table lobby pass): its own `#rrggbb`, none for `none`, and the
+ * disposition colour when it has no ring of its own (or one the wire mangled).
+ */
+export function ringColour(token: Pick<Token, 'ring' | 'disposition'>): number | null {
+  if (token.ring === 'none') return null;
+  if (typeof token.ring === 'string' && /^#[0-9a-f]{6}$/i.test(token.ring)) return parseInt(token.ring.slice(1), 16);
+  return DISPOSITION_COLOR[token.disposition] ?? DISPOSITION_COLOR.neutral;
+}
+
 /** "Goblin Boss" → "GB"; one word → its first two letters; nothing usable → "?". */
 export function initials(name: string): string {
   const words = String(name ?? '')
@@ -113,6 +123,9 @@ function loadTexture(assetId: string): Promise<Texture | null> {
   return pending;
 }
 
+/** Fetch and decode a token picture ahead of the map (the lobby), into the same cache. */
+export const preloadTokenArt = (assetId: string): Promise<void> => loadTexture(assetId).then(() => undefined);
+
 // ─── One token's display objects ────────────────────────────
 
 interface View {
@@ -135,6 +148,7 @@ const signature = (t: Token, isDm: boolean): string =>
     t.name,
     t.size,
     t.disposition,
+    t.ring ?? '',
     t.imageAssetId,
     t.packAsset ? `${t.packAsset.packId}:${t.packAsset.assetId}` : '',
     t.hidden,
@@ -207,7 +221,7 @@ function conditionBadges(token: Token, r: number): Container | null {
 function buildView(token: Token, isDm: boolean): View {
   const cells = SIZE_CELLS[token.size] ?? 1;
   const r = cells / 2;
-  const color = DISPOSITION_COLOR[token.disposition] ?? DISPOSITION_COLOR.neutral;
+  const color = ringColour(token);
   const container = new Container();
   container.label = `token-${token.id}`;
 
@@ -257,9 +271,10 @@ function buildView(token: Token, isDm: boolean): View {
     container.addChild(text);
   }
 
-  // Disposition ring, and a white inner ring when someone has claimed it.
-  container.addChild(new Graphics().circle(0, 0, r).stroke({ width: r * 0.16, color }));
-  if (token.ownerId) {
+  // The ring (its own colour, else the disposition's), and a white inner ring when someone has
+  // claimed it. A token whose ring is `none` draws neither.
+  if (color !== null) container.addChild(new Graphics().circle(0, 0, r).stroke({ width: r * 0.16, color }));
+  if (token.ownerId && color !== null) {
     container.addChild(new Graphics().circle(0, 0, r * 0.86).stroke({ width: r * 0.07, color: 0xffffff }));
   }
 

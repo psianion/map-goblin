@@ -4,8 +4,9 @@
 //
 // `hostSession` stands the campaign up over the server's own routes rather than clicking
 // through the host flow every time: a campaign, the demo map with its first room lit, two PC
-// token types (Bram, Yara) placed when the session opens, and the DM's pass stored the way the
-// Host page stores it. The host flow itself is driven by `host-join.spec.ts`.
+// token types (Bram, Yara) placed once a seat picks one and the DM starts the table
+// (`startTable`), and the DM's pass stored the way the Host page stores it. The host flow
+// itself is driven by `host-join.spec.ts`.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -96,6 +97,16 @@ export async function standUpTable(name = 'Cragmaw Hideout'): Promise<Omit<Hoste
   return { campaignId: campaign.campaignId, campaignName: name, sceneId: map.sceneId, token: campaign.token, inviteCode: session.inviteCode };
 }
 
+/** Upload another map to a campaign whose table is open: a second scene the DM can switch to. */
+export async function addScene(table: { campaignId: string; token: string }, file = SECOND_MAP): Promise<string> {
+  const map = await api<{ sceneId: string }>(
+    `/api/campaigns/${table.campaignId}/maps`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(file, 'utf8') },
+    table.token,
+  );
+  return map.sceneId;
+}
+
 /** Put a DM pass in this page's storage the way the Host page keeps one. */
 export async function holdDmPass(page: Page, table: { campaignId: string; campaignName: string; token: string }): Promise<void> {
   await page.addInitScript(
@@ -123,6 +134,20 @@ export async function joinTable(page: Page, code: string, name: string): Promise
   await page.locator('#player-name').fill(name);
   await page.getByRole('button', { name: 'Join' }).click();
   await expect(page.locator('[data-page="table"]')).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * Table lobby pass: a new table waits in the lobby. The seat picks `character` there when one is
+ * named, the DM presses Start, which puts the picked character in the party start area, and the
+ * seat leaves the lobby for the table.
+ */
+export async function startTable(dm: Page, seat: Page, character?: string): Promise<void> {
+  if (character) {
+    await seat.getByTestId('lobby-pc').filter({ hasText: character }).click();
+    await expect(seat.getByTestId('lobby-mine')).toHaveText(character);
+  }
+  await dm.getByTestId('lobby-start').click();
+  await expect(seat.getByTestId('lobby')).toBeHidden({ timeout: 30_000 });
 }
 
 /** The map the core store loaded, once the engine has it. */
@@ -216,18 +241,21 @@ export const CAVE = {
   inHall: { x: 10.5, y: 7.5 },
 } as const;
 
-/** A campaign holding the outdoor-cave map and a Bram PC type, with no session open. */
-export async function standUpOutdoorCave(name: string): Promise<{ campaignId: string; campaignName: string; sceneId: string; mapId: string; token: string }> {
+/** A campaign holding the outdoor-cave map (or `file`) and a Bram PC type, with no session open. */
+export async function standUpOutdoorCave(name: string, file = OUTDOOR_CAVE): Promise<{ campaignId: string; campaignName: string; sceneId: string; mapId: string; token: string }> {
   const campaign = await api<{ campaignId: string; token: string }>('/api/campaigns', postJson({ name }), ADMIN_PASS());
   const map = await api<{ sceneId: string; mapId: string }>(
     `/api/campaigns/${campaign.campaignId}/maps`,
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(OUTDOOR_CAVE, 'utf8') },
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(file, 'utf8') },
     campaign.token,
   );
   // The PC type has to exist before the session the wizard opens; a throwaway session adds it.
+  // Opening it also stored a party start area round the map's centre, and the wizard's start only
+  // lands on a scene without one, so it is cleared: the campaign is as fresh as a new publish.
   const first = await api<{ sessionId: string }>('/api/sessions', postJson({ campaignId: campaign.campaignId, sceneId: map.sceneId }), campaign.token);
   await sendCommands(campaign.token, [
     { module: 'tokens', action: 'library-upsert', payload: { name: 'Bram', kind: 'pc', size: 'medium', disposition: 'friendly', hp: { max: 24 } } },
+    { module: 'tokens', action: 'set-party-start', payload: { sceneId: map.sceneId, rect: null } },
   ]);
   await api(`/api/sessions/${first.sessionId}/end`, { method: 'POST' }, campaign.token);
   return { campaignId: campaign.campaignId, campaignName: name, sceneId: map.sceneId, mapId: map.mapId, token: campaign.token };

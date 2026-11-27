@@ -90,6 +90,23 @@ describe('prepareTableForJoin', () => {
     expect(prefetchSceneMap).toHaveBeenCalledWith('s1', 'm1', 'tok');
   });
 
+  it('skips the prefetch, and the "Preparing map" wait, for a table still in its lobby', async () => {
+    useSessionStore.setState({
+      session: { activeSceneId: 's1', scenes: [{ id: 's1', mapId: 'm1' }], modules: { table: { started: false } } } as never,
+    });
+    const onPrefetch = vi.fn();
+    await prepareTableForJoin('tok', { ...opts, onPrefetch });
+    expect(prefetchSceneMap).not.toHaveBeenCalled();
+    expect(onPrefetch).not.toHaveBeenCalled();
+
+    useSessionStore.setState({
+      session: { activeSceneId: 's1', scenes: [{ id: 's1', mapId: 'm1' }], modules: { table: { started: true } } } as never,
+    });
+    await prepareTableForJoin('tok', { ...opts, onPrefetch });
+    expect(onPrefetch).toHaveBeenCalledTimes(1);
+    expect(prefetchSceneMap).toHaveBeenCalledWith('s1', 'm1', 'tok');
+  });
+
   it('never rejects when the prefetch itself fails', async () => {
     useSessionStore.setState({
       session: { activeSceneId: 's1', scenes: [{ id: 's1', mapId: 'm1' }] } as never,

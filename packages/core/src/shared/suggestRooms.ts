@@ -1,27 +1,26 @@
 import type { DungeonLayer } from '../store/types';
-import type { Room } from './types';
-import type { WorldBounds } from './mapBounds';
-import { roomFaces } from '../engine/roomDetection';
-import { computeMergedFloor } from '../engine/mergedFloor';
+import type { Room, ThresholdSegment } from './types';
+import type { Polygon } from '../geometry/GeometryEngine';
+import { groundFaceCut, paintedGroundCuts, walledFaceCut, walledFloorOf, type FaceCut, type RoomContext } from './roomFloor';
 import { ROOM_GRID_SIZE } from '../store/roomSync';
-import { interiorPoint, nextRoomNumber, pointInRing, readingOrder, roomFace } from './roomUtils';
-import { caveCutters } from './caveFloor';
+import { computeArea, interiorPoint, isPathway, nextRoomNumber, pointInRing, readingOrder, roomFace } from './roomUtils';
+import { asThresholds, faceDivides, faceShape } from './passageSplit';
 
-/** How close a face's edge may come to the frame before it counts as the outside. */
-const FRAME_EPSILON = 1e-3;
+/** The smallest face Suggest offers as a room, square cells. */
+const MIN_SUGGESTED_AREA = 1;
 
-/**
- * Rooms the layer's geometry implies but nobody has placed yet: one per face of
- * (floor − walls − thresholds) that holds no room's anchor. Existing rooms are
- * never touched. Pure; the editor keeps the result in `ui.roomSuggestions` as
- * ghosts and `AcceptRoomsCommand` adds the ones the DM keeps.
+/*
+ * Rooms the layer's geometry implies but nobody has placed yet: one per closed face that
+ * holds no room. Existing rooms are never touched. Pure; the editor keeps the result in
+ * `ui.roomSuggestions` as ghosts and `AcceptRoomsCommand` adds the ones the DM keeps.
  *
- * A walls-only import has no floor to cut. There the map frame stands in for the
- * floor, and the face left touching the frame — the outside of every wall — is
- * dropped, so what remains is what the walls enclose.
+ * A walls-only import has no floor to cut. There the map frame stands in for the floor, and
+ * only what the walls close off is offered (`roomFaceCut`). A layer drawn in ground alone (no
+ * walled floor, no wall) offers its painted areas, one texture at a time (`paintedGroundCuts`),
+ * as pinned rooms like any other.
  *
- * Each suggestion gets a uuid, the next free number and the name `Room N`, and is
- * anchored at a point inside its face, numbered in reading order.
+ * Each suggestion gets a uuid, the next free number and its name, and is anchored at a point
+ * inside its face, numbered in reading order.
  */
 function ringArea(ring: readonly [number, number][]): number {
   let a = 0;
@@ -68,55 +67,73 @@ export function anchorOutside(face: [number, number][], faces: readonly [number,
   return best;
 }
 
-export function suggestRooms(layer: DungeonLayer, frame: WorldBounds | null): Room[] {
-  const mergedFloor = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
-  const wallsOnly = mergedFloor.length === 0;
-  if (wallsOnly && !frame) return [];
-  const floor = wallsOnly
-    ? [
-        [
-          [frame!.minX, frame!.minY],
-          [frame!.maxX, frame!.minY],
-          [frame!.maxX, frame!.maxY],
-          [frame!.minX, frame!.maxY],
-        ] as [number, number][],
-      ]
-    : mergedFloor;
-  let faces = roomFaces(
-    floor,
-    layer.standaloneWalls,
-    ROOM_GRID_SIZE,
-    layer.style?.wallWidth ?? 0,
-    // A painted cave's edge cuts like a threshold, so a cave inside a floor is proposed on its own.
-    [...(layer.thresholds ?? []), ...caveCutters(layer)],
-  );
-  if (wallsOnly) {
-    faces = faces.filter((face) =>
-      face.every(
-        ([x, y]) =>
-          x > frame!.minX + FRAME_EPSILON &&
-          x < frame!.maxX - FRAME_EPSILON &&
-          y > frame!.minY + FRAME_EPSILON &&
-          y < frame!.maxY - FRAME_EPSILON,
-      ),
-    );
+/**
+ * The cuts Suggest reads: the walled floor's and the ground's (`roomFaceCut`'s two halves),
+ * or on a layer drawn in ground alone (no walled floor, no wall) one cut per painted texture
+ * (`paintedGroundCuts`). Kept apart, so a face is sampled against its own cut's rings only:
+ * the ground's hole where the walled floor lies is no hole in the walled floor.
+ */
+function suggestCuts(layer: DungeonLayer, ctx: RoomContext, divides: readonly ThresholdSegment[]): FaceCut[] {
+  const painted = paintedGroundCuts(layer, divides);
+  if (painted) return painted;
+  const walled = walledFloorOf(layer);
+  const ground = groundFaceCut(layer, ctx, divides, walled);
+  return [walledFaceCut(layer, divides, walled), ...(ground ? [ground] : [])];
+}
+
+/** Which faces hold a room already: the smallest face round each pin, and every face an outlined room covers. */
+function heldFaces(rooms: readonly Room[], faces: readonly Polygon[]): (face: Polygon) => boolean {
+  const areas = faces.map((f) => computeArea(f));
+  const pinned = new Set<Polygon>();
+  for (const r of rooms) {
+    let best = -1;
+    for (let i = 0; i < faces.length; i++) {
+      if ((best < 0 || areas[i] < areas[best]) && pointInRing(r.anchor[0], r.anchor[1], faces[i])) best = i;
+    }
+    if (best >= 0) pinned.add(faces[best]);
   }
+  return (face) =>
+    pinned.has(face) || rooms.some((r) => r.boundary && r.boundary.length >= 3 && pointInRing(...interiorPoint(face), roomFace(r)));
+}
+
+/**
+ * Divide lines Suggest proposes where a floor narrows (plan 3.1): across every place a
+ * chamber meets a passage or another chamber, in every face of the layer, each checked by
+ * cutting along it. Inside a face that already holds a room, only where that face has two
+ * chambers or more: a passage is never cut off a room the DM made. Fresh uuid per line. The
+ * layer's own divide lines are kept as they are.
+ */
+export function suggestDivides(layer: DungeonLayer, ctx: RoomContext): ThresholdSegment[] {
+  const cuts = suggestCuts(layer, ctx, []);
+  const held = heldFaces(layer.rooms ?? [], cuts.flatMap((c) => c.faces));
+  return asThresholds(cuts.flatMap(({ faces, rings }) => faces.flatMap((face) => faceDivides(face, rings, held(face) ? 2 : 0))));
+}
+
+/**
+ * Ghost rooms for every closed face with no room, given the divide lines the DM kept.
+ * Faces are the ones the sync gives a room (`roomFaceCut`), so an accepted ghost keeps its
+ * face; on a layer drawn in ground alone the sync finds a ghost's painted area under its pin
+ * (`paintedAreaCuts`), so the room follows the floor. A face under a square cell is never
+ * offered. A face that reads as a corridor is named `Passage N`, numbered in the same run as
+ * the rooms.
+ */
+export function suggestRooms(layer: DungeonLayer, ctx: RoomContext, divides: readonly ThresholdSegment[] = []): Room[] {
+  const cuts = suggestCuts(layer, ctx, divides);
+  const faces = cuts.flatMap((c) => c.faces);
+  const ringsOf = new Map<Polygon, Polygon[]>();
+  for (const c of cuts) for (const f of c.faces) ringsOf.set(f, c.rings);
 
   const rooms = layer.rooms ?? [];
-  const held = (face: [number, number][]): boolean =>
-    rooms.some(
-      (r) =>
-        pointInRing(r.anchor[0], r.anchor[1], face) ||
-        // A hand-traced room holds whatever face its own outline covers.
-        (r.boundary && r.boundary.length >= 3 && pointInRing(...interiorPoint(face), roomFace(r))),
-    );
-
+  const held = heldFaces(rooms, faces);
   const free = faces
-    .filter((face) => !held(face))
+    .filter((face) => computeArea(face) >= MIN_SUGGESTED_AREA && !held(face))
     .map((face) => ({ face, anchor: anchorOutside(face, faces), centroid: interiorPoint(face) }));
   let n = nextRoomNumber(rooms);
   return readingOrder(free).map(({ face, anchor }) => {
     const number = n++;
-    return { id: crypto.randomUUID(), name: `Room ${number}`, number, anchor, face };
+    // A face with a chamber in it is a room, however long and thin its outline reads.
+    const shape = faceShape(face, ringsOf.get(face)!);
+    const passage = !shape.chamber && (shape.passage || isPathway(face, ROOM_GRID_SIZE));
+    return { id: crypto.randomUUID(), name: `${passage ? 'Passage' : 'Room'} ${number}`, number, anchor, face };
   });
 }

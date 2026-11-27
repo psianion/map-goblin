@@ -12,6 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { PROTOCOL_VERSION } from './config'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
+import type { TokensState } from '@dnd/mechanics/tokens'
 import { createAdminPass, signToken } from './auth'
 import { MAX_ASSET_BYTES, MAX_MAP_BYTES, MAX_THUMBNAIL_BYTES } from './db/stores'
 import { startServer, type RunningServer } from './index'
@@ -507,11 +508,15 @@ describe('the starting room the DM picks while setting up', () => {
     const triggers = server.stores.moduleState.get(campaignId, 'triggers') as
       | { byScene: Record<string, { startLevelId?: string }> }
       | undefined
-    const tokens = server.stores.moduleState.get(campaignId, 'tokens') as { byScene: Record<string, Record<string, { levelId?: string }>> }
-    return { startLevelId: triggers?.byScene[mapId]?.startLevelId, placed: Object.values(tokens.byScene[mapId] ?? {}) }
+    const tokens = server.stores.moduleState.get(campaignId, 'tokens') as TokensState
+    return {
+      startLevelId: triggers?.byScene[mapId]?.startLevelId,
+      area: tokens.partyStart?.[mapId],
+      placed: Object.values(tokens.byScene[mapId] ?? {}),
+    }
   }
 
-  it("opens a two-level map on the starting room's level, the party standing there", async () => {
+  it("opens a two-level map on the starting room's level, the party start there and nobody placed yet", async () => {
     await withServer(async ({ server, base, adminPass }) => {
       const TWO_LEVELS = {
         ...ROOMED,
@@ -531,7 +536,9 @@ describe('the starting room the DM picks while setting up', () => {
       }
       const opened = await openOn(server, base, adminPass, TWO_LEVELS, 'r-crypt')
       expect(opened.startLevelId).toBe('lv-cellar')
-      expect(opened.placed.map((t) => t.levelId)).toEqual(['lv-cellar'])
+      // The 3 by 3 cells round the crypt's anchor, on its level; the party appears at Start.
+      expect(opened.area).toMatchObject({ x1: opened.area!.x0 + 2, y1: opened.area!.y0 + 2, levelId: 'lv-cellar' })
+      expect(opened.placed).toEqual([])
     })
   })
 
@@ -539,7 +546,9 @@ describe('the starting room the DM picks while setting up', () => {
     await withServer(async ({ server, base, adminPass }) => {
       const opened = await openOn(server, base, adminPass, ROOMED, 'r-hall')
       expect(opened.startLevelId).toBeUndefined()
-      expect(opened.placed.map((t) => t.levelId)).toEqual([undefined])
+      expect(opened.area).toBeDefined()
+      expect(opened.area!.levelId).toBeUndefined()
+      expect(opened.placed).toEqual([])
     })
   })
 })
@@ -727,6 +736,37 @@ describe('scenes (#47)', () => {
       expect(server.stores.sessions.get(sessionId)?.active_scene_id).toBeNull()
 
       expect((await api(base, 'DELETE', `/api/scenes/${sceneId}`, { token: dmToken })).status).toBe(404)
+    })
+  })
+
+  it('tells the DM seats their undo is empty after a scene delete, and never sends a player a history frame', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, playerToken } = await table(base, adminPass)
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+      const dm = (await joinSocket(server.port, dmToken)).socket
+      const player = (await joinSocket(server.port, playerToken)).socket
+      await nextMessage(dm, 'player-joined')
+      const heard: string[] = []
+      player.on('message', (raw: Buffer) => heard.push((JSON.parse(raw.toString()) as ServerMessage).type))
+
+      const placed = nextMessage(dm, 'history')
+      dm.send(JSON.stringify({ type: 'command', module: 'tokens', action: 'place', payload: { sceneId, name: 'Rat', x: 0, y: 0 }, seq: 1 }))
+      expect((await placed).undo).toEqual({ module: 'tokens', action: 'place' })
+
+      const emptied = nextMessage(dm, 'history')
+      expect((await api(base, 'DELETE', `/api/scenes/${sceneId}`, { token: dmToken })).status).toBe(200)
+      expect(await emptied).toEqual({ type: 'history', undo: null, redo: null })
+
+      const pong = nextMessage(player, 'pong')
+      player.send(JSON.stringify({ type: 'ping', t: 1 }))
+      await pong
+      expect(heard).not.toContain('history')
+      dm.terminate()
+      player.terminate()
     })
   })
 

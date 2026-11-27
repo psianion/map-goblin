@@ -1,5 +1,5 @@
 import type { Room } from './types';
-import { pointInRing, roomFace } from './roomUtils';
+import { computeArea, pointInRing, roomFace } from './roomUtils';
 
 /**
  * Which room a point is in, and which grid cells a room covers.
@@ -10,7 +10,7 @@ import { pointInRing, roomFace } from './roomUtils';
  * handful of rooms whose bounds touch that cell.
  */
 export interface RoomIndex {
-  /** The room whose face holds the point, or null. A live face wins over an orphan's stale one. */
+  /** The smallest room whose face holds the point, or null. A live face wins over an orphan's stale one. */
   roomAt(x: number, y: number): Room | null;
   /** The cells, as `[col, row]`, whose centres lie inside the room's face. Empty for an unknown id. */
   cellsOf(roomId: string): readonly [number, number][];
@@ -55,12 +55,25 @@ export function buildRoomIndex(rooms: readonly Room[], cellScale = 1): RoomIndex
   }
 
   const cells = new Map<string, [number, number][]>();
+  const areas = new Map<string, number>();
+  const areaOf = (room: Room): number => {
+    let a = areas.get(room.id);
+    if (a === undefined) areas.set(room.id, (a = computeArea(roomFace(room))));
+    return a;
+  };
   return {
     roomAt(x, y) {
       const list = buckets.get(key(Math.floor(x / s), Math.floor(y / s)));
       if (!list) return null;
-      for (const room of list) if (pointInRing(x, y, roomFace(room))) return room;
-      return null;
+      // The smallest room holding the point: a room inside another (a cave in a field, an
+      // outline round a corner of a hall) answers for its own ground. Live before orphaned.
+      let best: Room | null = null;
+      for (const room of list) {
+        if (best && best.orphaned !== true && room.orphaned === true) break;
+        if (best && areaOf(room) >= areaOf(best)) continue;
+        if (pointInRing(x, y, roomFace(room))) best = room;
+      }
+      return best;
     },
     cellsOf(roomId) {
       const hit = cells.get(roomId);

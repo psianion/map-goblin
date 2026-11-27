@@ -74,19 +74,19 @@ describe('Dock', () => {
     expect(useShell.getState().flyout).toBeNull();
   });
 
-  it('sets up the walls from the Rooms tool’s Set up tab, Rooms staying in hand, and goes back on a tool change', () => {
+  it('sets up the walls from Draw room’s Set up tab, Draw room staying in hand, and goes back on a tool change', () => {
     act(() => useStore.getState().setActiveTool('roomRect'));
     const { getByTestId } = withRegistry(<Dock />);
     const dock = () => getByTestId('shell-dock');
-    expect(columns(dock())).toEqual(['level', 'layers', 'family', 'setup', 'Draw', 'look']);
+    expect(columns(dock())).toEqual(['level', 'layers', 'family', 'setup', 'Shape', 'look']);
     const setup = () => dock().querySelector<HTMLElement>('[data-column="setup"]')!;
-    expect([...setup().querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Rooms', 'Walls', 'Doors']);
+    expect([...setup().querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Draw room', 'Walls', 'Doors']);
     act(() => [...setup().querySelectorAll('button')].find((b) => b.textContent === 'Walls')!.click());
     expect(useShell.getState().dockTab).toBe('walls');
     expect(useStore.getState().tools.activeTool).toBe('roomRect');
     expect(columns(dock())).toContain('look');
     expect(shown(dock())).toEqual(expect.arrayContaining(['wall.cornerStyle']));
-    expect(shown(dock())).not.toContain('rooms.mode');
+    expect(shown(dock())).not.toContain('rooms.shape');
     expect(dock().querySelector('[data-column="look"]')?.getAttribute('data-testid')).toBe('design-wall-look');
     act(() => useStore.getState().setActiveTool('wall'));
     expect(useShell.getState().dockTab).toBeNull();

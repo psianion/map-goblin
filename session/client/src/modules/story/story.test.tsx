@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
@@ -101,6 +101,20 @@ describe('Story tab', () => {
     expect(sent[0]).toEqual(expect.objectContaining({ action: 'handout-upsert', payload: { caption: 'Map', assetId: 'a1' } }));
   });
 
+  it('says how many seats still have the handout and the title card up', () => {
+    const bo: PlayerInfo = { identityId: 'p2', name: 'Bo', role: 'player', connected: true };
+    const s = session({
+      ...story,
+      shown: { handoutId: 'h1', audience: 'all', mode: 'card', shownAt: 1, dismissed: [{ id: 'p1', name: 'Pia' }] },
+      titleCard: { text: 'x', mode: 'over', shownAt: 2, dismissed: [] },
+    });
+    useSessionStore.setState({ session: { ...s, players: [dm, pia, bo] } });
+    render(<StoryStrip />);
+    expect(screen.getByTestId('story-showing-count').textContent).toBe('Still up for 1 of 2');
+    render(<StoryBody />);
+    expect(screen.getByTestId('story-title-count').textContent).toBe('Still up for 2 of 2');
+  });
+
   it('shows an image handout as a thumbnail and deletes a handout after a confirm', () => {
     const sent = capture();
     useSessionStore.setState({ session: session({ ...story, handouts: [{ id: 'h1', caption: 'Map', assetId: 'a1' }] as never }) });
@@ -114,12 +128,39 @@ describe('Story tab', () => {
 });
 
 describe('player side', () => {
-  it('puts a shown handout up full screen and hides it for this seat only', () => {
-    useSessionStore.setState({ you: pia, session: session({ ...story, shown: { handoutId: 'h1', audience: 'all', mode: 'full' } }) });
+  it('puts a shown handout up full screen, hides it for this seat at once and tells the server', () => {
+    const sent = capture();
+    useSessionStore.setState({ you: pia, session: session({ ...story, shown: { handoutId: 'h1', audience: 'all', mode: 'full', shownAt: 7, dismissed: [] } }) });
     render(<StoryOverlay />);
     expect(screen.getByTestId('story-handout').getAttribute('data-mode')).toBe('full');
     fireEvent.click(screen.getByTestId('story-hide-for-me'));
     expect(screen.queryByTestId('story-handout')).toBeNull();
+    expect(sent).toEqual([expect.objectContaining({ module: 'story', action: 'dismiss', payload: { what: 'handout', shownAt: 7 } })]);
+  });
+
+  it('stays hidden after a remount with a fresh store, once the server stops sending it', () => {
+    capture();
+    const showing = { handoutId: 'h1', audience: 'all', mode: 'card', shownAt: 7, dismissed: [] };
+    useSessionStore.setState({ you: pia, session: session({ ...story, shown: showing }) });
+    render(<StoryOverlay />);
+    fireEvent.click(screen.getByTestId('story-hide-for-me'));
+    cleanup();
+    // The reload: a new page, and the server's snapshot leaves out what this seat dismissed.
+    useSessionStore.setState({ you: pia, session: session({ ...story, shown: null }) });
+    render(<StoryOverlay />);
+    expect(screen.queryByTestId('story-handout')).toBeNull();
+    // The DM shows it again: a new showing reaches the seat that hid the last one.
+    act(() => useSessionStore.setState({ session: session({ ...story, shown: { ...showing, shownAt: 9 } }) }));
+    expect(screen.getByTestId('story-handout')).toBeTruthy();
+  });
+
+  it('hides the title card for this seat and tells the server which showing', () => {
+    const sent = capture();
+    useSessionStore.setState({ you: pia, session: session({ ...story, titleCard: { text: 'Night falls', mode: 'over', shownAt: 3, dismissed: [] } }) });
+    render(<StoryOverlay />);
+    fireEvent.click(screen.getByTestId('story-title-hide-for-me'));
+    expect(screen.queryByTestId('story-title-card')).toBeNull();
+    expect(sent[0]).toMatchObject({ module: 'story', action: 'dismiss', payload: { what: 'title', shownAt: 3 } });
   });
 
   it('keeps shown handouts and title cards in the Journal', () => {

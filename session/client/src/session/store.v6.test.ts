@@ -31,8 +31,8 @@ afterEach(() => {
 });
 
 describe('v6 store slices', () => {
-  it('speaks protocol 6', () => {
-    expect(PROTOCOL_VERSION).toBe(6);
+  it('speaks protocol 7', () => {
+    expect(PROTOCOL_VERSION).toBe(7);
   });
 
   it('draws another seat’s mark and skips the echo of its own', () => {
@@ -41,6 +41,17 @@ describe('v6 store slices', () => {
     apply({ type: 'mark', event: { id: 'm1', from: 'p2', at: 0, sceneId: 'scene-1', ttlMs: 3000, mark: { kind: 'ping', x: 1, y: 2 } } });
     apply({ type: 'mark', event: { id: 'm2', from: 'p1', at: 0, sceneId: 'scene-1', ttlMs: 3000, mark: { kind: 'ping', x: 5, y: 5 } } });
     expect(useMarks.getState().marks.map((m) => m.by)).toEqual(['p2']);
+  });
+
+  it('keeps the scene a relayed mark was made on, not the live one', () => {
+    seat('player');
+    const template = { kind: 'template' as const, shape: 'circle' as const, origin: { x: 1, y: 1 }, size: 2 };
+    useSessionStore.getState().applyServerMessage({ type: 'mark', event: { id: 't1', from: 'p2', at: 0, sceneId: 'scene-2', ttlMs: 0, mark: template } });
+    useSessionStore.getState().applyServerMessage({ type: 'mark', event: { id: 't2', from: 'p1', at: 0, sceneId: 'scene-3', ttlMs: 0, mark: template } });
+    expect(useMarks.getState().marks.map((m) => [m.id, m.sceneId])).toEqual([
+      ['t1', 'scene-2'],
+      ['t2', 'scene-3'],
+    ]);
   });
 
   it('a DM pull recentres a player, never the DM', () => {
@@ -67,6 +78,21 @@ describe('v6 store slices', () => {
     useSessionStore.setState({ client: { send } as never });
     useSessionStore.getState().sendMark({ kind: 'ruler', from: { x: 0, y: 0 }, to: { x: 3, y: 0 } });
     expect(send).toHaveBeenCalledWith({ type: 'mark', mark: { kind: 'ruler', from: { x: 0, y: 0 }, to: { x: 3, y: 0 } } });
+    useSessionStore.setState({ client: null });
+  });
+
+  it('keeps the DM’s undo and redo steps, and sends a group and the history ops', () => {
+    seat('dm');
+    useSessionStore.getState().applyServerMessage({ type: 'history', undo: { module: 'tokens', action: 'move' }, redo: null });
+    expect(useSessionStore.getState().history).toEqual({ undo: { module: 'tokens', action: 'move' }, redo: null });
+    const send = vi.fn();
+    useSessionStore.setState({ client: { send } as never });
+    useSessionStore.getState().sendCommand('tokens', 'move', { id: 't', x: 1, y: 1 }, 'drag-1');
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'command', group: 'drag-1' }));
+    useSessionStore.getState().sendCommand('tokens', 'hide', { id: 't' });
+    expect(send.mock.lastCall?.[0]).not.toHaveProperty('group');
+    useSessionStore.getState().sendHistory('undo');
+    expect(send).toHaveBeenLastCalledWith({ type: 'history', op: 'undo' });
     useSessionStore.setState({ client: null });
   });
 });

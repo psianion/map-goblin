@@ -5,7 +5,7 @@ import { DEFAULT_FOG_LOOK, type FogLook } from '@dnd/core/src/shared/fogLook';
 import { Button, SecondaryButton, SliderRow } from '@dnd/ui';
 import { Ban, Cloud, CloudFog, CloudOff, Compass, Eraser, SlidersHorizontal } from '@dnd/ui/icons';
 import { useModuleState, useSessionStore } from '../../session/store';
-import { UNDO_TOAST_MS, showToast } from '../../session/toasts';
+import { UNDO_TOAST_MS, dismissToast, showToast, useToasts } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
 import { toggleSheet, useSheet } from '../../shell/sheets/registry';
 import { armBrush, toggleBrush, useFogBrush } from './brush';
@@ -54,10 +54,26 @@ export function FogBody() {
     else if (tool === 'fog') useActiveTool.getState().setActiveTool(null);
   };
 
+  // The toast's Undo is the table's undo, and acts only while the top step is still this one:
+  // once another step lands on top, the toast is shown again without it.
   const bulk = (action: 'clear-all' | 'fog-all', message: string): void => {
-    const before = fog.cleared ?? {};
     send(action, {});
-    showToast({ message, durationMs: UNDO_TOAST_MS, action: { label: 'Undo', onAction: () => send('restore', { cleared: before }) } });
+    const ours = (): boolean => {
+      const top = useSessionStore.getState().history.undo;
+      return top?.module === 'fog' && top.action === action;
+    };
+    const id = showToast({
+      message,
+      durationMs: UNDO_TOAST_MS,
+      action: { label: 'Undo', onAction: () => ours() && useSessionStore.getState().sendHistory('undo') },
+    });
+    const stop = useSessionStore.subscribe((s, prev) => {
+      if (useToasts.getState().toast?.id !== id) return stop();
+      if (s.history === prev.history || ours()) return;
+      stop();
+      dismissToast(id);
+      showToast({ message, durationMs: UNDO_TOAST_MS });
+    });
   };
 
   const fogCard = (

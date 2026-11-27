@@ -9,7 +9,7 @@ import { create } from 'zustand';
  * adding a label; the two things that must be shared — the indicator and Escape — are
  * already here, and nothing else about a tool is general enough to abstract yet.
  */
-export type ToolId = 'fog' | 'ping' | 'measure' | 'template' | 'draw' | 'pin';
+export type ToolId = 'fog' | 'ping' | 'measure' | 'template' | 'draw' | 'pin' | 'party-start';
 
 const TOOL_NAME: Record<ToolId, string> = {
   fog: 'Fog',
@@ -18,6 +18,7 @@ const TOOL_NAME: Record<ToolId, string> = {
   template: 'Template',
   draw: 'Draw',
   pin: 'Pin',
+  'party-start': 'Party start',
 };
 
 /**

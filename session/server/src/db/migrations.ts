@@ -151,4 +151,13 @@ export const MIGRATIONS: readonly string[] = [
   `
   DELETE FROM module_state WHERE module = 'fog';
   `,
+
+  // 009 — the table lobby: a session is "not started" while the DM sets up, and the DM's two
+  // lobby switches. A session that exists already is a live table and keeps running; a new one
+  // is inserted not started (SessionStore.createSession).
+  `
+  ALTER TABLE sessions ADD COLUMN started INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE sessions ADD COLUMN players_make_pcs INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE sessions ADD COLUMN lobby_shows_scene INTEGER NOT NULL DEFAULT 0;
+  `,
 ]

@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
-import { DEMO_MAP, assertMapLoaded, expect, hostMap, joinTable, test } from './fixtures';
+import { DEMO_MAP, assertMapLoaded, expect, hostMap, joinTable, startTable, test } from './fixtures';
 
 const MAP_NAME = 'Prop Lights';
 const CANDLE = 'gg-demo:light_candle_large_lit_1x1_object_A';
@@ -71,6 +71,7 @@ test.describe('@lights prop lights at the table', () => {
     const player = await playerContext.newPage();
     try {
       await joinTable(player, table.inviteCode, 'Pim');
+      await startTable(page, player);
       await assertMapLoaded(player, MAP_NAME);
       await expect.poll(async () => (await candles(player)).lights, { timeout: 30_000 }).toEqual([true, true]);
       await expect.poll(async () => (await candles(player)).textures.every((t) => t !== null), { timeout: 60_000 }).toBe(true);

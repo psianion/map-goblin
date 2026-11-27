@@ -33,8 +33,6 @@ export interface LevelWalkMap {
   level: Level | null
   /** The level's dungeon layers, every door already in the state to walk by. */
   layers: readonly DungeonLayer[]
-  /** Whether any layer of the map has a room. */
-  hasRooms: boolean
   /** Whether the map has ground to hide with no room on it ({@link mapHasHiddenGround}). */
   hiddenGround: boolean
   /** The crossing overrides in play; empty for the map's own rules. */
@@ -66,8 +64,8 @@ export function mapHasHiddenGround(data: Pick<SerializedMapData, 'mapSettings' |
 
 /**
  * §2.1 rule 1 — ground: the level's base ground, a visible ground piece, the level's walled
- * floor, or, on a map with no rooms, no ground pieces and no base ground (an imported picture),
- * the whole frame.
+ * floor, or, on a level with no walled floor on a map with no ground pieces and no base ground
+ * (an imported picture, outlined rooms or not), the whole frame.
  */
 function groundOf(map: LevelWalkMap): (x: number, y: number) => boolean {
   const { layers } = map
@@ -81,7 +79,8 @@ function groundOf(map: LevelWalkMap): (x: number, y: number) => boolean {
     .map((layer) => layer.mergedFloor ?? [])
     .filter((rings) => rings.length > 0)
     .map((rings) => ({ rings, box: boxOf(rings) }))
-  if (!map.hasRooms && !map.hiddenGround) return () => true
+  // Nothing authored to stand on: a picture, walked anywhere on the frame.
+  if (floors.length === 0 && !map.hiddenGround) return () => true
   return (x, y) =>
     floors.some((f) => inBox(f.box, x, y) && inRingsEvenOdd(x, y, f.rings)) ||
     pieces.some(

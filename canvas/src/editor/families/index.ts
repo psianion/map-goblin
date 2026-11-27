@@ -7,7 +7,8 @@ import { TERRAIN_CARDS, terrain } from './terrain';
 import { OBJECTS_CARDS, objects } from './objects';
 import { ENVIRONMENT_CARDS, environment } from './environment';
 import { TEXT_CARDS, text } from './text';
+import { ROOMS_CARDS, rooms } from './rooms';
 
-export const families: readonly FamilyDef[] = [design, terrain, objects, environment, text];
+export const families: readonly FamilyDef[] = [design, terrain, objects, environment, rooms, text];
 
-export const cards: readonly CardDef[] = [...DESIGN_CARDS, ...TERRAIN_CARDS, ...OBJECTS_CARDS, ...ENVIRONMENT_CARDS, ...TEXT_CARDS];
+export const cards: readonly CardDef[] = [...DESIGN_CARDS, ...TERRAIN_CARDS, ...OBJECTS_CARDS, ...ENVIRONMENT_CARDS, ...ROOMS_CARDS, ...TEXT_CARDS];

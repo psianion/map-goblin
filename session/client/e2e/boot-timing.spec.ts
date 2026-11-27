@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page, Response } from '@playwright/test';
-import { DEMO_MAP, DEMO_NAME, expect, joinTable, loadedMapName, test } from './fixtures';
+import { DEMO_MAP, DEMO_NAME, expect, joinTable, loadedMapName, startTable, test } from './fixtures';
 
 const baseline = !!process.env.BOOT_BASELINE;
 const PACKS = join(import.meta.dirname, '../../../canvas/public/packs');
@@ -99,6 +99,7 @@ test.describe('@boot table boot timing', () => {
 
     const t = Date.now();
     await joinTable(player, hostSession.inviteCode, 'Pia');
+    await startTable(hostSession.page, player);
     await firstFrame(player);
     metrics.coldJoinMs = Date.now() - t;
     await player.waitForTimeout(250);
@@ -112,7 +113,14 @@ test.describe('@boot table boot timing', () => {
 
     if (!baseline) {
       const packs = manifests();
-      const allowed = setsTheMapNames(JSON.parse(readFileSync(DEMO_MAP, 'utf8')), packs);
+      const doc = readFileSync(DEMO_MAP, 'utf8');
+      const allowed = setsTheMapNames(JSON.parse(doc), packs);
+      // A map with doors draws them from its walls' door kit, a set the map itself never names.
+      if (doc.includes('"childType":"door"') || doc.includes('"childType": "door"')) {
+        for (const [packId, m] of packs) {
+          for (const e of Object.values(m.entries)) if (e.set && /door/i.test(e.set)) allowed.add(`${packId}/${e.set}`);
+        }
+      }
       const strays = packFiles
         .map((f) => {
           const [, packId, file] = new URL(f.url).pathname.match(/\/packs\/([^/]+)\/(.+)$/) ?? [];

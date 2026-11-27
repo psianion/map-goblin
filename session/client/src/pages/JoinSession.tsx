@@ -64,8 +64,8 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
         code: code.trim(),
       });
       useSessionStore.getState().connect(player.token);
-      setPreparing(true);
-      await prepareTableForJoin(player.token);
+      // "Preparing map" only while a started table's map downloads; a lobby loads its own.
+      await prepareTableForJoin(player.token, { onPrefetch: () => setPreparing(true) });
       navigate('/table');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useTokenInteraction } from './drag';
 import { TokenCards } from './TokenCard';
 import { BRAM, DM, seat, sent, token, tokensState } from './playTestSeat';
@@ -59,7 +59,7 @@ describe('token card', () => {
     expect(sent(spy)).toEqual([['tokens', 'set-condition', { targets: ['bram'], name: 'prone', on: false }]]);
   });
 
-  it('a player gets Claim on an unclaimed token and nothing on their own', () => {
+  it('a player gets Claim on an unclaimed token and Edit my token on their own character', async () => {
     const spy = seat({ tokens: tokensState([ogre, bram]) }, BRAM);
     useTokenInteraction.getState().select('ogre');
     const { rerender } = render(<TokenCards />);
@@ -67,7 +67,11 @@ describe('token card', () => {
     expect(sent(spy)).toEqual([['tokens', 'claim', { id: 'ogre' }]]);
     useTokenInteraction.getState().select('bram');
     rerender(<TokenCards />);
-    expect(screen.queryByTestId('token-card')).toBeNull();
+    expect(screen.queryByTestId('token-card-claim')).toBeNull();
+    fireEvent.click(screen.getByTestId('token-card-edit-mine'));
+    fireEvent.click(screen.getByTestId('token-art-ring-none'));
+    fireEvent.click(screen.getByTestId('token-art-save'));
+    await waitFor(() => expect(sent(spy)[1]).toEqual(['tokens', 'pc-update', { imageAssetId: null, ring: 'none' }]));
   });
 });
 

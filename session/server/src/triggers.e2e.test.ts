@@ -360,6 +360,7 @@ describe('a token walking into a trap zone (redaction, prompts, roll-prompt)', (
       await next(bob, 'player-joined')
 
       const sockets = [dm, bob, carol] as const
+      await runDrained(sockets, ['table'], () => sendCommand(dm, 'table', 'start', { on: true }))
       // Every one of these commands is `tokens.*`, which cascades into `triggers` — but a
       // cascade that changes nothing skips its setState entirely, so only steps that
       // actually fire/arm something produce a `triggers` frame. Drain exactly what each

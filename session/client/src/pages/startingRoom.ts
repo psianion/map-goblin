@@ -55,18 +55,19 @@ export function startingRoomsOf(mapData: unknown): StartingRoomPicker {
     if (layer.type !== 'dungeon') continue;
     for (const room of layer.rooms ?? []) levelOfRoom.set(room.id, levelIdOf({ levels }, layer));
   }
+  // A room with no shape (its floor gone, never placed) is nowhere to start: it is left out.
   const ordered = rooms
-    .map((room, i) => ({ room, i }))
+    .map((room, i) => ({ room, i, ring: roomRing(room) }))
+    .filter(({ ring }) => ring.length >= 3)
     .sort((a, b) => (a.room.number ?? Infinity) - (b.room.number ?? Infinity) || a.i - b.i)
-    .map(({ room, i }) => {
+    .map(({ room, i, ring }) => {
       const levelId = levelOfRoom.get(room.id) ?? '';
-      const ring = roomRing(room);
       return {
         id: room.id,
         label: roomLabel({ ...room, name: names.get(room.id) ?? room.name }) || `Room ${i + 1}`,
         levelId,
         levelName: levels.find((l) => l.id === levelId)?.name ?? '',
-        ...(ring.length >= 3 ? { outline: ring } : {}),
+        outline: ring,
       };
     });
   const settings = (mapData as { mapSettings?: Partial<MapSettings> } | null)?.mapSettings;
@@ -77,7 +78,7 @@ export function startingRoomsOf(mapData: unknown): StartingRoomPicker {
   return {
     rooms: ordered,
     levels: levels.map(({ id, name }) => ({ id, name })),
-    defaultRoomId: wanted && rooms.some((room) => room.id === wanted) ? wanted : '',
+    defaultRoomId: wanted && ordered.some((room) => room.id === wanted) ? wanted : '',
     ...(partyStart ? { partyStart } : {}),
     centre: frame ? { x: (frame.minX + frame.maxX) / 2, y: (frame.minY + frame.maxY) / 2 } : null,
   };

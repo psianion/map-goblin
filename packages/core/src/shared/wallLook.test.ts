@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import type { DungeonLayer, DungeonStyle, ShapeChild } from '../store/types';
-import type { WallSegment, WallType } from './types';
+import type { Room, WallSegment, WallType } from './types';
+import { SEVEN_IDS, sevenRoomLayer } from '../testing/sevenRooms';
 import {
+  edgeStyles,
+  floorWallSet,
   GROUP_WALL_TYPE,
   ringLook,
   ringOwner,
@@ -137,10 +140,10 @@ describe('floor outline look', () => {
     });
   });
 
-  it('a ring two floors were unioned into belongs to the one most of it runs along', () => {
+  it('a ring two floors were unioned into draws each edge with the floor it runs along', () => {
     const big = shape('big', 0, { wallTextureTint: '#111111' }, 8);
-    const nub = shape('nub', 7, undefined, 2);
-    // The union: the big square with the nub's far edge sticking out on the right.
+    const nub = { ...shape('nub', 7), contours: [[[7, 1], [9, 1], [9, 2], [7, 2]]] } as ShapeChild;
+    // The union: the big square with the nub's far end sticking out on the right.
     const ring: [number, number][] = [
       [0, 0],
       [8, 0],
@@ -151,7 +154,66 @@ describe('floor outline look', () => {
       [8, 8],
       [0, 8],
     ];
+    // The ring as a whole still belongs to the floor most of it runs along...
     expect(ringOwner(ring, [nub, big])?.id).toBe('big');
+    // ...but the nub's three edges draw as the nub does (it pins nothing: the layer's), the rest as the big floor.
+    const edges = edgeStyles(layer([nub, big], [ring]))[0]!;
+    expect(edges.map((s) => s.wallTextureTint)).toEqual(['#111111', '#111111', '#ffffff', '#ffffff', '#ffffff', '#111111', '#111111', '#111111']);
+  });
+});
+
+describe("the seven-room cave's walls", () => {
+  const IDS = SEVEN_IDS;
+  beforeAll(() => setBandSetTest((id) => id === IDS.band || id === IDS.cave));
+  afterAll(() => setBandSetTest(() => false));
+
+  /** The cave's union as one ring, traced round the seven rectangles by hand. */
+  const ring: [number, number][] = [
+    [2, 3], [11, 3], [11, 6], [15, 6], [15, 2], [27, 2], [27, 13], [15, 13], [15, 8], [11, 8], [11, 12], [7, 12], [7, 18], [13, 18],
+    [13, 21], [17, 21], [17, 17], [26, 17], [26, 26], [17, 26], [17, 23], [13, 23], [13, 27], [3, 27], [3, 18], [5, 18], [5, 12], [2, 12],
+  ];
+  const cave = (patch: Partial<DungeonLayer> = {}) => ({ ...sevenRoomLayer(), mergedFloor: [ring], ...patch }) as DungeonLayer;
+  const passageSide = (a: [number, number], b: [number, number]) => (a[1] === 6 || a[1] === 8) && a[1] === b[1] && Math.min(a[0], b[0]) === 11 && Math.max(a[0], b[0]) === 15;
+
+  it("takes the passage's own band on its two long sides, and only there", () => {
+    const edges = edgeStyles(cave())[0]!;
+    ring.forEach((a, e) => {
+      const b = ring[(e + 1) % ring.length];
+      expect(edges[e].wallTextureSetId, `${a} to ${b}`).toBe(passageSide(a, b) ? IDS.band : IDS.cave);
+    });
+  });
+
+  it('takes its set when the passage has no band of its own, and none when its band is None on a band set', () => {
+    const plain = cave();
+    const withSet = { ...plain, children: plain.children.map((c) => (c.id === 'floor-2' ? { ...c, edgeBand: undefined } : c)) } as DungeonLayer;
+    const sides = (l: DungeonLayer) => edgeStyles(l)[0]!.filter((_, e) => passageSide(ring[e], ring[(e + 1) % ring.length])).map((s) => s.wallTextureSetId);
+    expect(sides(withSet)).toEqual([IDS.stone, IDS.stone]);
+    const bandSet = { ...plain, children: plain.children.map((c) => (c.id === 'floor-2' ? { ...c, edgeBand: null, styleOverrides: { wallTextureSetId: IDS.cave } } : c)) } as DungeonLayer;
+    expect(sides(bandSet)).toEqual(['', '']);
+  });
+
+  it('a wall look pinned on the room still wins over the floor', () => {
+    // The passage's room, faced as a sync gives it.
+    const rooms: Room[] = [{ id: 'r', name: 'Passage', anchor: [13, 7], face: [[11.4, 6], [14.4, 6], [14.4, 8], [11.4, 8]], look: { wallTextureSetId: 'Room_Set' } }];
+    const edges = edgeStyles(cave({ rooms }))[0]!;
+    const sides = edges.filter((_, e) => passageSide(ring[e], ring[(e + 1) % ring.length]));
+    expect(sides.map((s) => s.wallTextureSetId)).toEqual(['Room_Set', 'Room_Set']);
+    expect(edges[0].wallTextureSetId).toBe(IDS.cave);
+  });
+
+  it('draws every edge as its ring while no floor is pinned apart', () => {
+    const l = cave();
+    const same = { ...l, children: l.children.map((c) => (c.id === 'floor-2' ? { ...c, edgeBand: undefined, styleOverrides: { wallTextureSetId: IDS.cave } } : c)) } as DungeonLayer;
+    expect(edgeStyles(same)).toEqual([null]);
+  });
+
+  it("reads a floor's own set as the renderer does", () => {
+    const style = cave().style;
+    const passage = cave().children.find((c) => c.id === 'floor-2') as ShapeChild;
+    expect(floorWallSet(passage, style)).toBe(IDS.band);
+    expect(floorWallSet({ ...passage, edgeBand: undefined }, style)).toBe(IDS.stone);
+    expect(floorWallSet({ ...passage, edgeBand: undefined, styleOverrides: undefined }, style)).toBe(IDS.cave);
+    expect(floorWallSet({ ...passage, edgeBand: null, styleOverrides: undefined }, style)).toBe('');
   });
 });
 

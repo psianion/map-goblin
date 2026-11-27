@@ -1,0 +1,582 @@
+{
+  "version": "3.11",
+  "mapSettings": {
+    "name": "Cave chambers",
+    "cellScale": {
+      "value": 5,
+      "unit": "ft"
+    },
+    "ambientLight": "#ffffff",
+    "fixedSize": {
+      "width": 30,
+      "height": 24,
+      "locked": true
+    },
+    "roomsVersion": 2,
+    "sightDropCells": 2,
+    "crossingKinds": [
+      {
+        "id": "free",
+        "name": "Free",
+        "blocks": false
+      },
+      {
+        "id": "difficult",
+        "name": "Difficult",
+        "blocks": false
+      },
+      {
+        "id": "climb",
+        "name": "Climb",
+        "note": "e.g. DC 12 Athletics",
+        "blocks": false
+      },
+      {
+        "id": "impassable",
+        "name": "Impassable",
+        "blocks": true
+      }
+    ],
+    "ground": {
+      "textureId": "gg-forge:wild_dirt_8x8_floor_A"
+    },
+    "environment": "indoor",
+    "faceDirection": 135,
+    "naturalLight": true,
+    "orientation": 200
+  },
+  "grid": {
+    "visible": true,
+    "snapDivision": 2
+  },
+  "layers": [
+    {
+      "id": "f2a97170-d628-4755-942a-fcbfa88d7ed1",
+      "name": "Background",
+      "type": "background",
+      "levelId": "cave-chambers-level",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "backgroundColor": "#2d2d2d",
+      "backgroundTexture": null,
+      "textureScale": 0.25,
+      "textureTint": "#ffffff",
+      "presetLock": false
+    },
+    {
+      "id": "cave-chambers-layer",
+      "name": "Layer 1",
+      "type": "dungeon",
+      "levelId": "cave-chambers-level",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "children": [
+        {
+          "id": "cave-chambers-cave",
+          "name": "Cave 1",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "polygon",
+          "contours": [
+            [
+              [
+                22.75,
+                5.53
+              ],
+              [
+                23.48,
+                5.73
+              ],
+              [
+                24.12,
+                6.16
+              ],
+              [
+                24.8,
+                6.48
+              ],
+              [
+                25.34,
+                7.02
+              ],
+              [
+                25.79,
+                7.63
+              ],
+              [
+                26.05,
+                8.34
+              ],
+              [
+                26.21,
+                9.07
+              ],
+              [
+                26.2,
+                9.8
+              ],
+              [
+                25.98,
+                10.5
+              ],
+              [
+                26.09,
+                11.17
+              ],
+              [
+                26.27,
+                11.95
+              ],
+              [
+                26.29,
+                12.78
+              ],
+              [
+                26.1,
+                13.61
+              ],
+              [
+                25.61,
+                14.27
+              ],
+              [
+                25.03,
+                14.85
+              ],
+              [
+                24.13,
+                14.88
+              ],
+              [
+                23.39,
+                14.97
+              ],
+              [
+                22.67,
+                14.95
+              ],
+              [
+                22,
+                15.03
+              ],
+              [
+                21.3,
+                15.09
+              ],
+              [
+                20.63,
+                14.91
+              ],
+              [
+                20,
+                14.59
+              ],
+              [
+                19.39,
+                14.25
+              ],
+              [
+                18.89,
+                13.74
+              ],
+              [
+                18.4,
+                13.23
+              ],
+              [
+                17.9,
+                12.68
+              ],
+              [
+                17.44,
+                12.05
+              ],
+              [
+                17.02,
+                11.32
+              ],
+              [
+                16.98,
+                11.19
+              ],
+              [
+                16.75,
+                11.1
+              ],
+              [
+                16.16,
+                11.14
+              ],
+              [
+                15.59,
+                11.27
+              ],
+              [
+                15,
+                11.45
+              ],
+              [
+                14.41,
+                11.24
+              ],
+              [
+                13.84,
+                11.09
+              ],
+              [
+                13.25,
+                11.14
+              ],
+              [
+                13.23,
+                11.14
+              ],
+              [
+                13.23,
+                11.43
+              ],
+              [
+                13.02,
+                12.15
+              ],
+              [
+                12.36,
+                12.66
+              ],
+              [
+                11.58,
+                13.01
+              ],
+              [
+                10.9,
+                13.35
+              ],
+              [
+                10.19,
+                13.61
+              ],
+              [
+                9.48,
+                13.81
+              ],
+              [
+                8.76,
+                14.04
+              ],
+              [
+                8,
+                14.1
+              ],
+              [
+                7.23,
+                14.06
+              ],
+              [
+                6.55,
+                13.76
+              ],
+              [
+                5.85,
+                13.54
+              ],
+              [
+                5.1,
+                13.34
+              ],
+              [
+                4.35,
+                13.06
+              ],
+              [
+                3.73,
+                12.6
+              ],
+              [
+                2.99,
+                12.14
+              ],
+              [
+                2.7,
+                11.45
+              ],
+              [
+                2.6,
+                10.72
+              ],
+              [
+                2.92,
+                10
+              ],
+              [
+                3.51,
+                9.41
+              ],
+              [
+                3.79,
+                8.85
+              ],
+              [
+                3.96,
+                8.27
+              ],
+              [
+                4.23,
+                7.7
+              ],
+              [
+                4.52,
+                7.07
+              ],
+              [
+                4.98,
+                6.5
+              ],
+              [
+                5.58,
+                6
+              ],
+              [
+                6.35,
+                5.73
+              ],
+              [
+                7.2,
+                5.73
+              ],
+              [
+                8,
+                5.71
+              ],
+              [
+                8.82,
+                5.63
+              ],
+              [
+                9.6,
+                5.85
+              ],
+              [
+                10.34,
+                6.14
+              ],
+              [
+                10.98,
+                6.55
+              ],
+              [
+                11.45,
+                7.1
+              ],
+              [
+                11.7,
+                7.74
+              ],
+              [
+                12.04,
+                8.27
+              ],
+              [
+                12.23,
+                8.84
+              ],
+              [
+                12.52,
+                9.22
+              ],
+              [
+                12.66,
+                9.19
+              ],
+              [
+                13.25,
+                9.04
+              ],
+              [
+                13.84,
+                8.98
+              ],
+              [
+                14.41,
+                9.14
+              ],
+              [
+                15,
+                9.35
+              ],
+              [
+                15.59,
+                9.17
+              ],
+              [
+                16.16,
+                9.04
+              ],
+              [
+                16.75,
+                9
+              ],
+              [
+                17.3,
+                9.2
+              ],
+              [
+                17.41,
+                8.95
+              ],
+              [
+                18.1,
+                8.43
+              ],
+              [
+                18.6,
+                7.93
+              ],
+              [
+                19.13,
+                7.51
+              ],
+              [
+                19.55,
+                6.98
+              ],
+              [
+                20,
+                6.41
+              ],
+              [
+                20.55,
+                5.87
+              ],
+              [
+                21.23,
+                5.46
+              ],
+              [
+                22,
+                5.29
+              ]
+            ]
+          ],
+          "textureScale": 0.8,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff",
+          "textureId": "gg-forge:cave_floor_8x8_floor_A",
+          "edgeMaterial": "GG_Cave_Ink"
+        }
+      ],
+      "standaloneWalls": [],
+      "style": {
+        "floorColor": "#F1ECDF",
+        "wallColor": "#000000",
+        "wallWidth": 0.5,
+        "lineWidth": 0.04,
+        "edgeTransitionWidth": 0.5,
+        "showEdgeTransitions": true,
+        "wallTextureSetId": "GG_Fieldstone",
+        "wallTextureTint": "#b09878",
+        "defaultTextureId": "gg-demo:floor_small_8x8_floor_A"
+      },
+      "sublayerVisibility": {
+        "floor": true,
+        "grid": true,
+        "walls": true
+      },
+      "rooms": [
+        {
+          "id": "cave-chambers-room-1",
+          "name": "West chamber",
+          "number": 1,
+          "anchor": [
+            7.98,
+            10
+          ]
+        },
+        {
+          "id": "cave-chambers-room-2",
+          "name": "Narrow way",
+          "number": 2,
+          "anchor": [
+            15,
+            10.13
+          ]
+        },
+        {
+          "id": "cave-chambers-room-3",
+          "name": "East chamber",
+          "number": 3,
+          "anchor": [
+            21.98,
+            10.48
+          ]
+        },
+        {
+          "id": "cave-chambers-camp",
+          "name": "Camp",
+          "number": 4,
+          "anchor": [
+            15,
+            20
+          ],
+          "boundary": [
+            [
+              11,
+              18
+            ],
+            [
+              19,
+              18
+            ],
+            [
+              19,
+              22
+            ],
+            [
+              11,
+              22
+            ]
+          ]
+        }
+      ],
+      "thresholds": [
+        {
+          "id": "cave-chambers-divide-1",
+          "points": [
+            [
+              16.76,
+              11.37
+            ],
+            [
+              17.2,
+              8.9
+            ]
+          ]
+        },
+        {
+          "id": "cave-chambers-divide-2",
+          "points": [
+            [
+              12.86,
+              8.88
+            ],
+            [
+              13.22,
+              11.6
+            ]
+          ]
+        }
+      ],
+      "mergedFloor": null
+    }
+  ],
+  "levels": [
+    {
+      "id": "cave-chambers-level",
+      "name": "Level 1"
+    }
+  ],
+  "customImages": []
+}

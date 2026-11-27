@@ -5,7 +5,8 @@
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
-import type { MapBuilderStore } from '@/store/types';
+import type { DungeonLayer, MapBuilderStore } from '@/store/types';
+import { FLOOR_EDGE_OPTIONS, blendsFloorEdges, setFloorEdges } from '@/editor/families/design/layerStyle';
 import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { roomKeyOf } from '@dnd/core/src/shared/prep';
 import { Caption, ColourRow, InputRow, PlaceTiles, SecondaryButton, Seg, SelectRow, SettingRow, SliderRow } from '@dnd/ui';
@@ -16,11 +17,12 @@ import { PackThumbnailCanvas } from '@/editor/PackThumbnailCanvas';
 import type { SettingProps } from '@/editor/registry/types';
 import { openAssets } from '@/editor/families/design/openAssets';
 import { chainOf, inheritedPlace, lookGesture, ownLook, resolvedLookOf, setLook, type LookTarget } from '@/editor/models/roomLook';
-import { FLOOR_KEYS, PLACE_KEYS, WALL_KEYS, keySummary, roomLightsSummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
+import { FLOOR_KEYS, PLACE_KEYS, ROOM_OPEN, WALL_KEYS, keySummary, roomLightsSummary, sectionLabel, sectionLook, type LookScope } from '@/editor/models/roomModel';
+import { SquareDashed } from 'lucide-react';
 import { installedWallSets, wallSetLabel, wallSetThumb, wallSetTileLabel, wallWidthMin } from '@/editor/models/assetStrip';
 import { SwatchPicker } from '@/editor/SwatchPicker';
 import { shortTextureName } from '@/editor/models/selectionModel';
-import { openRoomKey } from '@/editor/models/roomActions';
+import { openRoomKey, startOutlineFor } from '@/editor/models/roomActions';
 import { usePreview } from '@/editor/viewPrefs';
 import type { RoomKey } from '@/store/types';
 
@@ -52,6 +54,22 @@ export function ReadoutField({ def, value }: SettingProps<string>) {
     <SettingRow label={def.label}>
       <span className="text-[12px] text-text">{value}</span>
     </SettingRow>
+  );
+}
+
+/**
+ * A room that holds no floor says so, and offers the way to fix it: Outline it puts the
+ * Outline tool in hand, and the outline drawn becomes this room's. `value` is the room's id.
+ */
+export function OpenSpaceField({ value: roomId }: SettingProps<string>) {
+  const layerId = useStore((s) => s.layers.find((l) => l.type === 'dungeon' && l.rooms?.some((r) => r.id === roomId))?.id ?? '');
+  return (
+    <div className="mt-1 mb-1.5 flex flex-col gap-1.5" data-testid="room-open">
+      <p className="m-0 text-[12px] text-text">{ROOM_OPEN}</p>
+      <SecondaryButton icon={SquareDashed} className="self-start" disabled={!layerId} onClick={() => startOutlineFor(roomId, layerId)}>
+        Outline it
+      </SecondaryButton>
+    </div>
   );
 }
 
@@ -147,7 +165,27 @@ export function FloorSection({ value: target }: SettingProps<LookTarget>) {
           queueCommit(() => tint.commit());
         }}
       />
+      {target.kind !== 'level' && <FloorEdgesRow layerId={target.layerId} />}
     </div>
+  );
+}
+
+/** Floor edges on the room's layer, Sharp or Blend: the layer's one choice, as on the Floor card. */
+function FloorEdgesRow({ layerId }: { layerId: string }) {
+  const blend = useStore((s) => {
+    const layer = s.layers.find((l) => l.id === layerId);
+    return layer?.type === 'dungeon' ? blendsFloorEdges(layer as DungeonLayer) : null;
+  });
+  if (blend === null) return null;
+  return (
+    <SettingRow label="Floor edges">
+      <Seg
+        aria-label="Floor edges"
+        value={blend ? 'blend' : 'sharp'}
+        onValueChange={(v) => setFloorEdges(useStore.getState(), [layerId], v === 'blend')}
+        options={FLOOR_EDGE_OPTIONS.map((o) => ({ value: o.value ? 'blend' : 'sharp', label: o.label }))}
+      />
+    </SettingRow>
   );
 }
 

@@ -4,7 +4,10 @@
 
 import type { AnyChild, Room, WallSegment } from './types';
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
+// v7 (table lobby pass) — the `table` slice says whether the table has started, so a client
+// from before it would mount the map in a lobby and have every move refused. A command may
+// carry a `group` (steps the DM's undo merges into one); new `history` frames both ways.
 // v6 (table v2) — `modules` gains { story, pins, table }; tokens carry kind, hp, ac, speed,
 // nameplate, showHp, conditions, effects and a PC's owner (hp/ac redacted by `showHp`); rolls
 // carry a `mode` (public / dm / gmonly / blind, redacted per viewer), roll requests, rollable
@@ -35,6 +38,8 @@ export interface SessionState {
   protocolVersion: number;
   sessionId: string;
   campaignId: string;
+  /** The campaign's own name, for the lobby header. Additive: absent from a server before it. */
+  campaignName?: string;
   activeSceneId: string | null;
   /** Metadata only — map data fetched via HTTP. `mapId` changes when a scene is republished. */
   scenes: { id: string; name: string; mapId: string }[];
@@ -115,13 +120,22 @@ export interface RollRequestNotice {
   targets: string[] | null;
 }
 
+/** v7 — one entry of the DM's undo or redo list, named for the button's tooltip. */
+export interface HistoryStep {
+  module: string;
+  action: string;
+}
+
 export type ClientMessage =
   // Token already presented at WS upgrade.
   | { type: 'join'; protocolVersion: number }
-  | { type: 'command'; module: string; action: string; payload: unknown; seq: number }
+  // v7 — `group`: steps with the same group from the same seat undo as one (a drag, a stroke).
+  | { type: 'command'; module: string; action: string; payload: unknown; seq: number; group?: string }
   | { type: 'ping'; t: number }
   // v6 — relayed to the session, never persisted.
-  | { type: 'mark'; mark: Mark };
+  | { type: 'mark'; mark: Mark }
+  // v7 — DM only.
+  | { type: 'history'; op: 'undo' | 'redo' };
 
 export type ServerMessage =
   // Full snapshot (join/reconnect).
@@ -150,4 +164,6 @@ export type ServerMessage =
   // v6 — to the seats a roll request names (and the DM); the request itself is rolls state.
   | { type: 'roll-requested'; request: RollRequestNotice }
   // v6 — DM seats only: timers that ran out when the round turned.
-  | { type: 'effects-ended'; sceneId: string; ended: { tokenId: string; tokenName: string; name: string }[] };
+  | { type: 'effects-ended'; sceneId: string; ended: { tokenId: string; tokenName: string; name: string }[] }
+  // v7 — DM seats only: the next step each way, after every change to the lists.
+  | { type: 'history'; undo: HistoryStep | null; redo: HistoryStep | null };

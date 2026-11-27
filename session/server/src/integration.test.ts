@@ -52,6 +52,8 @@ async function withServer(
 
 const tables = new WeakMap<RunningServer, Map<string, SessionRow>>()
 
+const RUNNING = { paused: false, movementLocked: false, started: true, playersMakePcs: true, lobbyShowsScene: false }
+
 /**
  * One campaign with one active session (and one map, so `activeSceneId` is real) per name.
  * `data` is only read on the first touch of a name — S3's rows seat their table on the
@@ -71,6 +73,8 @@ function table(server: RunningServer, name: string, data = '{}'): SessionRow {
     const map = server.stores.maps.insert(`${name}-map`, campaign.id, `${name} Map`, data)
     server.stores.scenes.create(map.id, campaign.id, map.id, map.name)
     row = startSession(server.stores.sessions, campaign.id)
+    // A table already past its lobby: these rows are about play, not the lobby's gate.
+    server.stores.sessions.setTableFlags(row.id, RUNNING)
     byName.set(name, row)
   }
   return row

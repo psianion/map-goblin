@@ -1,5 +1,5 @@
 // The fog rework's one model in the fog module: the switch, the brush on a level, Clear all,
-// Fog all and their restore, and the party's own sight write.
+// Fog all, and the party's own sight write.
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook'
@@ -75,7 +75,6 @@ describe('who may send the new fog commands', () => {
     ['region-set', { levelId: 'lvl-a', op: 'clear', cells: [] }],
     ['clear-all', {}],
     ['fog-all', {}],
-    ['restore', { cleared: {} }],
     ['set-auto-explore', { autoExplore: false }],
     ['set-fog-look', { look: null }],
   ])('%s is the DM’s alone', (action, payload) => {
@@ -159,35 +158,18 @@ describe('the brush', () => {
   })
 })
 
-describe('Clear all, Fog all and restore (row 6)', () => {
-  it('round-trips the record', () => {
+describe('Clear all and Fog all (row 6)', () => {
+  it('fills every level, and empties the record', () => {
     const before = run(empty, DM, 'region-set', { levelId: 'lvl-b', op: 'clear', cells: [[3, 4], [7, 7]] }).next
-    const record = sceneOf(before).cleared!
 
     const all = run(before, DM, 'clear-all', {})
     expect(all.error).toBeNull()
     for (const level of LEVELS) expect(sceneOf(all.next).cleared?.[level]).toEqual(fillRegion(regionOf(FRAME)!))
     expect(all.next.log?.at(-1)).toMatchObject({ action: 'cleared-all' })
-    const undoAll = run(all.next, DM, 'restore', { cleared: record })
-    expect(undoAll.error).toBeNull()
-    expect(sceneOf(undoAll.next).cleared).toEqual(record)
 
     const none = run(before, DM, 'fog-all', {})
     expect(sceneOf(none.next).cleared).toBeUndefined()
     expect(none.next.log?.at(-1)).toMatchObject({ action: 'fogged-all' })
-    expect(sceneOf(run(none.next, DM, 'restore', { cleared: record }).next).cleared).toEqual(record)
-    // An empty record restores to nothing cleared.
-    expect(sceneOf(run(before, DM, 'restore', { cleared: {} }).next).cleared).toBeUndefined()
-  })
-
-  it('refuses a record that does not hold together', () => {
-    const good = regionOf(FRAME)!
-    const bad = (cleared: unknown) => run(empty, DM, 'restore', { cleared }).error
-    expect(bad({ 'lvl-z': good })).toMatchObject({ code: 'invalid-command' })
-    expect(bad({ 'lvl-a': { ...good, bits: 'AAAA' } })).toMatchObject({ code: 'invalid-command' })
-    expect(bad({ 'lvl-a': { ...good, cols: 1.5 } })).toMatchObject({ code: 'invalid-command' })
-    expect(bad({ 'lvl-a': { ...good, bits: '%%%' } })).toMatchObject({ code: 'invalid-command' })
-    expect(bad(null)).toMatchObject({ code: 'invalid-command' })
   })
 })
 

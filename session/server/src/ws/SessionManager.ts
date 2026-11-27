@@ -2,7 +2,8 @@
 
 import type { ClientMessage, MarkEvent, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
 import type { CommandError, Viewer } from '@dnd/mechanics/contract'
-import { TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
+import { TABLE_NOT_STARTED_ERROR, TABLE_PAUSED_ERROR } from '@dnd/mechanics/table'
+import type { TableFlags } from '@dnd/mechanics/tokens'
 import { PROTOCOL_VERSION } from '../config'
 import type { Vision } from '../fog/vision'
 import type { ModuleRegistry } from '../modules/registry'
@@ -56,10 +57,15 @@ export interface SessionManagerOptions {
   /** Has this identity been banned since it connected? Defaults to no, for the same reason. */
   isBanned?: (identityId: string) => boolean
   /**
-   * Table v2 — the session row's pause and movement lock. When a session opens in this process
-   * the `table` slice is set from it (internal `table.sync`), so the seats are shown the row.
+   * Table v2 — the session row's pause and movement lock, and the lobby's flags. When a session
+   * opens in this process the `table` slice is set from it (internal `table.sync`), so the
+   * seats are shown the row.
    */
-  tableFlags?: (sessionId: string) => { paused: boolean; movementLocked: boolean } | null
+  tableFlags?: (sessionId: string) => TableFlags | null
+  /** Called with the live scene when a session opens in this process, before anyone is sent a snapshot. */
+  sceneLive?: (at: { campaignId: string; sessionId: string; sceneId: string }) => void
+  /** The campaign's own name, for the lobby header (`SessionState.campaignName`). */
+  campaignName?: (campaignId: string) => string | null
 }
 
 export class SessionManager {
@@ -73,6 +79,8 @@ export class SessionManager {
   private readonly sessionActive: (sessionId: string) => boolean
   private readonly isBanned: (identityId: string) => boolean
   private readonly tableFlags: NonNullable<SessionManagerOptions['tableFlags']>
+  private readonly sceneLive: NonNullable<SessionManagerOptions['sceneLive']>
+  private readonly campaignName: NonNullable<SessionManagerOptions['campaignName']>
 
   constructor(
     /** Already populated — boot owns which modules exist (§2.3.8). */
@@ -86,6 +94,8 @@ export class SessionManager {
       sessionActive = () => true,
       isBanned = () => false,
       tableFlags = () => null,
+      sceneLive = () => {},
+      campaignName = () => null,
     }: SessionManagerOptions = {},
   ) {
     this.missedPongLimit = missedPongLimit
@@ -93,6 +103,8 @@ export class SessionManager {
     this.sessionActive = sessionActive
     this.isBanned = isBanned
     this.tableFlags = tableFlags
+    this.sceneLive = sceneLive
+    this.campaignName = campaignName
     this.timer = setInterval(() => this.heartbeat(), heartbeatMs)
     this.timer.unref()
 
@@ -129,6 +141,7 @@ export class SessionManager {
    * ended is not a table full of people who all disconnected.
    */
   endSession(sessionId: string): void {
+    this.modules.forgetHistory(sessionId)
     const session = this.sessions.get(sessionId)
     if (!session) return
     this.broadcaster.broadcast(sessionId, { type: 'session-ended' })
@@ -203,10 +216,12 @@ export class SessionManager {
           players: [...session.players.values()],
         })
       case 'mark': {
-        // v6 — relayed, never stored: a mark is a gesture, not state (plan 4.3). A paused
-        // table takes no gesture from a player's seat either (the registry refuses commands).
-        if (conn.identity.role !== 'dm' && this.tableFlags(session.id)?.paused) {
-          return this.broadcaster.sendTo(conn, { type: 'error', ...TABLE_PAUSED_ERROR })
+        // v6 — relayed, never stored: a mark is a gesture, not state (plan 4.3). A table in the
+        // lobby, or paused, takes no gesture from a player's seat either (the registry refuses commands).
+        if (conn.identity.role !== 'dm') {
+          const flags = this.tableFlags(session.id)
+          if (flags && !flags.started) return this.broadcaster.sendTo(conn, { type: 'error', ...TABLE_NOT_STARTED_ERROR })
+          if (flags?.paused) return this.broadcaster.sendTo(conn, { type: 'error', ...TABLE_PAUSED_ERROR })
         }
         const parsed = parseMark(msg.mark, conn.identity.role)
         if ('error' in parsed) {
@@ -216,6 +231,19 @@ export class SessionManager {
         session.templates = standing(session.templates, event)
         return this.broadcaster.broadcast(session.id, { type: 'mark', event })
       }
+      case 'history':
+        // Undo is the DM's, refused to a player the way a DM-only command is.
+        if (conn.identity.role !== 'dm') {
+          return this.broadcaster.sendTo(conn, {
+            type: 'error',
+            code: 'unauthorized',
+            message: `role '${conn.identity.role}' may not ${msg.op}`,
+          })
+        }
+        return this.router.history(conn, msg.op, {
+          activeSceneId: this.scenes(session).activeSceneId,
+          players: [...session.players.values()],
+        })
     }
   }
 
@@ -266,6 +294,7 @@ export class SessionManager {
       state: this.snapshot(session, conn.identity),
       you: player,
     })
+    if (role === 'dm') this.router.sayHistory(sessionId)
     // The templates standing on the table, after the snapshot, so the seat has a scene to put them on.
     for (const event of session.templates) this.broadcaster.sendTo(conn, { type: 'mark', event })
     this.broadcaster.broadcast(session.id, { type: 'player-joined', player }, conn)
@@ -315,6 +344,8 @@ export class SessionManager {
           you: player,
         })
       }
+      // A scene delete empties the undo history; the DM seats' buttons hear it here.
+      this.router.sayHistory(session.id)
       const { scenes, activeSceneId } = this.scenes(session)
       if (changedSceneId && activeSceneId === changedSceneId) {
         const changed = scenes.find((s) => s.id === changedSceneId)
@@ -358,6 +389,8 @@ export class SessionManager {
     const session: Session = { id, campaignId, players: new Map(), clients: new Set(), dmSeen: false, templates: [] }
     this.sessions.set(id, session)
     this.syncTable(session)
+    const { activeSceneId } = this.scenes(session)
+    if (activeSceneId) this.sceneLive({ campaignId, sessionId: id, sceneId: activeSceneId })
     return session
   }
 
@@ -379,10 +412,12 @@ export class SessionManager {
   /** Scenes and the active one are read fresh: an upload between joins must show up. */
   private snapshot(session: Session, viewer: Viewer): SessionState {
     const { scenes, activeSceneId } = this.scenes(session)
+    const campaignName = this.campaignName(session.campaignId)
     return {
       protocolVersion: PROTOCOL_VERSION,
       sessionId: session.id,
       campaignId: session.campaignId,
+      ...(campaignName ? { campaignName } : {}),
       // #47 D5 — the DM sees the whole library; a player sees only what has been
       // published/made visible to them. The currently active scene still loads either
       // way (fog and door redaction are what actually gate its content) — this only

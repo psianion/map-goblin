@@ -268,6 +268,32 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(clipper2Engine.union).not.toHaveBeenCalled();
   });
 
+  it('base ground and the map size resync the rooms on ground', () => {
+    seed({
+      children: [shape('s1', 500, 500)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+      rooms: [{ id: 'r1', name: 'Yard', anchor: [50, 50] }],
+    });
+    unsub = start();
+    vi.clearAllMocks();
+
+    useStore.setState((s) => {
+      s.mapSettings.ground = { color: '#556b2f' };
+    });
+    expect(scheduleRoomSync).toHaveBeenCalledTimes(1);
+    vi.clearAllMocks();
+    useStore.setState((s) => {
+      s.mapSettings.fixedSize = { width: 2000, height: 2000, locked: true };
+    });
+    expect(scheduleRoomSync).toHaveBeenCalledTimes(1);
+    vi.clearAllMocks();
+    // A look-only edit of the ground moves no face.
+    useStore.setState((s) => {
+      s.mapSettings.ground = { color: '#223344' };
+    });
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+  });
+
   // The signature used to be id/type/direction, so a wall whose points moved
   // matched its own previous key: nothing redrew, no room was re-detected, and
   // a door anchored to that wall kept drawing where the wall used to be.
@@ -518,6 +544,36 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     // Dropping the last wall pin re-lays them once more, back to the ring's own look.
     vi.clearAllMocks();
     useStore.getState().setRooms(layerId, [{ id: 'r1', name: 'Hall', anchor: [10, 10] }]);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+  });
+
+  // A floor's edge band is what its outline is walled with: picking one redraws at once, with
+  // no union or room work, since no outline moved. A floor with none keeps its key as it was.
+  it("a floor's edge band pick rebuilds the layer once, and re-runs no union", () => {
+    const layerId = seed({ children: [shape('s1', 0, 0), shape('s2', 100, 0)] });
+    unsub = start();
+    vi.clearAllMocks();
+
+    const setBand = (band: string | null | undefined) =>
+      useStore.setState((s) => {
+        const l = s.layers.find((x) => x.id === layerId);
+        const c = l?.type === 'dungeon' ? (l.children.find((x) => x.id === 's1') as ShapeChild | undefined) : undefined;
+        if (c) c.edgeBand = band;
+      });
+    setBand('Band_A');
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    setBand(null);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    setBand(undefined);
     flushLayerDraws();
     expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
   });

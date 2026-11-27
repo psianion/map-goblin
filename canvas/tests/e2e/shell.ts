@@ -36,14 +36,18 @@ export async function openEditor(page: Page, theme: 'light' | 'dark' = 'light', 
   await waitFrame(page, 2)
 }
 
+/** Families that open straight on their first tool with no flyout; the others are on the panel header. */
+const OPENS_ON_FIRST_TOOL = new Set(['Rooms'])
+
 /** Opens a family's flyout and picks one of its tools. */
 export async function pickFromFlyout(page: Page, family: string, tool: string): Promise<void> {
   await page.getByTestId('shell-rail').getByRole('button', { name: family }).click()
-  await page.getByTestId('shell-flyout').getByRole('button', { name: new RegExp(`^${tool}`) }).click()
+  const from = OPENS_ON_FIRST_TOOL.has(family) ? page.getByTestId('shell-tool-panel') : page.getByTestId('shell-flyout')
+  await from.getByRole('button', { name: new RegExp(`^${tool}`) }).click()
   await waitFrame(page, 2)
 }
 
-/** Where each tool lives in the shell: a rail button, or a family's flyout row plus, for a floor shape or a rooms mode, its dock button. */
+/** Where each tool lives in the shell: a rail button, or a family's flyout row plus, for a floor or room shape, its dock button. */
 const TOOLS = {
   select: { rail: 'Select' },
   pan: { rail: 'Pan' },
@@ -60,9 +64,10 @@ const TOOLS = {
   light: { family: 'Environment', tool: 'Light' },
   label: { family: 'Text', tool: 'Label' },
   zone: { family: 'Text', tool: 'Zone' },
-  roomRect: { family: 'Text', tool: 'Rooms', dock: 'Rectangle' },
-  roomPolygon: { family: 'Text', tool: 'Rooms', dock: 'Polygon' },
-  divide: { family: 'Text', tool: 'Rooms', dock: 'Divide' },
+  roomOutline: { family: 'Rooms', tool: 'Outline' },
+  roomRect: { family: 'Rooms', tool: 'Draw room', dock: 'Rectangle' },
+  roomPolygon: { family: 'Rooms', tool: 'Draw room', dock: 'Polygon' },
+  divide: { family: 'Rooms', tool: 'Divide' },
 } as const
 
 export type ShellTool = keyof typeof TOOLS

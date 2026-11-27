@@ -14,6 +14,7 @@ import { DoorTool } from './DoorTool';
 import { ZoneTool } from './ZoneTool';
 import { RoomPolygonTool, RoomRectTool } from './RoomTools';
 import { DivideTool } from './DivideTool';
+import { OutlineTool } from './OutlineTool';
 import { PlateauTool } from './PlateauTool';
 import { MaterialTool } from './MaterialTool';
 import { PathTool } from './PathTool';
@@ -44,4 +45,5 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new RoomRectTool());
   manager.registerTool(new RoomPolygonTool());
   manager.registerTool(new DivideTool());
+  manager.registerTool(new OutlineTool());
 }

@@ -47,7 +47,7 @@ beforeEach(() => {
   useToasts.setState({ toast: null });
   // An imported picture: no floors, so the whole frame is ground.
   useStore.setState({ layers: [], levels: [{ id: 'level-1', name: 'Ground' }] } as never);
-  useSessionStore.setState({ you: dm, mapData: { frame: FRAME, layers: [] }, session: session({}) });
+  useSessionStore.setState({ you: dm, mapData: { frame: FRAME, layers: [] }, session: session({}), history: { undo: null, redo: null } });
 });
 
 describe('Fog tab', () => {
@@ -129,22 +129,30 @@ describe('Fog tab', () => {
     expect(screen.getByText('0% of the map')).toBeTruthy();
   });
 
-  it('offers Undo after Clear all and Fog all, which restores the record from before', () => {
-    const before = { 'level-1': fillRegion(regionOf(FRAME)!) };
-    useSessionStore.setState({ session: fogged({ cleared: before }) });
+  it('offers Undo after Clear all and Fog all, which is the table’s undo while that step is on top', () => {
+    useSessionStore.setState({ session: fogged({ cleared: { 'level-1': fillRegion(regionOf(FRAME)!) } }) });
     const sent = capture();
     render(<FogBody />);
     fireEvent.click(screen.getByTestId('fog-fog-all'));
     expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'fog-all', payload: {} });
+    useSessionStore.getState().applyServerMessage({ type: 'history', undo: { module: 'fog', action: 'fog-all' }, redo: null });
     const toast = useToasts.getState().toast!;
     expect(toast.action?.label).toBe('Undo');
     toast.action!.onAction();
-    expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'restore', payload: { cleared: before } });
+    expect(sent.at(-1)).toEqual({ type: 'history', op: 'undo' });
+  });
 
+  it('drops the Undo once another step lands on top of the bulk act', () => {
+    useSessionStore.setState({ session: fogged() });
+    const sent = capture();
+    render(<FogBody />);
     fireEvent.click(screen.getByTestId('fog-clear-all'));
-    expect(sent.at(-1)).toMatchObject({ action: 'clear-all' });
-    useToasts.getState().toast!.action!.onAction();
-    expect(sent.at(-1)).toMatchObject({ module: 'fog', action: 'restore', payload: { cleared: before } });
+    useSessionStore.getState().applyServerMessage({ type: 'history', undo: { module: 'fog', action: 'clear-all' }, redo: null });
+    useSessionStore.getState().applyServerMessage({ type: 'history', undo: { module: 'tokens', action: 'move' }, redo: null });
+    const toast = useToasts.getState().toast!;
+    expect(toast.message).toBe('Cleared the fog from the whole map.');
+    expect(toast.action).toBeUndefined();
+    expect(sent.filter((m) => (m as { type?: string }).type === 'history')).toEqual([]);
   });
 
   it('draws the Look still as billowed cloud in the look’s own colours', () => {

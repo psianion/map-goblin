@@ -1,6 +1,6 @@
 // The floor card (frame D): Size, Layer, Walls (a brush piece's own Rock instead) with their width and Height, then Look (Colour with Reset, Texture with
-// Change, Tint, Opacity, the Fill fold), then Edge (Edge band, and a painted border's texture
-// and width). Colour shows for floors
+// Change, Tint, Opacity, the Fill fold), then Edge (Edge band, a painted border's texture and
+// width, and the layer's Floor edges). Colour shows for floors
 // without a texture, Tint and Fill for textured ones: each row only where it changes something.
 
 import { z } from 'zod';
@@ -16,8 +16,9 @@ import type { DungeonLayer, DungeonStyle, ShapeChild } from '@/store/types';
 import { defineCard, defineCardField } from '@/editor/registry/define';
 import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/selectionModel';
 import { editChildren, editKey } from './cardWrites';
+import { FLOOR_EDGE_OPTIONS, blendsFloorEdges, setFloorEdges } from './layerStyle';
 import { FLOOR_VERBS, openOutlineNodes } from './verbs';
-import { edgeBandOf, fillOf, layerBandOf, pickedFloors, state, type FillValue } from './floorModel';
+import { drawnWallSetOf, edgeBandOf, fillOf, pickedFloors, roomPinsOver, state, unpinnedBandOf, type FillValue } from './floorModel';
 import { ColourField, EdgePaintField, FillField, FloorEdgeField, LayerField, PAINTED_EDGE, PLAIN_WALLS as LAYER_WALLS, RockField, TextureField, WallsField } from './FloorFields';
 import { ShoreField } from '@/editor/families/terrain/MaterialsColumn';
 import { defaultShoreId, isWaterMaterial } from '@dnd/core/src/assets/materialKit';
@@ -95,19 +96,23 @@ const walls = defineCardField<'shape', string | null>({
   control: 'custom',
   render: WallsField,
   visibleWhen: (o) => !isBrushCave(o),
-  read: (o) => {
-    if (o.ground) return null;
-    const pin = o.styleOverrides?.wallTextureSetId;
-    // A walled floor with no pin of its own shows its layer's set.
-    return typeof pin === 'string' && pin !== '' ? pin : (styleOf(o)?.wallTextureSetId || o.edgeMaterial || LAYER_WALLS);
-  },
+  // What its outline is drawn with: its edge band, its own pin, else its layer's set.
+  read: (o) => (o.ground ? null : drawnWallSetOf(o) || o.edgeMaterial || LAYER_WALLS),
   write: (_store, ids, v) =>
-    editChildren('Floor walls', ids, (c) => {
-      if (c.childType !== 'shape') return null;
-      if (v === null) return c.ground ? null : { ground: true };
-      if (v === LAYER_WALLS) return c.ground ? { ground: undefined } : null;
-      return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v } };
-    }),
+    editChildren(
+      'Floor walls',
+      ids,
+      (c) => {
+        if (c.childType !== 'shape') return null;
+        if (v === null) return c.ground ? null : { ground: true };
+        if (v === LAYER_WALLS) return c.ground ? { ground: undefined } : null;
+        // The set picked is what draws: an edge band of the floor's own would stand over it, so it goes.
+        return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v }, ...(c.edgeBand !== undefined ? { edgeBand: undefined } : {}) };
+      },
+      undefined,
+      // …and so would a room's own wall set on the floor's edges: the latest pick wins.
+      v === null || v === LAYER_WALLS ? [] : roomPinsOver(ids, 'wallTextureSetId'),
+    ),
 });
 
 /** The rock a brush cave or a brush ground piece's rim is laid with: any cave or cliff kit. */
@@ -160,6 +165,8 @@ const wallWidth = defineCardField<'shape', number>({
       ids,
       (c) => (c.childType === 'shape' ? { styleOverrides: { ...(c.styleOverrides ?? {}), wallWidth: cardWallWidth(w, wallSetOf(c)) } } : null),
       editKey('floor.wallWidth', ids),
+      // A room's own wall width on the floor's edges goes with it: the latest pick wins.
+      roomPinsOver(ids, 'wallWidth'),
     ),
 });
 
@@ -365,16 +372,42 @@ const edgeBand = defineCardField<'shape', string | null>({
   visibleWhen: (o) => !hasOwnRock(o),
   read: (o) => (o.edgePaint ? PAINTED_EDGE : edgeBandOf(o)),
   write: (_store, ids, v) =>
-    editChildren('Edge band', ids, (c) => {
-      if (c.childType !== 'shape') return null;
-      if (v === PAINTED_EDGE) {
-        const paint = c.edgePaint ?? defaultBorderTexture();
-        if (!paint) return null;
-        return { edgePaint: paint, edgeBand: edgeBandOf(c) !== null ? null : c.edgeBand };
-      }
-      const layer = selectLayerForChild(state(), c.id);
-      return { edgePaint: undefined, edgeBand: v === layerBandOf(layer?.type === 'dungeon' ? (layer as DungeonLayer) : null) ? undefined : v };
-    }),
+    editChildren(
+      'Edge band',
+      ids,
+      (c) => {
+        if (c.childType !== 'shape') return null;
+        if (v === PAINTED_EDGE) {
+          const paint = c.edgePaint ?? defaultBorderTexture();
+          if (!paint) return null;
+          return { edgePaint: paint, edgeBand: edgeBandOf(c) !== null ? null : c.edgeBand };
+        }
+        // The band it would draw anyway (its pinned set's, or its layer's) unpins it.
+        return { edgePaint: undefined, edgeBand: v === unpinnedBandOf(c) ? undefined : v };
+      },
+      undefined,
+      // A room's own wall set on the floor's edges would stand over the pick: the latest pick wins.
+      roomPinsOver(ids, 'wallTextureSetId'),
+    ),
+});
+
+/** Floor edges on the floor's layer, Sharp or Blend: the layer's one choice, written for every layer the picked floors lie on. */
+const floorEdges = defineCardField<'shape', boolean>({
+  id: 'card.floor.edges',
+  label: 'Floor edges',
+  schema: z.boolean(),
+  default: true,
+  home: 'card',
+  control: 'seg',
+  section: 'Edge',
+  options: [...FLOOR_EDGE_OPTIONS],
+  read: (o) => blendsFloorEdges(dungeonLayerOf(o)),
+  write: (_store, ids, blend) =>
+    setFloorEdges(
+      state(),
+      ids.flatMap((id) => selectLayerForChild(state(), id)?.id ?? []),
+      blend,
+    ),
 });
 
 const hasPaint = (o: ShapeChild) => !!o.edgePaint;
@@ -416,5 +449,5 @@ export const floorCard = defineCard<'shape'>({
   kind: 'shape',
   title: () => 'Floor',
   verbs: FLOOR_VERBS,
-  fields: [size, layer, walls, rock, wallWidth, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth],
+  fields: [size, layer, walls, rock, wallWidth, height, nodes, colour, texture, tint, opacity, soft, fill, shore, shoreWidth, shallowLine, edgeBand, edgePaint, edgePaintWidth, floorEdges],
 });

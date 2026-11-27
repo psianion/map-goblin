@@ -19,7 +19,8 @@ export function PauseOverlay() {
     const own = layer.current;
     if (!frozen || !own) return;
     (document.activeElement as HTMLElement | null)?.blur?.();
-    const held = Array.from(document.body.children).filter((el) => el !== own && !el.hasAttribute('inert'));
+    // The "Pick your character" card stays reachable over the pause (table lobby pass).
+    const held = Array.from(document.body.children).filter((el) => el !== own && !el.hasAttribute('inert') && !el.hasAttribute('data-above-pause'));
     for (const el of held) el.setAttribute('inert', '');
     return () => {
       for (const el of held) el.removeAttribute('inert');

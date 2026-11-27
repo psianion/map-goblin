@@ -38,17 +38,6 @@ async function openFromHandoff(page: Page, table: Awaited<ReturnType<typeof stan
   return invite;
 }
 
-/** The DM hands Bram to a player through the token card's Owner picker. */
-async function handOver(dm: Page, player: string): Promise<void> {
-  const canvas = dm.getByTestId('game-canvas');
-  const box = (await canvas.boundingBox())!;
-  const at = await worldPoint(dm, CAVE.partyStart.x, CAVE.partyStart.y);
-  await dm.mouse.click(box.x + at.x, box.y + at.y);
-  await expect(dm.getByTestId('token-card')).toBeVisible();
-  await dm.getByLabel('Owner').click();
-  await dm.getByRole('option', { name: player }).click();
-}
-
 test.describe('@cave outdoor ground, walls and a cave mouth', () => {
   test('the eight steps of the acceptance walk', async ({ page, newContext }) => {
     test.setTimeout(240_000);
@@ -59,11 +48,13 @@ test.describe('@cave outdoor ground, walls and a cave mouth', () => {
     // as every scene starts: the player is sent the whole map (the fog walk is `fog-map.spec`).
     const invite = await openFromHandoff(page, table);
 
-    // 2. A player joins and gets a token through the Owner picker.
+    // 2. A player joins into the lobby and picks Bram; Start puts him in the party start area.
     const context = await newContext();
     let player = await context.newPage();
     await joinTable(player, invite, 'Pim');
-    await handOver(page, 'Pim');
+    await player.getByTestId('lobby-pc').filter({ hasText: 'Bram' }).click();
+    await expect(player.getByTestId('lobby-mine')).toHaveText('Bram');
+    await page.getByTestId('lobby-start').click();
     await expect.poll(() => tokenAt(player, 'Bram')).toEqual(CAVE.partyStart);
 
     // 3. The player sees dirt, rock and the door from outside: the cave and the door ship.

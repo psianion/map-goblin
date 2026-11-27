@@ -8,10 +8,10 @@
 // changes. So feeding ClockwiseSweep the table's answer is writing that answer onto the
 // map's own doors. Core stays untouched (§2.5), and the editor's door art follows for free.
 
-import type { DoorChild, DoorState } from '@dnd/core/src/shared/types';
+import type { DoorState } from '@dnd/core/src/shared/types';
 import { useStore } from '@dnd/core/src/store/store';
 import type { DoorLiveState } from '@dnd/mechanics/doors';
-import type { LiveDoor } from './doors';
+import type { LiveDoor, PlayedDoor } from './doors';
 import { liveSceneDoors, subscribeLiveDoors } from './DoorRenderer';
 
 /**
@@ -50,7 +50,11 @@ export function syncDoorsToLighting(): () => void {
         for (const child of layer.children) {
           if (child.childType !== 'door') continue;
           const next = drift.get(child.id);
-          if (next) (child as DoorChild).state = next;
+          if (!next) continue;
+          // Keep what the map authored: a door with no table state seeds from it (`liveDoors`).
+          const door = child as PlayedDoor;
+          door.authoredState ??= door.state;
+          door.state = next;
         }
       }
     });

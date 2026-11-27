@@ -25,6 +25,8 @@ import {
   ReorderRoomsCommand,
   SetAreaLookCommand,
   SetLevelLookCommand,
+  SetRoomAnchorCommand,
+  SetRoomBoundaryCommand,
   SetRoomKeyCommand,
   SetRoomLookCommand,
   SetRoomNumberCommand,
@@ -480,5 +482,54 @@ describe('serialisation', () => {
     useStore.getState().loadFromFile(structuredClone(data));
     expect(useStore.getState().levels).toEqual(data.levels);
     expect(rooms()[0]).toEqual({ id: 'hall', name: 'Hall', number: 1, anchor: [4, 5] });
+  });
+});
+
+describe('suggest, outline and the pin', () => {
+  const line = { id: 'line-1', points: [[10, -0.3], [10, 10.3]] as [number, number][] };
+
+  it('accepts the divide lines and the rooms as one undo step, lines first', () => {
+    const id = seedHall();
+    const ghosts: Room[] = [{ id: 'g1', name: 'Room 2', number: 2, anchor: [15, 5] }];
+    undoManager.execute(new AcceptRoomsCommand(id, ghosts, [line]));
+    expect(dungeon().thresholds?.map((t) => t.id)).toEqual(['line-1']);
+    expect(ids()).toEqual(['hall', 'g1']);
+    // Split by the line, the hall and the new room each hold their own half.
+    expect(rooms().find((r) => r.id === 'hall')!.area).toBeCloseTo(100, 0);
+    undoManager.undo();
+    expect(dungeon().thresholds ?? []).toEqual([]);
+    expect(ids()).toEqual(['hall']);
+    undoManager.redo();
+    expect(ids()).toEqual(['hall', 'g1']);
+    expect(dungeon().thresholds).toHaveLength(1);
+  });
+
+  it('sets a room’s outline and pin, and undoes both', () => {
+    const id = seedHall();
+    const ring: [number, number][] = [[1, 1], [6, 1], [6, 6], [1, 6]];
+    undoManager.execute(new SetRoomBoundaryCommand(id, 'hall', ring, [3, 3]));
+    expect(rooms()[0]).toMatchObject({ boundary: ring, anchor: [3, 3] });
+    undoManager.undo();
+    expect(rooms()[0].boundary).toBeUndefined();
+    expect(rooms()[0].anchor).toEqual([4, 5]);
+  });
+
+  it('puts a pin left outside a moved outline back inside it', () => {
+    const id = seedHall();
+    undoManager.execute(new SetRoomBoundaryCommand(id, 'hall', [[10, 1], [14, 1], [14, 4], [10, 4]]));
+    const [x, y] = rooms()[0].anchor;
+    expect(x > 10 && x < 14 && y > 1 && y < 4).toBe(true);
+  });
+
+  it('moves an outlined room’s outline with its pin, and leaves a plain room’s alone', () => {
+    const id = seedHall();
+    undoManager.execute(new SetRoomBoundaryCommand(id, 'hall', [[1, 1], [6, 1], [6, 6], [1, 6]], [3, 3]));
+    undoManager.execute(new SetRoomAnchorCommand(id, 'hall', [5, 4]));
+    expect(rooms()[0].boundary).toEqual([[3, 2], [8, 2], [8, 7], [3, 7]]);
+    undoManager.undo();
+    expect(rooms()[0].boundary).toEqual([[1, 1], [6, 1], [6, 6], [1, 6]]);
+    undoManager.execute(new AddRoomCommand(id, { id: 'b', name: 'B', anchor: [15, 5] }));
+    undoManager.execute(new SetRoomAnchorCommand(id, 'b', [16, 5]));
+    expect(rooms().find((r) => r.id === 'b')!.boundary).toBeUndefined();
   });
 });

@@ -44,7 +44,8 @@ const stateWith = (...tokens: Token[]): TokensState => ({
   byScene: { [SCENE]: Object.fromEntries(tokens.map((t) => [t.id, t])) },
 })
 
-function harness(table: TableFlags | null = null) {
+function harness(flags: Pick<TableFlags, 'paused' | 'movementLocked'> | null = null) {
+  const table: TableFlags | null = flags && { started: true, playersMakePcs: true, lobbyShowsScene: false, ...flags }
   const module = buildTokens(undefined, undefined, undefined, () => table)
   const sent: ServerMessage[] = []
   const run = (state: TokensState, sender: Viewer, action: string, payload: unknown) => {

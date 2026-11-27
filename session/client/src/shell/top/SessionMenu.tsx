@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { Button, Caption, Popover, PopoverContent, PopoverTrigger, Separator, SwitchRow, formatBytes } from '@dnd/ui';
 import { Users } from '@dnd/ui/icons';
@@ -8,18 +9,20 @@ import { librarySize, runLibrary, useTableAssets } from '../../renderer/assetLoa
 import { seatColour } from '../seatColour';
 import { useInviteCode } from './inviteCode';
 import { withoutSupersededSeats } from './roster';
-import { assignToken, exportCampaign, leaveTable, setTableSwitch, type TableSwitches } from './sessionActions';
+import { openSheet } from '../sheets/registry';
+import { exportCampaign, leaveTable, setTableSwitch, type TableSwitches } from './sessionActions';
 
-const selectClass = 'h-7 max-w-36 rounded-control border border-line bg-panel px-1.5 text-xs text-text';
+/** One empty roster while the session is on its way, so the store never sees a fresh array per read. */
+const NO_PLAYERS: readonly PlayerInfo[] = [];
 
 function sceneTokens(state: TokensState | undefined, sceneId: string | null): Token[] {
   const scene = sceneId ? state?.byScene?.[sceneId] : undefined;
   return scene ? Object.values(scene).filter((t): t is Token => !!t && typeof t.id === 'string') : [];
 }
 
-/** Who is here; the DM assigns each player a token on the live scene from their row. */
+/** Who is here, and for the DM the token each player holds; characters are handed out in the Party sheet. */
 function Roster({ dm }: { dm: boolean }) {
-  const roster = useSessionStore((s) => s.session?.players ?? []);
+  const roster = useSessionStore((s) => s.session?.players ?? NO_PLAYERS);
   const youId = useSessionStore((s) => s.you?.identityId);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const tokens = sceneTokens(useModuleState<TokensState>('tokens'), sceneId);
@@ -40,24 +43,9 @@ function Roster({ dm }: { dm: boolean }) {
             {!p.connected && <span className="text-text-3">away</span>}
             {p.role === 'dm' && <span className="ml-auto rounded-key border border-line px-1.5 text-text-3">DM</span>}
             {dm && p.role === 'player' && (
-              <select
-                aria-label={`Token for ${p.name}`}
-                data-testid={`assign-${p.identityId}`}
-                className={`ml-auto ${selectClass}`}
-                value={owned?.id ?? ''}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  if (next) assignToken(next, p.identityId);
-                  else if (owned) assignToken(owned.id, null);
-                }}
-              >
-                <option value="">No token</option>
-                {tokens.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name || 'Unnamed'}
-                  </option>
-                ))}
-              </select>
+              <span className="ml-auto max-w-36 truncate text-text-3" data-testid={`seat-token-${p.identityId}`}>
+                {owned ? owned.name || 'Unnamed' : 'No token'}
+              </span>
             )}
           </li>
         );
@@ -108,6 +96,41 @@ function EndSession() {
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+/** After Start: send the players back to the lobby, behind a confirm line (table lobby pass). */
+function BackToLobby() {
+  const started = useModuleState<TableSwitches & { started?: boolean }>('table')?.started !== false;
+  const [confirming, setConfirming] = useState(false);
+  if (!started) return null;
+  if (!confirming) {
+    return (
+      <Button variant="outline" size="sm" className="self-start" data-testid="back-to-lobby" onClick={() => setConfirming(true)}>
+        Back to lobby
+      </Button>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-text-2">Players go back to the lobby. Tokens stay where they are.</p>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="back-to-lobby-confirm"
+          onClick={() => {
+            useSessionStore.getState().sendCommand('table', 'start', { on: false });
+            setConfirming(false);
+          }}
+        >
+          Back to lobby
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }
@@ -168,6 +191,7 @@ function DmControls() {
         disabled={!table}
         onCheckedChange={(on) => setTableSwitch('lock-movement', on)}
       />
+      <BackToLobby />
       <Separator />
       <div className="flex flex-col gap-1">
         <Button
@@ -197,10 +221,11 @@ function DmControls() {
 /** Top right: the Session menu. The DM runs the table from it; a player can leave. */
 export function SessionMenu() {
   const role = useSessionStore((s) => s.you?.role);
+  const [open, setOpen] = useState(false);
   if (!role) return null;
   const dm = role === 'dm';
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
           <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" data-testid="session-menu">
@@ -212,6 +237,11 @@ export function SessionMenu() {
       <PopoverContent align="end" className="flex w-80 flex-col gap-3 p-3" data-testid="session-popover">
         <Caption>At the table</Caption>
         <Roster dm={dm} />
+        {dm && (
+          <Button variant="outline" size="sm" className="self-start" data-testid="open-party-seats" onClick={() => { setOpen(false); openSheet('party'); }}>
+            Hand out characters
+          </Button>
+        )}
         {dm ? (
           <DmControls />
         ) : (

@@ -135,7 +135,7 @@ export function AskCheck() {
 function RequestCard({ req }: { req: RollRequest }) {
   const tokens = useModuleState<TokensState>('tokens');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const players = useSessionStore((s) => s.session?.players ?? []);
+  const players = useSessionStore((s) => s.session?.players ?? NO_PLAYERS);
   const [onFail, setOnFail] = useState<string>('restrained');
   const asked = req.targets ?? players.filter((p) => p.role === 'player').map((p) => p.identityId);
   const waiting = asked.filter((id) => !req.results.some((r) => r.identityId === id));

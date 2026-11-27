@@ -1,6 +1,6 @@
 // @live: opening or publishing never ends a live table (plan section 1, settled; F1, F19).
 // Written, never run by the builders.
-import { SECOND_MAP, SECOND_NAME, SERVER_URL, assertMapLoaded, expect, mintHandoff, test } from './fixtures';
+import { SECOND_MAP, SECOND_NAME, SERVER_URL, assertMapLoaded, expect, mintHandoff, startTable, test } from './fixtures';
 import { readFileSync } from 'node:fs';
 
 test.describe('@live a running table carries on', () => {
@@ -21,6 +21,7 @@ test.describe('@live a running table carries on', () => {
 
   test('a handoff naming another scene switches the live table to it', async ({ hostSession, joinAsPlayer }) => {
     const player = await joinAsPlayer('Pim');
+    await startTable(hostSession.page, player);
     const up = await fetch(`${SERVER_URL}/api/campaigns/${hostSession.campaignId}/maps`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', Authorization: `Bearer ${hostSession.token}` },
@@ -38,6 +39,7 @@ test.describe('@live a running table carries on', () => {
 
   test('switching to a hidden scene still reaches the players, and the DM is told', async ({ hostSession, joinAsPlayer }) => {
     const player = await joinAsPlayer('Pim');
+    await startTable(hostSession.page, player);
     const auth = { 'content-type': 'application/json', Authorization: `Bearer ${hostSession.token}` };
     const up = await fetch(`${SERVER_URL}/api/campaigns/${hostSession.campaignId}/maps`, { method: 'POST', headers: auth, body: readFileSync(SECOND_MAP, 'utf8') });
     const { sceneId } = (await up.json()) as { sceneId: string };

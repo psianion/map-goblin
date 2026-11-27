@@ -38,6 +38,7 @@ import { SelectTool } from '@dnd/core/src/engine/tools/SelectTool';
 import {
   OUTLINE_FADE_MS,
   acceptSuggestion,
+  lineMark,
   mountRoomOverlay,
   rejectSuggestion,
   roomOverlayModel,
@@ -291,6 +292,46 @@ describe('suggestion ghosts', () => {
     expect(useStore.getState().ui.roomSuggestions!.rooms.map((r) => r.id)).toEqual(['g1']);
     expect(layer().rooms!.map((r) => r.id)).toEqual(['west', 'east']);
     expect(undoManager.canUndo()).toBe(false);
+  });
+
+  it('carry the divide lines Suggest proposed', () => {
+    const line = { id: 'line-1', points: [[30, -0.3], [30, 10.3]] as [number, number][] };
+    useStore.getState().setRoomSuggestions({ layerId: layer().id, rooms: [ghost, ghost2], divides: [line] });
+    expect(model().divides).toEqual([line]);
+    useStore.getState().setRoomSuggestions(null);
+    expect(model().divides).toEqual([]);
+  });
+});
+
+describe('a proposed line’s ✕', () => {
+  // A short passage's line, two cells long, with the passage's name chip over its middle.
+  const line = { id: 'line-1', points: [[10, 4.7], [10, 7.3]] as [number, number][] };
+  const half = 0.5;
+  const overlaps = (p: [number, number], b: { x: number; y: number; hw: number; hh: number }) =>
+    Math.abs(p[0] - b.x) < half + b.hw && Math.abs(p[1] - b.y) < half + b.hh;
+
+  it('sits just past the first end of the line, outside the floor', () => {
+    expect(lineMark(line, [], half)).toEqual([10, 4.2]);
+  });
+
+  it('is pushed out along the line until it clears every ghost’s chip', () => {
+    const chip = { x: 10, y: 4, hw: 2, hh: 0.6 };
+    const at = lineMark(line, [chip], half);
+    expect(overlaps(at, chip)).toBe(false);
+    // The other end is clear at once, so that end wins.
+    expect(at).toEqual([10, 7.8]);
+    const both = [chip, { x: 10, y: 8, hw: 2, hh: 0.6 }];
+    const pushed = lineMark(line, both, half);
+    for (const b of both) expect(overlaps(pushed, b)).toBe(false);
+    expect(pushed[0]).toBe(10);
+    expect(pushed[1] < 4.7 || pushed[1] > 7.3).toBe(true);
+  });
+
+  it('stays on the map: an end at the frame’s edge gives way to the other', () => {
+    const frame = { minX: 0, minY: 4.5, maxX: 20, maxY: 20 };
+    const at = lineMark(line, [], half, frame);
+    expect(at).toEqual([10, 7.8]);
+    expect(at[1] - half).toBeGreaterThanOrEqual(frame.minY);
   });
 });
 

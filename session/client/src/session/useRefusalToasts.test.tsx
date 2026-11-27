@@ -10,6 +10,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { DOOR_CLOSED, DOOR_LOCKED, refusal } from '@dnd/mechanics/doors';
+import { TABLE_NOT_STARTED_ERROR, TABLE_PAUSED_ERROR } from '@dnd/mechanics/table';
 import { MOVE_BLOCKED, OUTSIDE_MAP, ROOM_UNEXPLORED } from '@dnd/mechanics/tokens';
 import { useToasts } from './toasts';
 import { useSessionStore } from './store';
@@ -39,6 +40,12 @@ describe('the words a refusal gets', () => {
     expect(refusalToast(say(DOOR_CLOSED, 'd-1'), IRON_DOOR)).toBe('Iron Door is closed.');
     // A door this seat does not hold still gets an answer, just a nameless one.
     expect(refusalToast(say(DOOR_LOCKED, 'd-9'), [])).toBe('The door is locked.');
+  });
+
+  it('says why a mark was refused: paused, not started, or not this seat’s to make', () => {
+    expect(refusalToast(TABLE_PAUSED_ERROR.message, [])).toBe('The DM has paused the table.');
+    expect(refusalToast(TABLE_NOT_STARTED_ERROR.message, [])).toBe('The DM has not started the table yet.');
+    expect(refusalToast('only the DM may place templates', [])).toBe('Only the DM can do that.');
   });
 
   it('says nothing for a refusal that is not the player’s business', () => {

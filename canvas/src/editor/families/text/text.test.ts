@@ -36,7 +36,7 @@ function seed(children: (TextChild | ZoneChild)[], rooms: Room[] = [], picked: s
 
 const layer = () => st().layers[0] as { children: (TextChild | ZoneChild)[]; rooms: Room[]; areas: { id: string; name: string }[] };
 function field<K extends ObjectKind>(kind: K, id: string): CardFieldDef<K> {
-  const f = TEXT_CARDS.find((c) => c.kind === kind)?.fields.find((x) => x.id === id);
+  const f = cards.find((c) => c.kind === kind)?.fields.find((x) => x.id === id);
   if (!f) throw new Error(id);
   return f as unknown as CardFieldDef<K>;
 }
@@ -52,45 +52,24 @@ describe('the Text family', () => {
     expect(validateRegistry(input(), createDefaultState())).toEqual([]);
   });
 
-  it('holds Label, Zone and one Rooms tool under X, Label off N', () => {
+  it('holds Label and Zone under X, Label off N, and nothing about rooms', () => {
     expect(text.key).toBe('X');
     expect(text.tools.map((t) => [t.label, t.key])).toEqual([
       ['Label', 'A'],
       ['Zone', 'Z'],
-      ['Rooms', 'R'],
     ]);
-    expect(reg.toolById('rooms')!.engine).toEqual(['roomRect', 'roomPolygon', 'divide']);
+    expect(text.tools.flatMap((t) => t.engine).some((e) => /room|divide|outline/.test(e))).toBe(false);
+    expect(TEXT_CARDS.map((c) => c.kind)).toEqual(['text', 'zone']);
   });
 
-  it('keeps the room views out of the tools: they live in the View menu', () => {
+  it('keeps the views out of the tools: they live in the View menu', () => {
     const ids = text.tools.flatMap((t) => t.settings.map((s) => s.id));
     expect(ids.some((id) => /outline|labels|mood/i.test(id))).toBe(false);
-    expect(reg.settingsByHome('rooms', 'panel').map((s) => s.id)).toEqual(['rooms.walls']);
-    expect(reg.settingsByHome('rooms', 'dock').map((s) => s.id)).toEqual(['rooms.mode', 'rooms.divider']);
-    expect(reg.toolById('rooms')!.dock.map((c) => c.id)).toEqual(['rooms.floor']);
-  });
-
-  it('the Rooms tool’s Draw row follows the engine tool in hand and swaps Walls for Divider on Divide', () => {
-    const visible = (id: string) => {
-      const def = reg.settingById(id)!;
-      return !def.visibleWhen || def.visibleWhen((x) => settings.getSetting(x));
-    };
-    const hint = () => reg.toolById('rooms')!.hint(st());
-    st().setActiveTool('roomRect');
-    expect(settings.getSetting('rooms.mode')).toBe('rect');
-    expect([visible('rooms.walls'), visible('rooms.divider')]).toEqual([true, false]);
-    expect(hint().label).toBe('Rooms');
-    settings.setSetting('rooms.mode', 'polygon');
-    expect(st().tools.activeTool).toBe('roomPolygon');
-    settings.setSetting('rooms.mode', 'divide');
-    expect(st().tools.activeTool).toBe('divide');
-    expect([visible('rooms.walls'), visible('rooms.divider')]).toEqual([false, true]);
-    expect(hint().segments[0].text).toContain('Drag across a floor');
   });
 
   it('carries no Mood on the room, area or level cards', () => {
     for (const kind of ['room', 'area', 'level'] as const) {
-      const ids = TEXT_CARDS.find((c) => c.kind === kind)!.fields.map((f) => f.id);
+      const ids = cards.find((c) => c.kind === kind)!.fields.map((f) => f.id);
       expect(ids.some((id) => /mood/i.test(id)), kind).toBe(false);
     }
   });

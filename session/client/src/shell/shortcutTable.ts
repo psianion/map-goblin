@@ -1,6 +1,6 @@
 import type { Role } from '@dnd/core/src/shared/protocol';
 import { dockTabs } from './dock/registry';
-import { BINDINGS, CAMERA_KEYS } from './hotkeys';
+import { BINDINGS, CAMERA_KEYS, historyKeys, onMac } from './hotkeys';
 import { railToolsFor } from './rail/registry';
 
 export interface ShortcutRow {
@@ -19,12 +19,13 @@ const caption = (key: string, shift?: boolean): string => {
 };
 
 /** Board 9's list, generated from the rail and dock registries plus the fixed bindings. */
-export function shortcutTable(role: Role): ShortcutSection[] {
+export function shortcutTable(role: Role, mac = onMac()): ShortcutSection[] {
   const sections: ShortcutSection[] = [
     { title: 'Tools', rows: railToolsFor(role).map((t) => ({ id: `rail:${t.id}`, label: t.title, keys: [t.key] })) },
   ];
   if (role === 'dm') {
     sections.push({ title: 'Dock', rows: dockTabs().map((t) => ({ id: `dock:${t.id}`, label: t.title, keys: [t.key] })) });
+    sections.push({ title: 'Undo', rows: historyKeys(mac).map((k) => ({ ...k, keys: [...k.keys] })) });
   }
   for (const b of BINDINGS) {
     if (!b.roles.includes(role)) continue;

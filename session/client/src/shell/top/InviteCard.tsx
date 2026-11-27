@@ -5,6 +5,10 @@ import { useSessionStore } from '../../session/store';
 import { seatColour } from '../seatColour';
 import { inviteLink, useInviteCode, usePlayersJoined } from './inviteCode';
 import { withoutSupersededSeats } from './roster';
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
+
+/** One empty roster while the session is on its way, so the store never sees a fresh array per read. */
+const NO_PLAYERS: readonly PlayerInfo[] = [];
 
 function CopyLink({ link }: { link: string }) {
   const [copied, setCopied] = useState(false);
@@ -32,7 +36,7 @@ function CopyLink({ link }: { link: string }) {
 /** Code, link, QR and the party filling in: the Invite card's body, big or in its popover. */
 export function InviteBody({ large }: { large?: boolean }) {
   const code = useInviteCode();
-  const roster = useSessionStore((s) => s.session?.players ?? []);
+  const roster = useSessionStore((s) => s.session?.players ?? NO_PLAYERS);
   const party = withoutSupersededSeats(roster).filter((p) => p.role === 'player');
   if (!code) return <p className="text-xs text-text-3">Looking up the invite code…</p>;
   const link = inviteLink(code);

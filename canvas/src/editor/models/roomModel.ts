@@ -344,6 +344,30 @@ export function roomHintFor(s: MapBuilderStore): ToolHint | null {
   return levelSelectedHint(target.level, layers, rooms);
 }
 
+/** What Suggest says when it finds no space to propose. */
+export const SUGGEST_NOTHING = "No closed spaces without a room. A gap in the walls needs a door, or draw the room's outline.";
+
+/** What a room card says when its room holds no floor: anchored off every face, or no face at all. */
+export const ROOM_OPEN = 'This space is open';
+
+/** Whether a room has lost its floor: its card says so and offers Outline it. */
+export function roomIsOpen(room: Pick<Room, 'orphaned' | 'area'>): boolean {
+  return !!room.orphaned || room.area === undefined;
+}
+
+/** The Publish dialog's rooms line: how many rooms the map has, and whether to offer Suggest. */
+export function publishRoomsLine(layers: readonly Layer[]): { count: number; text: string; suggest: boolean } {
+  let count = 0;
+  let floor = false;
+  for (const l of layers) {
+    if (l.type !== 'dungeon') continue;
+    count += l.rooms?.length ?? 0;
+    if (!floor) floor = (l.mergedFloor?.length ?? 0) > 0 || l.children.some((c) => c.childType === 'shape' && c.visible);
+  }
+  const text = count === 0 ? 'No rooms yet.' : `${count} room${count === 1 ? '' : 's'}.`;
+  return { count, text, suggest: count === 0 && floor };
+}
+
 /** "5 rooms", or "3 rooms · 2 suggested" while proposals are up. */
 export function roomCountText(rooms: number, suggested: number): string {
   const base = `${rooms} room${rooms === 1 ? '' : 's'}`;

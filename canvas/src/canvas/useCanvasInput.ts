@@ -37,6 +37,7 @@ import {
   endOutlineDrag,
   cancelOutlineDrag,
   isDraggingOutline,
+  resolveOutline,
   toggleShapeNodeEditAt,
 } from '@/engine/shapeNodeEdit';
 import {
@@ -121,7 +122,7 @@ const RAW_POINT_TOOLS = new Set(['scatterBrush', 'plateau']);
  * The room a double-click lands on, where rooms pick: the topmost visible, unlocked
  * layer's pick, when that pick is a room (a prop or a wall standing in it wins).
  */
-export function roomUnder(world: Point, zoom: number): { layerId: string; anchor: [number, number] } | null {
+export function roomUnder(world: Point, zoom: number): { layerId: string; id: string; anchor: [number, number]; outlined: boolean } | null {
   if (!roomPickingEnabled()) return null;
   if (!onMap(world.x, world.y)) return null;
   const state = useStore.getState();
@@ -130,7 +131,7 @@ export function roomUnder(world: Point, zoom: number): { layerId: string; anchor
     if (l.type !== 'dungeon' || l.locked || !isLayerEffectivelyVisible(state, l)) continue;
     const hit = pickInLayer(l as DungeonLayer, [world.x, world.y], { zoom });
     if (!hit) continue;
-    return hit.kind === 'room' ? { layerId: l.id, anchor: hit.room.anchor } : null;
+    return hit.kind === 'room' ? { layerId: l.id, id: hit.room.id, anchor: hit.room.anchor, outlined: (hit.room.boundary?.length ?? 0) >= 3 } : null;
   }
   return null;
 }
@@ -472,6 +473,11 @@ export function useCanvasInput(
       // corner and smooth; only a double-click elsewhere exits the mode.
       if (useStore.getState().tools.shapeNodeEditId) {
         const hit = outlineHitAt(world, engine.stage().scale.x);
+        // A room's outline keeps straight sides: a double-click on its point does nothing.
+        if (hit?.kind === 'vertex' && resolveOutline(useStore.getState().tools.shapeNodeEditId ?? '')?.roomId) {
+          e.preventDefault();
+          return;
+        }
         if (hit?.kind === 'vertex') {
           useStore.getState().selectVertex(hit.index);
           applyOutlineEdit({ kind: 'toggleSmooth', index: hit.index }, 'Toggle smooth corner');
@@ -495,6 +501,12 @@ export function useCanvasInput(
         const room = roomUnder(world, engine.stage().scale.x);
         if (room) {
           if (useStore.getState().ui.activeLayerId !== room.layerId) useStore.getState().setActiveLayerId(room.layerId);
+          // A room drawn by its outline: its own points open, with the floor's handles.
+          if (room.outlined) {
+            useStore.getState().setShapeNodeEdit(room.id);
+            e.preventDefault();
+            return;
+          }
           if (toggleShapeNodeEditAt({ x: room.anchor[0], y: room.anchor[1] })) {
             notify.subtle('Editing the floor under this room');
             e.preventDefault();

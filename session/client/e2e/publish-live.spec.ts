@@ -33,7 +33,15 @@ test.describe('@publish canvas publish reaches the live table', () => {
     const { page, campaignId, sceneId, token } = hostSession;
     expect(process.env.E2E_DATA_DIR, 'global-setup exposes the server data dir').toBeTruthy();
 
-    // Before: the DM turns fog on and clears some ground, and the PC types stand on the map.
+    // Before: the DM puts both PC types on the map (a new table waits in the lobby with nobody
+    // on it), turns fog on and clears some ground.
+    await page.evaluate(() => {
+      type Store = { session: { modules: { tokens: { library: Record<string, { id: string; kind?: string }> } } } | null; sendCommand(m: string, a: string, p: unknown): void };
+      const store = (window as unknown as { __sessionStore: { getState(): Store } }).__sessionStore.getState();
+      for (const def of Object.values(store.session!.modules.tokens.library)) {
+        if (def.kind === 'pc') store.sendCommand('tokens', 'place-pc', { defId: def.id });
+      }
+    });
     await page.keyboard.press('1');
     await page.getByTestId('fog-switch').click();
     await expect(page.getByTestId('fog-switch')).toHaveAttribute('aria-pressed', 'true');

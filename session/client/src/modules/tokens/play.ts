@@ -15,7 +15,7 @@ import {
   type TokenSize,
   type TokensState,
 } from '@dnd/mechanics/tokens';
-import type { TableState } from '@dnd/mechanics/table';
+import { TABLE_INITIAL, type TableState } from '@dnd/mechanics/table';
 import { useSessionStore } from '../../session/store';
 
 export const sendTokens = (action: string, payload: unknown): void =>
@@ -92,6 +92,8 @@ export const hpDanger = (t: Pick<TokenDef, 'hp'>): boolean => {
 };
 
 export const tableFlags = (state: TableState | undefined): TableState => ({
+  ...TABLE_INITIAL,
+  ...state,
   paused: state?.paused === true,
   movementLocked: state?.movementLocked === true,
 });

@@ -24,6 +24,7 @@ import {
   UpdateChildCommand,
   CompositeCommand,
 } from '../store/commands';
+import { SetRoomBoundaryCommand } from '../store/roomCommands';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { pointInPolygon } from './hitTest';
 import { notify } from '../shared/notify';
@@ -161,6 +162,32 @@ export interface OutlineTarget {
    * result.
    */
   tangents?: RingTangents;
+  /**
+   * Set when the outline is a room's own (`Room.boundary`, drawn with the Outline tool), not
+   * a floor's: the same handles move its points, and edits write the room, never a shape.
+   */
+  roomId?: string;
+}
+
+/** A room drawn by its outline, as an edit target: straight edges, no holes, no shapes. */
+function resolveRoomOutline(roomId: string): OutlineTarget | null {
+  for (const layer of useStore.getState().layers) {
+    if (layer.type !== 'dungeon') continue;
+    const room = layer.rooms?.find((r) => r.id === roomId);
+    if (!room) continue;
+    if (!room.boundary || room.boundary.length < 3) return null;
+    return { layer, outline: room.boundary, holes: [], contributors: () => [], roomId };
+  }
+  return null;
+}
+
+/** Write a room's outline straight to the store: a drag's preview frames and its rewind. */
+function setRoomBoundary(layerId: string, roomId: string, ring: Polygon): void {
+  useStore.setState((s) => {
+    const l = s.layers.find((la) => la.id === layerId);
+    const room = l && l.type === 'dungeon' ? l.rooms?.find((r) => r.id === roomId) : undefined;
+    if (room) room.boundary = ring.map(([x, y]): [number, number] => [x, y]);
+  });
 }
 
 /** The ring `target` actually edits: its outer boundary, or one of its holes. */
@@ -187,8 +214,7 @@ export function resolveOutline(shapeId: string): OutlineTarget | null {
   const layer = state.layers.find(
     (l): l is DungeonLayer => l.type === 'dungeon' && l.children.some((c) => c.id === shapeId),
   );
-  if (!layer) return null;
-
+  if (!layer) return resolveRoomOutline(shapeId);
 
   const shape = layer.children.find(
     (c): c is ShapeChild => c.id === shapeId && c.childType === 'shape',
@@ -495,6 +521,10 @@ export function commitOutline(
   nextTangents?: RingTangents,
 ): string | null {
   const { layer } = target;
+  if (target.roomId) {
+    undoManager.execute(new SetRoomBoundaryCommand(layer.id, target.roomId, next, undefined, label));
+    return target.roomId;
+  }
   const contours = contoursWith(target, next);
   const contributors = target.contributors();
   if (contributors.length === 0) return null;
@@ -664,6 +694,8 @@ interface DragSession {
   latest: CurvedRing | null;
   /** Begun on a midpoint: `base` already holds the new node, which commits even unmoved. */
   inserted: boolean;
+  /** A room's outline being dragged, and the outline it had: previews and the rewind write the room. */
+  room?: { id: string; before: Polygon };
 }
 
 let drag: DragSession | null = null;
@@ -796,6 +828,30 @@ function startDrag(
     baseTangents?: RingTangents;
   },
 ): boolean {
+  if (target.roomId) {
+    drag = {
+      layerId: target.layer.id,
+      beforeChildren: [],
+      originalShapeId: session.shapeId,
+      ringIndex: null,
+      base: session.base.map(([x, y]): [number, number] => [x, y]),
+      baseTangents: session.baseTangents ?? padTangents(undefined, session.base.length),
+      authored: false,
+      rings: { outline: target.outline, holes: [], hole: undefined },
+      kind: session.kind,
+      index: session.index,
+      indices: session.indices,
+      which: session.which,
+      mirror: session.mirror,
+      mirrorLocked: session.mirrorLocked,
+      ownerId: target.roomId,
+      collapsed: false,
+      latest: null,
+      inserted: false,
+      room: { id: target.roomId, before: target.outline.map(([x, y]): [number, number] => [x, y]) },
+    };
+    return true;
+  }
   const beforeChildren = structuredClone(target.layer.children) as AnyChild[];
   const contributors = target.contributors();
   let ownerId = contributors[0]?.id;
@@ -954,6 +1010,10 @@ export function updateOutlineDrag(
 function preview(next: CurvedRing): void {
   if (!drag) return;
   drag.latest = next;
+  if (drag.room) {
+    setRoomBoundary(drag.layerId, drag.room.id, next.ring);
+    return;
+  }
   useStore.getState().updateChild(drag.layerId, drag.ownerId, {
     contours: contoursWith(drag.rings, next.ring),
     // An unauthored basis (union collapse, stone drag) writes flattened
@@ -973,7 +1033,8 @@ export function endOutlineDrag(): void {
   if (!session) return;
 
   const final = session.latest;
-  setChildren(session.layerId, session.beforeChildren);
+  if (session.room) setRoomBoundary(session.layerId, session.room.id, session.room.before);
+  else setChildren(session.layerId, session.beforeChildren);
   // Always back to the pre-collapse shape: the merged id is gone now.
   if (session.originalShapeId) useStore.getState().setShapeNodeEdit(session.originalShapeId);
 
@@ -1014,7 +1075,8 @@ export function cancelOutlineDrag(): void {
   const session = drag;
   drag = null;
   if (!session) return;
-  setChildren(session.layerId, session.beforeChildren);
+  if (session.room) setRoomBoundary(session.layerId, session.room.id, session.room.before);
+  else setChildren(session.layerId, session.beforeChildren);
   if (session.originalShapeId) useStore.getState().setShapeNodeEdit(session.originalShapeId);
 }
 

@@ -5,6 +5,7 @@ import { CanvasContextMenu } from '@/editor/CanvasContextMenu';
 import { GridCalibrationOverlay } from '@/editor/GridCalibrationOverlay';
 import { ExportModal } from '@/editor/dialogs/ExportModal';
 import { PublishDialog } from '@/editor/dialogs/PublishDialog';
+import { openRoomsAndSuggest } from '@/editor/families/rooms/openRooms';
 import { EditorShell } from '@/editor/shell/EditorShell';
 import { SHELL_TOASTER } from '@/editor/surfaces/toaster';
 import { startAutosave, isDocumentChange, isSettingsChange } from '@/io/autosave';
@@ -194,7 +195,14 @@ export function EditorHost({ home, onHome, openSettings }: EditorHostProps) {
 
     {/* Modals + overlays outside the layout so they never clip */}
     <ExportModal open={exportOpen} onOpenChange={setExportOpen} />
-    <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} />
+    <PublishDialog
+      open={publishOpen}
+      onOpenChange={setPublishOpen}
+      onSuggestRooms={() => {
+        setPublishOpen(false);
+        openRoomsAndSuggest();
+      }}
+    />
 
     {/* Off-screen file input for image import */}
     <input

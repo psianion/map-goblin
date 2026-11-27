@@ -47,10 +47,10 @@ export function CombatBar() {
                 className="block rounded-pill"
                 onClick={() => useTokenInteraction.getState().select(c.tokenId)}
               >
-                <TokenPortrait name={c.name} assetId={c.imageAssetId} className={c.current ? 'size-10' : 'size-8'} />
+                <TokenPortrait name={c.name} assetId={c.imageAssetId} ring={c.ring} className={c.current ? 'size-10' : 'size-8'} />
               </button>
             ) : (
-              <TokenPortrait name={c.name} assetId={c.imageAssetId} className={c.current ? 'size-10' : 'size-8'} />
+              <TokenPortrait name={c.name} assetId={c.imageAssetId} ring={c.ring} className={c.current ? 'size-10' : 'size-8'} />
             )}
           </li>
         ))}

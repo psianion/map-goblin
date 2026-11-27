@@ -508,23 +508,23 @@ test('the dock shows the family’s tools and changes tool without the flyout', 
   expect((await box(page.getByTestId('shell-dock'))).height).toBe(112)
 })
 
-test('Set up tabs: with Rooms in hand the Walls tab shows the wall Look, and Rooms stays in hand', { tag: '@layers' }, async ({ page }) => {
+test('Set up tabs: with Draw room in hand the Walls tab shows the wall Look, and Draw room stays in hand', { tag: '@layers' }, async ({ page }) => {
   await openBlank(page)
-  await pickFromFlyout(page, 'Text', 'Rooms')
+  await pickFromFlyout(page, 'Rooms', 'Draw room')
   const dock = page.getByTestId('shell-dock')
   const setup = dock.locator('[data-column="setup"]')
-  await expect(setup.getByRole('button')).toHaveText(['Rooms', 'Walls', 'Doors'])
+  await expect(setup.getByRole('button')).toHaveText(['Draw room', 'Walls', 'Doors'])
   await expect(dock.getByTestId('design-floor-look')).toBeVisible()
   await setup.getByRole('button', { name: 'Walls', exact: true }).click()
   await waitFrame(page, 2)
   await expect(dock.getByTestId('design-wall-look')).toBeVisible()
   await expect(dock.getByTestId('design-floor-look')).toHaveCount(0)
-  await expect(dock.locator('[data-setting="rooms.mode"]')).toHaveCount(0)
+  await expect(dock.locator('[data-setting="rooms.shape"]')).toHaveCount(0)
   expect(await store(page, `(s) => s.tools.activeTool`)).toBe('roomRect')
-  await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'rooms')
+  await expect(page.getByTestId('shell-tool-panel')).toHaveAttribute('data-tool', 'roomDraw')
   expect((await box(dock)).height).toBe(112)
   // Back to the tool's own tab.
-  await setup.getByRole('button', { name: 'Rooms', exact: true }).click()
+  await setup.getByRole('button', { name: 'Draw room', exact: true }).click()
   await expect(dock.getByTestId('design-floor-look')).toBeVisible()
 })
 

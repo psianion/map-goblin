@@ -1,12 +1,26 @@
 // @story — table v2 story and dice (plan section 7). Written against the shared fixtures
 // (`hostSession`: a DM page at a live table; `joinAsPlayer(name)`: a second page seated as
 // that player). Unrun until step T.
+import type { Page } from '@playwright/test';
 import { dmCommands, expect, test } from './fixtures';
+
+/**
+ * A player joins, picks the character of the same name in the lobby, and the DM starts the
+ * table (table lobby pass): what is shown reaches a seat on the map, not one in the lobby.
+ */
+async function seated(hostSession: { token: string }, joinAsPlayer: (name: string) => Promise<Page>, name: string): Promise<Page> {
+  const player = await joinAsPlayer(name);
+  await player.getByTestId('lobby-pc').filter({ hasText: name }).click();
+  await expect(player.getByTestId('lobby-mine')).toHaveText(name);
+  await dmCommands(hostSession.token, [{ module: 'table', action: 'start', payload: { on: true } }]);
+  await expect(player.getByTestId('lobby')).toBeHidden({ timeout: 30_000 });
+  return player;
+}
 
 test.describe('@story story and dice', () => {
   test('a handout shown full screen reaches the player, hides, and stays in their journal', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
-    const player = await joinAsPlayer('Bram');
+    const player = await seated(hostSession, joinAsPlayer, 'Bram');
     await page.keyboard.press('5');
     await page.getByTestId('handout-add').click();
     await page.getByLabel('Handout caption').fill('The letter');
@@ -20,7 +34,7 @@ test.describe('@story story and dice', () => {
 
   test('an image handout shown to the player carries its picture', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
-    const player = await joinAsPlayer('Bram');
+    const player = await seated(hostSession, joinAsPlayer, 'Bram');
     await page.keyboard.press('5');
     await page.getByTestId('handout-add').click();
     await page.getByLabel('Handout caption').fill('The map');
@@ -36,7 +50,7 @@ test.describe('@story story and dice', () => {
 
   test('a title card shows over the table and goes', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
-    const player = await joinAsPlayer('Yara');
+    const player = await seated(hostSession, joinAsPlayer, 'Yara');
     await page.keyboard.press('5');
     await page.getByTestId('story-title').fill('Chapter 2: The Warren');
     await page.getByTestId('story-title-show').click();
@@ -47,7 +61,7 @@ test.describe('@story story and dice', () => {
 
   test('roll modes: a public roll reaches the player, a GM only one never does', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
-    const player = await joinAsPlayer('Bram');
+    const player = await seated(hostSession, joinAsPlayer, 'Bram');
     await page.keyboard.press('8');
     await page.getByTestId('dice-mode-gmonly').click();
     await page.getByTestId('dice-formula').fill('1d4+100');
@@ -65,7 +79,7 @@ test.describe('@story story and dice', () => {
 
   test('a roll request reaches the player, the result lands on the DM card, and Share posts it', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
-    const player = await joinAsPlayer('Bram');
+    const player = await seated(hostSession, joinAsPlayer, 'Bram');
     await page.keyboard.press('8');
     await page.getByTestId('ask-dc').fill('14');
     await page.getByTestId('ask-send').click();
@@ -93,7 +107,7 @@ test.describe('@story story and dice', () => {
 
   test('the journal keeps what was shared', async ({ hostSession, joinAsPlayer }) => {
     const { page } = hostSession;
-    const player = await joinAsPlayer('Yara');
+    const player = await seated(hostSession, joinAsPlayer, 'Yara');
     await page.keyboard.press('5');
     await page.getByTestId('story-title').fill('Night falls');
     await page.getByTestId('story-title-show').click();
@@ -105,18 +119,15 @@ test.describe('@story story and dice', () => {
 // Table fix pass F23 and F31: one prompt stack on the player's seat; ask-a-check in the strip.
 test.describe('@story the prompt stack', () => {
   test('a check request and the initiative prompt stack without overlap', async ({ hostSession, joinAsPlayer }) => {
-    const player = await joinAsPlayer('Bram');
+    const player = await seated(hostSession, joinAsPlayer, 'Bram');
     const { page } = hostSession;
-    // The DM hands Bram to the player (the Owner picker's command), so the player has a combatant.
+    // The player picked Bram in the lobby and Start put him on the map: a combatant of their own.
     const playerId = await player.evaluate(() => (window as unknown as { __sessionStore?: { getState(): { you: { identityId: string } | null } } }).__sessionStore?.getState().you?.identityId);
     const bramOn = (p: typeof page) =>
       p.evaluate(() => {
         const s = (window as unknown as { __sessionStore?: { getState(): { session: { activeSceneId: string; modules: { tokens: { byScene: Record<string, Record<string, { id: string; name: string; ownerId: string | null }>> } } } | null } } }).__sessionStore?.getState().session;
         return Object.values(s?.modules.tokens.byScene[s.activeSceneId] ?? {}).find((t) => t.name === 'Bram') ?? null;
       });
-    const bram = await bramOn(page);
-    expect(bram, 'Bram on the live scene').not.toBeNull();
-    await dmCommands(hostSession.token, [{ module: 'tokens', action: 'assign', payload: { id: bram!.id, identityId: playerId } }]);
     await expect.poll(async () => (await bramOn(player))?.ownerId).toBe(playerId);
     await page.keyboard.press('8');
     await expect(page.getByTestId('ask-check')).toBeVisible();

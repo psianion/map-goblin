@@ -18,6 +18,8 @@ export interface CombatChip {
   tokenId: string | null;
   /** The token's uploaded art, for the portrait. */
   imageAssetId: string | null;
+  /** The token's ring colour, for the portrait. */
+  ring?: string;
   /** 0..1 of the pool left, as far as this seat is told; null when it is not. */
   hp: number | null;
   /** At 0 HP. */
@@ -78,6 +80,7 @@ export function combatBarOf(
       identityId: ownerOf(e, tokens, sceneId),
       tokenId: e.tokenId ?? null,
       imageAssetId: token?.imageAssetId ?? null,
+      ring: token?.ring,
       hp: pool && pool.max > 0 ? Math.max(0, Math.min(1, pool.current / pool.max)) : null,
       down: !!pool && pool.current === 0,
       current: i === turn,

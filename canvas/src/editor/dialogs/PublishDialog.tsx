@@ -1,8 +1,29 @@
 import { useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useStore } from '@/store/store';
+import { publishRoomsLine } from '@/editor/models/roomModel';
 import { Button, Dialog, DialogContent, Input, PrimaryButton, SecondaryButton, timeAgo } from '@dnd/ui';
 import { usePublishFlow, type PublishChange } from '@/io/publishFlow';
 import { useEscapeToClose } from '@/editor/useEscapeToClose';
 import { Actions, DialogHead, ErrorLine, Field, Hint } from './parts';
+
+/**
+ * How many rooms go to the table. A map with floor and no rooms reaches the table as one
+ * open space, so the line offers Suggest rooms.
+ */
+export function RoomsLine({ onSuggest }: { onSuggest?: () => void }) {
+  const line = useStore(useShallow((s) => publishRoomsLine(s.layers)));
+  return (
+    <div className="flex items-baseline gap-1.5 border-t border-line pt-2.5" data-testid="v2-publish-rooms">
+      <span className="text-text">{line.text}</span>
+      {line.suggest && onSuggest && (
+        <Button variant="link" size="sm" className="h-auto p-0 text-[12px]" data-testid="v2-publish-suggest-rooms" onClick={onSuggest}>
+          Suggest rooms
+        </Button>
+      )}
+    </div>
+  );
+}
 
 const CHANGED: Record<PublishChange, string> = {
   map: 'Map changed since your last publish.',
@@ -16,7 +37,16 @@ const CHANGED: Record<PublishChange, string> = {
  * campaign (or a new one). Nothing changed still offers Publish anyway: the table may hold
  * another map by now. Enter submits whichever step is showing.
  */
-export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function PublishDialog({
+  open,
+  onOpenChange,
+  onSuggestRooms,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The rooms line's Suggest rooms: the dialog closes, the Rooms tools come up and Suggest runs. */
+  onSuggestRooms?: () => void;
+}) {
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
   const flow = usePublishFlow({ open, onClose: close });
   const { mode, busy, busyLabel, error, summary, published, campaigns, adminPass, newCampaignName } = flow;
@@ -172,6 +202,7 @@ export function PublishDialog({ open, onOpenChange }: { open: boolean; onOpenCha
           )}
 
           {error && <ErrorLine>{error}</ErrorLine>}
+          {mode !== 'checking' && mode !== 'published' && <RoomsLine onSuggest={onSuggestRooms} />}
         </div>
 
         <Actions>

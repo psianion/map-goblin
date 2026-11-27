@@ -234,15 +234,27 @@ export function hitTest(tokens: readonly Token[], x: number, y: number): Token |
   return best;
 }
 
-const send = (action: string, payload: unknown): void =>
-  useSessionStore.getState().sendCommand('tokens', action, payload);
+const send = (action: string, payload: unknown, group?: string): void =>
+  useSessionStore.getState().sendCommand('tokens', action, payload, group);
+
+/** One id per drag, so the DM's undo takes the whole gesture back as one step. */
+let gestures = 0;
+const gestureGroup = (): string => `drag-${Date.now().toString(36)}-${(gestures += 1)}`;
 
 /** Wires select / click-to-place / drag onto the canvas. Returns the detach function. */
 export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () => void {
   const canvas = engine.canvas();
   const throttle = createThrottle(MOVE_INTERVAL_MS);
-  let drag: { id: string; size: TokenSize; dx: number; dy: number; x: number; y: number; moved: boolean } | null =
-    null;
+  let drag: {
+    id: string;
+    size: TokenSize;
+    dx: number;
+    dy: number;
+    x: number;
+    y: number;
+    moved: boolean;
+    group: string;
+  } | null = null;
 
   /**
    * The whole gesture, kept until the server has answered the drop.
@@ -255,20 +267,20 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
    * The gesture is one move as far as a player is concerned, so a refusal undoes all of it.
    */
   let gesture:
-    | { id: string; from: { x: number; y: number }; to: { x: number; y: number }; endedAt: number }
+    | { id: string; from: { x: number; y: number }; to: { x: number; y: number }; endedAt: number; group: string }
     | null = null;
 
   /** Put the token back where the pointer picked it up, on this side and on the server's. */
   const revert = (): void => {
     if (!gesture) return;
-    const { id, from } = gesture;
+    const { id, from, group } = gesture;
     gesture = null;
     layer.settleAt(id, from.x, from.y);
     // The sprite answers immediately; the server has to be *told*, because the hops it
     // accepted on the way are real state over there and only a move undoes them. Deferred
     // one microtask because this runs from a store subscription, and `sendCommand` drops
     // anything sent while a server message is still being folded in (`applyingRemote`).
-    queueMicrotask(() => send('move', { id, x: from.x, y: from.y }));
+    queueMicrotask(() => send('move', { id, x: from.x, y: from.y }, group));
   };
 
   /**
@@ -355,9 +367,10 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
       showToast({ message: held });
       return;
     }
-    drag = { id: token.id, size: token.size, dx: x - token.x, dy: y - token.y, x: token.x, y: token.y, moved: false };
+    const group = gestureGroup();
+    drag = { id: token.id, size: token.size, dx: x - token.x, dy: y - token.y, x: token.x, y: token.y, moved: false, group };
     // `endedAt: 0` is "the pointer is still down" — nothing can be this gesture's verdict yet.
-    gesture = { id: token.id, from: { x: token.x, y: token.y }, to: { x: token.x, y: token.y }, endedAt: 0 };
+    gesture = { id: token.id, from: { x: token.x, y: token.y }, to: { x: token.x, y: token.y }, endedAt: 0, group };
     layer.setDragging(token.id, true);
     useTokenInteraction.getState().setDraggingId(token.id);
     canvas.setPointerCapture(e.pointerId);
@@ -390,12 +403,12 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
       refuseDrag(e);
       return;
     }
-    const id = drag.id;
+    const { id, group } = drag;
     drag.x = x;
     drag.y = y;
     drag.moved = true;
     layer.placeAt(id, x, y);
-    throttle.run(() => send('move', { id, x, y }));
+    throttle.run(() => send('move', { id, x, y }, group));
   };
 
   /** A crossing refused the move: let go of the token and put it back where it was picked up. */
@@ -412,7 +425,7 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     if (!drag) return;
     claim(e);
     // The throttle may have dropped the last move — the drop is always sent.
-    if (drag.moved) send('move', { id: drag.id, x: drag.x, y: drag.y });
+    if (drag.moved) send('move', { id: drag.id, x: drag.x, y: drag.y }, drag.group);
     layer.setDragging(drag.id, false);
     useTokenInteraction.getState().setDraggingId(null);
     // A gesture that never moved sent nothing, so there is nothing a refusal could undo.

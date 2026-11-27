@@ -1,12 +1,19 @@
 import type { DungeonLayer, Room } from './types';
 import type { Polygon } from '../geometry/GeometryEngine';
-import { roomFaces } from '../engine/roomDetection';
-import { computeMergedFloor } from '../engine/mergedFloor';
 import { bindDoorToRooms } from '../shared/roomBinding';
-import { faceMetrics, pointInRing } from '../shared/roomUtils';
+import { faceMetrics, pointInRing, signedArea } from '../shared/roomUtils';
 import { buildRoomIndex, type RoomIndex } from '../shared/roomIndex';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
-import { caveCutters } from '../shared/caveFloor';
+import {
+  groundFaceCut,
+  NO_ROOM_CONTEXT,
+  outlineFace,
+  paintedAreaCuts,
+  roomFacesOf,
+  walledFaceCut,
+  walledFloorOf,
+  type RoomContext,
+} from '../shared/roomFloor';
 
 /*
  * Geometry refresh for rooms. Pure: no store, so the session server runs the same
@@ -55,6 +62,34 @@ function bboxOf(ring: readonly [number, number][]): [number, number, number, num
   return [x0, y0, x1, y1];
 }
 
+/**
+ * The smallest of `faces` holding a point: a face is its outer ring only, so a room sealed
+ * inside another (a tower in a field) sits inside both, and the outer one is the wrong answer.
+ */
+function smallestFaceAt(faces: readonly Polygon[]): (x: number, y: number) => Polygon | null {
+  const boxes = faces.map(bboxOf);
+  const areas = faces.map((f) => Math.abs(signedArea(f)));
+  return (x, y) => {
+    let best: Polygon | null = null;
+    let bestArea = Infinity;
+    for (let i = 0; i < faces.length; i++) {
+      const [x0, y0, x1, y1] = boxes[i];
+      if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+      if (areas[i] >= bestArea || !pointInRing(x, y, faces[i])) continue;
+      best = faces[i];
+      bestArea = areas[i];
+    }
+    return best;
+  };
+}
+
+/** Whether a point lies on a cut floor: inside an odd number of its rings (holes and islands count). */
+function onRings(x: number, y: number, rings: readonly Polygon[]): boolean {
+  let n = 0;
+  for (const ring of rings) if (pointInRing(x, y, ring)) n++;
+  return n % 2 === 1;
+}
+
 function sameRing(a: readonly [number, number][] | undefined, b: readonly [number, number][] | undefined): boolean {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
@@ -69,59 +104,59 @@ function sameIds(a: readonly string[] | undefined, b: readonly string[] | undefi
 }
 
 /**
- * The faces a layer's rooms can sit in: merged floor minus standalone walls minus
- * thresholds and painted caves' edges. Suggest cuts its faces the same way.
+ * The faces a layer's rooms can sit in (`roomFacesOf`); without a context, the walled floor's
+ * alone. Suggest cuts its faces the same way.
  */
-export function layerFaces(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): Polygon[] {
-  // A layer fresh off disk carries `mergedFloor: null` until the engine unions it;
-  // the server never has one. Union it here rather than reading "no floor".
-  const floor: Polygon[] = layer.mergedFloor ?? computeMergedFloor(layer) ?? [];
-  // A painted cave's edge cuts the faces as a threshold does, so a cave inside a floor is a face of its own.
-  return roomFaces(floor, layer.standaloneWalls, gridSize, layer.style?.wallWidth ?? 0, [...(layer.thresholds ?? []), ...caveCutters(layer)]);
+export function layerFaces(layer: DungeonLayer, _gridSize = ROOM_GRID_SIZE, ctx: RoomContext = NO_ROOM_CONTEXT): Polygon[] {
+  return roomFacesOf(layer, ctx);
 }
 
 /**
  * Refresh one dungeon layer's rooms from its geometry:
  *
- * 1. Cutters: the standalone walls and the thresholds (0.1 of a cell wide).
- * 2. Faces: the merged floor minus the cutters. A layer with no floor has no faces
- *    — Suggest is what covers a walls-only import.
- * 3. Each room's face is the one holding its anchor. None does: the room is
+ * 1. Faces: `roomFacesOf` — the walled floor less walls, thresholds and painted caves'
+ *    edges, and on a layer with walls the closed spaces in its ground too (`ctx`), cut only
+ *    when some pin sits off the walled floor.
+ * 2. Each room's face is the smallest one holding its anchor; failing that, the painted area
+ *    under it (`paintedAreaCuts`). None does: the room is
  *    `orphaned` and keeps the face it last had. Two anchors in one face both get
  *    it; the overlay flags that, and the DM merges by hand.
- * 4. A room with a hand-traced `boundary` (image-only maps) takes that as its face.
- * 5. Doors bind to the rooms on either side, and each room lists its doors.
+ * 3. A room with an outline (`boundary`) takes the outline cut to the ground under it.
+ * 4. Doors bind to the rooms on either side, and each room lists its doors.
  *
  * Never creates or removes a room: rooms are authored, this only places them.
  */
-export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE): RoomSyncResult {
+export function syncRooms(layer: DungeonLayer, gridSize = ROOM_GRID_SIZE, ctx: RoomContext = NO_ROOM_CONTEXT): RoomSyncResult {
   const before = layer.rooms ?? [];
-  const needFaces = before.some((r) => !(r.boundary && r.boundary.length >= 3));
-  const faces = needFaces ? layerFaces(layer, gridSize) : [];
-  const boxes = faces.map(bboxOf);
-
-  // The smallest face holding the point: a face is its outer ring only, so a room sealed
-  // inside another (a tower in a field) sits inside both, and the outer one is the wrong answer.
-  const faceAt = (x: number, y: number): Polygon | null => {
-    let best: Polygon | null = null;
-    let bestArea = Infinity;
-    for (let i = 0; i < faces.length; i++) {
-      const [x0, y0, x1, y1] = boxes[i];
-      if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      if (!pointInRing(x, y, faces[i])) continue;
-      const area = (x1 - x0) * (y1 - y0);
-      if (area < bestArea) {
-        best = faces[i];
-        bestArea = area;
-      }
+  const outlined = (r: Room): boolean => !!r.boundary && r.boundary.length >= 3;
+  const pinned = before.filter((r) => !outlined(r));
+  let faces: Polygon[] = [];
+  if (pinned.length > 0) {
+    const walled = walledFloorOf(layer);
+    const own = walledFaceCut(layer, [], walled);
+    faces = own.faces;
+    // The ground is cut only when a pin sits off the walled floor. A pin on it is held by a
+    // walled face smaller than any ground face round it (ground faces never cover walled floor).
+    if (pinned.some((r) => !onRings(r.anchor[0], r.anchor[1], own.rings))) {
+      const ground = groundFaceCut(layer, ctx, [], walled);
+      if (ground) faces = [...faces, ...ground.faces];
     }
-    return best;
+  }
+  const faceAt = smallestFaceAt(faces);
+  // Last, for a pin nothing above holds: the painted area under it, on any layer, so a room
+  // on painted floor follows that floor (and keeps it when walls or walled floor come later).
+  // Cut at most once per sync, and only when some pin needs it. Base ground is never one.
+  let paintedAt: ((x: number, y: number) => Polygon | null) | null = null;
+  const pinnedAt = (x: number, y: number): Polygon | null => {
+    const hit = faceAt(x, y);
+    if (hit) return hit;
+    paintedAt ??= smallestFaceAt(paintedAreaCuts(layer).flatMap((c) => c.faces));
+    return paintedAt(x, y);
   };
 
   // Faces first, doors second: binding reads the faces just placed.
   const placed = before.map((room) => {
-    const own = room.boundary && room.boundary.length >= 3 ? room.boundary : null;
-    const hit = own ?? faceAt(room.anchor[0], room.anchor[1]);
+    const hit = outlined(room) ? outlineFace(layer, ctx, room.boundary!) : pinnedAt(room.anchor[0], room.anchor[1]);
     return { room, face: hit ?? room.face, orphaned: !hit };
   });
   const provisional: Room[] = placed.map(({ room, face }) => ({ ...room, face }));
