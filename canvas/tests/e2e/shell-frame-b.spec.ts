@@ -44,9 +44,9 @@ test('frame B: the Floor tool draws, its dock and panel settings act, undo takes
   await expect(header.getByRole('button')).toHaveCount(4)
   await expect(header.getByRole('button', { name: 'Floor' })).toHaveAttribute('aria-pressed', 'true')
 
-  // Setup only. No Mode until Carve out lands, no Defaults until floor opacity renders.
+  // Setup only: Draw or Carve out, snapping, the edge choices, and what new floors start with.
   const captions = await panel.locator('[data-section]').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.section))
-  expect(captions).toEqual(['Placement', 'Edge'])
+  expect(captions).toEqual(['Mode', 'Placement', 'Edge', 'Defaults for new floors'])
   await expect(panel.getByText('Snap to grid')).toBeVisible()
   await expect(panel.getByText('Floor edges')).toBeVisible()
   // Nothing in both, and the floor tools no longer carry the wall width.

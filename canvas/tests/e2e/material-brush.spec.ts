@@ -13,7 +13,7 @@ test('material brush: paint a patch, its border is drawn', { tag: '@terrain' }, 
   await pickFromFlyout(page, 'Terrain', 'Material brush')
   await waitFrame(page, 4)
 
-  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Size', 'materials'])
+  expect(await dockColumns(page)).toEqual(['level', 'layers', 'family', 'setup', 'Size', 'Strength', 'Rooms', 'materials'])
   const swatch = page.getByTestId('terrain-materials').getByRole('button', { name: 'Cave ink' })
   await expect(swatch).toBeVisible()
   const panel = page.getByTestId('shell-tool-panel')

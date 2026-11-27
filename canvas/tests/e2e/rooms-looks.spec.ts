@@ -1,10 +1,11 @@
 // Floors and walls follow rooms (rooms plan, section 11.4): a chamber and a passage poking one
 // cell into it past a short wall with its door. Change the chamber's floor and the overhang
 // cell reads the chamber's floor in Blend and the passage's in Sharp; across the door the
-// chamber's floor rises steadily, with no step; an Edge band picked on the passage's card
-// changes its long side at once and leaves the chamber's walls as they were.
+// chamber's floor rises steadily, with no step; with the passage's room pinned to a wall set of
+// its own, an Edge band picked on the passage's card clears that pin (the latest pick wins),
+// changes the long side at once and leaves the chamber's walls as they were.
 
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { getPixelColor, pressShortcut, waitFrame } from './helpers'
 import { floorArtLanded, lookAt, openEditor } from './shell'
 
@@ -120,8 +121,9 @@ test('rooms looks: a changed chamber takes its overhang in Blend, not in Sharp, 
 
   // Across the door, from the passage's side into the chamber, the red rises steadily.
   const samples: number[] = []
-  // Along the passage's middle, from just short of the door leaf into the chamber.
-  for (let x = 8.95; x >= 8.1; x -= 0.03) samples.push(greenOverRed(await rgbAt(page, { x, y: 4 })))
+  // Along the passage's middle into the chamber, from x = 8.86: the door's marker and leaf cover
+  // x of about 8.93 and up, so a sample there reads the door, not the floor.
+  for (let x = 8.86; x >= 8.1; x -= 0.03) samples.push(greenOverRed(await rgbAt(page, { x, y: 4 })))
   for (let i = 1; i < samples.length; i++) {
     expect(samples[i], `sample ${i}`).toBeLessThanOrEqual(samples[i - 1] + 0.06)
     expect(samples[i - 1] - samples[i], `no step at sample ${i}`).toBeLessThan(0.2)
@@ -145,7 +147,7 @@ test('rooms looks: a changed chamber takes its overhang in Blend, not in Sharp, 
   await expect.poll(() => page.evaluate((id) => (window as Any).__store.getState().layers.find((l: Any) => l.id === id).style.showEdgeTransitions, layerId)).toBe(true)
 })
 
-test("rooms looks: an Edge band picked on the passage changes its long side at once, the chamber's walls stay", { tag: '@design' }, async ({ page }) => {
+test("rooms looks: an Edge band picked on the passage wins over its room's own set and changes its long side at once, the chamber's walls stay", { tag: '@design' }, async ({ page }) => {
   await openEditor(page)
   const layerId = await layCave(page)
   await page.getByTestId('shell-rail').getByRole('button', { name: 'Select' }).click()
@@ -168,22 +170,57 @@ test("rooms looks: an Edge band picked on the passage changes its long side at o
   const chamberBefore = await region(CHAMBER_WALL)
 
   await select(page, 'passage-floor')
-  const field = page.getByTestId('shell-card').locator('[data-setting="card.floor.edgeBand"]')
-  await expect(field).toBeVisible()
-  const picked = await field.locator('[data-swatch-picked]').getAttribute('data-swatch-picked').catch(() => null)
-  const swatches = field.locator('[data-swatch]')
-  if ((await swatches.count()) === 0) await field.locator('[data-swatch-picked]').click()
-  const values = await field.locator('[data-swatch]').evaluateAll((els) => els.map((e) => e.getAttribute('data-swatch')))
-  const band = values.find((v) => v && v !== picked && v !== '__none__' && v !== '__paint__')
-  expect(band, 'another band to pick').toBeTruthy()
-  await field.locator(`[data-swatch="${band}"]`).click()
-  await expect
-    .poll(() => page.evaluate((id) => (window as Any).__store.getState().layers.find((l: Any) => l.id === id).children.find((c: Any) => c.id === 'passage-floor').edgeBand, layerId))
-    .toBe(band)
-
-  // No other edit: the long side redraws in its new band, the chamber's wall does not move.
+  const card = page.getByTestId('shell-card')
+  const bandField = card.locator('[data-setting="card.floor.edgeBand"]')
+  await expect(bandField).toBeVisible()
+  const bands = await swatchValues(bandField)
+  // The passage's room pins a stone set of the packs' own, which draws over the floor's edges.
+  const walls = await swatchValues(card.locator('[data-setting="card.floor.walls"]'))
+  const stone = walls.values.find((v) => !bands.values.includes(v) && v !== '__nowalls__' && v !== '__plain__')
+  expect(stone, 'a stone wall set in the packs').toBeTruthy()
+  await page.evaluate(
+    ({ id, set }) => {
+      ;(window as Any).__store.setState((d: Any) => {
+        const room = d.layers.find((l: Any) => l.id === id).rooms.find((r: Any) => r.id === 'passage')
+        room.look = { ...(room.look ?? {}), wallTextureSetId: set }
+      })
+    },
+    { id: layerId, set: stone },
+  )
   await select(page, null)
   await page.mouse.move(2, 2)
-  await expect.poll(async () => (await region(LONG_SIDE)) !== sideBefore, { message: "the passage's long side redraws", timeout: 15_000 }).toBe(true)
+  await expect.poll(async () => (await region(LONG_SIDE)) !== sideBefore, { message: "the room's own set draws on the long side", timeout: 15_000 }).toBe(true)
+  const sideUnderRoom = await region(LONG_SIDE)
+
+  // The pick: another band when the packs have one, else the band it draws anyway. Either way the latest pick wins.
+  await select(page, 'passage-floor')
+  const now = await swatchValues(bandField)
+  const band = now.values.find((v) => v !== now.picked && v !== '__none__' && v !== '__paint__') ?? now.picked
+  expect(band, 'a band to pick').toBeTruthy()
+  await bandField.locator(`[data-swatch="${band}"]`).click()
+  const passageRoomSet = () =>
+    page.evaluate((id) => (window as Any).__store.getState().layers.find((l: Any) => l.id === id).rooms.find((r: Any) => r.id === 'passage').look?.wallTextureSetId ?? null, layerId)
+  await expect.poll(passageRoomSet, { message: "the room's own set goes with the pick" }).toBeNull()
+
+  // No other edit: the long side redraws in the floor's band, the chamber's wall does not move.
+  await select(page, null)
+  await page.mouse.move(2, 2)
+  await expect.poll(async () => (await region(LONG_SIDE)) !== sideUnderRoom, { message: "the passage's long side redraws", timeout: 15_000 }).toBe(true)
   expect(await region(CHAMBER_WALL)).toBe(chamberBefore)
 })
+
+/**
+ * A swatch field's choices and the one picked, read without waiting on either form: a compact
+ * picker shows only its picked tile until opened, an open one every tile with the picked one pressed.
+ */
+async function swatchValues(field: Locator): Promise<{ values: string[]; picked: string | null }> {
+  const collapsed = field.locator('[data-swatch-picked]')
+  const picked = (await collapsed.count()) > 0 ? await collapsed.first().getAttribute('data-swatch-picked') : null
+  // Opened only when no tile is shown: a compact picker's tiles open in a popover of their own.
+  const inline = (await field.locator('[data-swatch]').count()) > 0
+  if (!inline && (await collapsed.count()) > 0) await collapsed.first().click()
+  const tiles = inline ? field.locator('[data-swatch]') : field.page().locator('[data-composite="swatches"] [data-swatch]')
+  const values = (await tiles.evaluateAll((els) => els.map((e) => e.getAttribute('data-swatch')))).filter((v): v is string => !!v)
+  const pressed = await tiles.evaluateAll((els) => els.find((e) => e.getAttribute('aria-pressed') === 'true')?.getAttribute('data-swatch') ?? null)
+  return { values, picked: picked ?? pressed }
+}
