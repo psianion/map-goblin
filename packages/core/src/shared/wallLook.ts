@@ -463,15 +463,80 @@ export function edgeStyles(layer: DungeonLayer, level?: RoomLook): (DungeonStyle
 }
 
 /** A walled floor's own outline, flattened as the union is drawn from, and its box. */
-interface PinnedFloor {
+interface OutlineFloor {
+  shape: ShapeChild;
   rings: [number, number][][];
   box: [number, number, number, number];
-  /** The style its outline draws with: its pins over the layer's, or the layer's. */
+}
+
+/** An outline floor with the style its outline draws with: its pins over the layer's, or the layer's. */
+interface PinnedFloor extends OutlineFloor {
   style: DungeonStyle;
 }
 
 /** How near a floor's own outline an edge's midpoint counts as on it, cells: the union rounds to hundredths. */
 const ON_OUTLINE = 0.01;
+
+/** The layer's visible walled floors. */
+const walledShapes = (layer: DungeonLayer): ShapeChild[] =>
+  layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.visible !== false && !c.ground);
+
+/** `shape`'s own outline, or null for one with no ring to draw. */
+function outlineOf(shape: ShapeChild): OutlineFloor | null {
+  const rings = shape.contours.map((_, i) => shapeRing(shape, i)).filter((r) => r.length >= 2);
+  return rings.length === 0 ? null : { shape, rings, box: bbox(rings.flat()) };
+}
+
+/** Of `floors` (last drawn first), those whose box comes near `ring`'s. */
+function floorsNear<T extends OutlineFloor>(floors: readonly T[], ring: readonly [number, number][]): T[] {
+  const [rx0, ry0, rx1, ry1] = bbox(ring);
+  return floors.filter((f) => f.box[2] >= rx0 - ON_OUTLINE && f.box[0] <= rx1 + ON_OUTLINE && f.box[3] >= ry0 - ON_OUTLINE && f.box[1] <= ry1 + ON_OUTLINE);
+}
+
+/** The floor an outline edge with midpoint `m` belongs to: the first of `floors` (last drawn first) whose own outline holds it. */
+function floorOfEdge<T extends OutlineFloor>(floors: readonly T[], m: readonly [number, number]): T | undefined {
+  return floors.find(
+    (f) => m[0] >= f.box[0] - ON_OUTLINE && m[0] <= f.box[2] + ON_OUTLINE && m[1] >= f.box[1] - ON_OUTLINE && m[1] <= f.box[3] + ON_OUTLINE && onRings(m, f.rings),
+  );
+}
+
+/** The wall keys a pick on a floor card writes, as a room's look names them. */
+export type FloorWallKey = 'wallTextureSetId' | 'wallWidth';
+
+/**
+ * The rooms on `layer` whose own look pins `key` and so draws over at least one edge of the
+ * floor `floorId`'s own outline, by the attribution `edgeStyles` draws with (each outline edge
+ * belongs to the later floor whose outline holds it; its room is `edgeRoom`'s). A pin that comes
+ * from the room's area is not the room's own: such a room is not named. For a pick on that floor
+ * to show, these rooms' pins of `key` go. Empty for a ground piece or a layer with no union.
+ */
+export function roomsOverridingFloor(layer: DungeonLayer, floorId: string, key: FloorWallKey): string[] {
+  const pinning = (layer.rooms ?? []).some((r) => !r.orphaned && r.look?.[key] !== undefined);
+  const rings = layer.mergedFloor ?? [];
+  if (!pinning || rings.length === 0) return [];
+  const floors: OutlineFloor[] = [];
+  const shapes = walledShapes(layer);
+  for (let k = shapes.length - 1; k >= 0; k--) {
+    const f = outlineOf(shapes[k]);
+    if (f) floors.push(f);
+  }
+  const own = floors.find((f) => f.shape.id === floorId);
+  if (!own) return [];
+  const out = new Set<string>();
+  for (const ring of rings) {
+    const n = ring.length;
+    if (n < 2 || floorsNear([own], ring).length === 0) continue;
+    const near = floorsNear(floors, ring);
+    for (let e = 0; e < n; e++) {
+      const a = ring[e];
+      const b = ring[(e + 1) % n];
+      if (floorOfEdge(near, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]) !== own) continue;
+      const room = edgeRoom(layer.rooms, a, b);
+      if (room && room.look?.[key] !== undefined) out.add(room.id);
+    }
+  }
+  return [...out];
+}
 
 /**
  * The walled floors, last drawn first, each with the style its own outline draws with; null when
@@ -479,15 +544,15 @@ const ON_OUTLINE = 0.01;
  * map: then nothing is measured.
  */
 function floorsPinnedApart(layer: DungeonLayer, level: RoomLook | undefined): PinnedFloor[] | null {
-  const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape' && c.visible !== false && !c.ground);
+  const shapes = walledShapes(layer);
   const pins = shapes.map(outlinePins);
   if (pins.every((p) => p === null) || pins.every((p) => samePins(p, pins[0]))) return null;
   const base = levelStyle(layer.style, level);
   const levelPins = levelWallPins(level);
   const out: PinnedFloor[] = [];
   for (let k = shapes.length - 1; k >= 0; k--) {
-    const rings = shapes[k].contours.map((_, i) => shapeRing(shapes[k], i)).filter((r) => r.length >= 2);
-    if (rings.length === 0) continue;
+    const outline = outlineOf(shapes[k]);
+    if (!outline) continue;
     const p = pins[k];
     let style = base;
     if (p) {
@@ -495,7 +560,7 @@ function floorsPinnedApart(layer: DungeonLayer, level: RoomLook | undefined): Pi
       style = { ...base, ...keys, ...levelPins };
       if (noBand && style.wallTextureSetId && isBandSetId(style.wallTextureSetId)) style.wallTextureSetId = '';
     }
-    out.push({ rings, box: bbox(rings.flat()), style });
+    out.push({ ...outline, style });
   }
   return out;
 }
@@ -524,18 +589,14 @@ const sameOutline = (a: DungeonStyle, b: DungeonStyle): boolean => OUTLINE_KEYS.
  */
 function floorStylesAlong(ring: readonly [number, number][], floors: readonly PinnedFloor[], ringStyle: DungeonStyle): DungeonStyle[] | null {
   const n = ring.length;
-  const [rx0, ry0, rx1, ry1] = bbox(ring);
-  const near = floors.filter((f) => f.box[2] >= rx0 - ON_OUTLINE && f.box[0] <= rx1 + ON_OUTLINE && f.box[3] >= ry0 - ON_OUTLINE && f.box[1] <= ry1 + ON_OUTLINE);
+  const near = floorsNear(floors, ring);
   if (near.length === 0) return null;
   const looks = new Map<PinnedFloor, DungeonStyle>();
   let out: DungeonStyle[] | null = null;
   for (let e = 0; e < n; e++) {
     const a = ring[e];
     const b = ring[(e + 1) % n];
-    const m: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    const floor = near.find(
-      (f) => m[0] >= f.box[0] - ON_OUTLINE && m[0] <= f.box[2] + ON_OUTLINE && m[1] >= f.box[1] - ON_OUTLINE && m[1] <= f.box[3] + ON_OUTLINE && onRings(m, f.rings),
-    );
+    const floor = floorOfEdge(near, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
     if (!floor) continue;
     let style = looks.get(floor);
     if (!style) looks.set(floor, (style = sameOutline(floor.style, ringStyle) ? ringStyle : floor.style));

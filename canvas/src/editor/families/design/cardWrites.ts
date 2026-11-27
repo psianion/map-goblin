@@ -57,14 +57,16 @@ export const editKey = (field: string, ids: readonly string[]) => `card:${field}
 type Patch = Record<string, unknown>;
 
 /**
- * Patches each picked child (`patch` may return null to leave one alone) as one step. A
- * child on a locked layer is left alone, with the reason said once.
+ * Patches each picked child (`patch` may return null to leave one alone) as one step, with
+ * `also` (commands that go with the patch) in the same step. A child on a locked layer is
+ * left alone, with the reason said once.
  */
 export function editChildren(
   label: string,
   ids: readonly string[],
   patch: (child: AnyChild) => Patch | null,
   coalesce?: string,
+  also: readonly Command[] = [],
 ): void {
   const state = useStore.getState();
   const cmds: Command[] = [];
@@ -85,8 +87,8 @@ export function editChildren(
     if (Object.keys(after).every((k) => Object.is(before[k], after[k]))) continue;
     cmds.push(new UpdateChildCommand(label, layer.id, id, before as Partial<AnyChild>, after as Partial<AnyChild>));
   }
-  if (blocked && cmds.length === 0) notify.warning(blocked);
-  runEdit(label, cmds, coalesce);
+  if (blocked && cmds.length === 0 && also.length === 0) notify.warning(blocked);
+  runEdit(label, [...cmds, ...also], coalesce);
 }
 
 /** The same for drawn walls. */

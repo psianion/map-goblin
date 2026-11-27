@@ -9,7 +9,7 @@ import { computeMergedFloor } from './mergedFloor';
 import { syncRooms } from '../store/roomSync';
 import { drawRoomFills, roomCover, roomFillPlan, roomFillsBuilt, seamRamp, faceReach, type RoomFill } from './roomFillRenderer';
 import { washStrips } from './edgeTransitions';
-import { edgeStyles } from '../shared/wallLook';
+import { edgeStyles, roomsOverridingFloor } from '../shared/wallLook';
 import { insideRings, rampAlphaAt } from './rampMask';
 import { seedPack } from '../testing/seedCatalog';
 import { SEVEN_IDS, sevenRoomLayer, type SevenRoomOptions } from '../testing/sevenRooms';
@@ -195,6 +195,50 @@ describe("the passage's walls on the cave's own union", () => {
       expect(Math.max(a[0], b[0])).toBeCloseTo(15, 5);
     }
     expect(sets.filter(([set]) => set !== SEVEN_IDS.band).every(([set]) => set === SEVEN_IDS.cave)).toBe(true);
+  });
+});
+
+describe('which rooms override a floor’s walls', () => {
+  // As the owner's map holds it: the passage carries its own band and set, and its room pins another set.
+  const pinned = (extra: Partial<Room>[] = []) =>
+    cave({ rooms: Object.assign([], { 1: { look: { wallTextureSetId: 'Other_Set' } } }, extra) });
+  const longSides = (l: DungeonLayer) => {
+    const i = l.mergedFloor!.findIndex((r) => r.length > 4);
+    const ring = l.mergedFloor![i];
+    return edgeStyles(l)[i]!.filter((_, e) => {
+      const [a, b] = [ring[e], ring[(e + 1) % ring.length]];
+      return Math.abs(a[1] - b[1]) < 1e-6 && [6, 8].includes(Math.round(a[1])) && Math.min(a[0], b[0]) > 10.9 && Math.max(a[0], b[0]) < 15.1;
+    }).map((s) => s.wallTextureSetId);
+  };
+
+  it("names the passage's room for a pick on the passage floor, and nothing else", () => {
+    // Rooms pinned elsewhere: the far chamber, and the chamber the passage opens into.
+    const l = pinned(Object.assign([], { 2: { look: { wallTextureSetId: 'Far_Set' } }, 4: { look: { wallTextureSetId: 'Far_Set', wallWidth: 0.8 } } }));
+    expect(roomsOverridingFloor(l, 'floor-2', 'wallTextureSetId')).toEqual(['room-2']);
+    // The room pins no width: none for a width pick.
+    expect(roomsOverridingFloor(l, 'floor-2', 'wallWidth')).toEqual([]);
+    // A floor whose own edges no pinned room draws over.
+    expect(roomsOverridingFloor(l, 'floor-1', 'wallTextureSetId')).toEqual([]);
+    expect(roomsOverridingFloor(cave(), 'floor-2', 'wallTextureSetId')).toEqual([]);
+  });
+
+  it("does not name a room whose pin comes from its area", () => {
+    const l = cave({ rooms: Object.assign([], { 1: { areaId: 'wing' } }) });
+    const withArea = { ...l, areas: [{ id: 'wing', name: 'Wing', look: { wallTextureSetId: 'Other_Set' } }] };
+    expect(longSides(withArea)).toEqual(['Other_Set', 'Other_Set']);
+    expect(roomsOverridingFloor(withArea, 'floor-2', 'wallTextureSetId')).toEqual([]);
+  });
+
+  it("draws the floor's pick on the passage's long sides once the room's pin is gone", () => {
+    const l = pinned();
+    expect(longSides(l)).toEqual(['Other_Set', 'Other_Set']);
+    // The card's pick: a new band on the floor, and the room's own set cleared in the same step.
+    const picked = {
+      ...l,
+      children: l.children.map((c) => (c.id === 'floor-2' ? { ...c, edgeBand: 'Band_C' } : c)),
+      rooms: l.rooms!.map((r) => (r.id === 'room-2' ? { ...r, look: undefined } : r)),
+    } as DungeonLayer;
+    expect(longSides(picked)).toEqual(['Band_C', 'Band_C']);
   });
 });
 

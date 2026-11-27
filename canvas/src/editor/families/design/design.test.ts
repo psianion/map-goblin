@@ -731,6 +731,66 @@ describe('the floor card', () => {
     expect(p().edgeBand).toBe('GG_Cave_Moss');
   });
 
+  describe("a wall pick over a room's own wall pin", () => {
+    // A cave and a passage poking out of it, the passage's room pinned to its own wall set.
+    const cave: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+    const passage: [number, number][] = [[9, 4], [16, 4], [16, 6], [9, 6]];
+    const union: [number, number][] = [[0, 0], [10, 0], [10, 4], [16, 4], [16, 6], [10, 6], [10, 10], [0, 10]];
+    const rooms = [
+      { id: 'hall', name: 'Hall', anchor: [5, 5] as [number, number], face: cave, look: { wallTextureSetId: 'GG_Hall' } },
+      { id: 'pass', name: 'Passage 2', anchor: [13, 5] as [number, number], face: [[10.4, 4], [16, 4], [16, 6], [10.4, 6]] as [number, number][], look: { wallTextureSetId: 'GG_Cave_Moss', floorTint: '#ff0000' } },
+    ];
+    const setUp = () => {
+      seed(
+        [shape('cave', { contours: [cave] }), shape('passage', { contours: [passage], edgeBand: 'GG_Cave_Ink', styleOverrides: { wallTextureSetId: 'GG_Brick' } })],
+        ['passage'],
+      );
+      useStore.setState((s) => {
+        const l = s.layers[0] as DungeonLayer;
+        l.mergedFloor = [union];
+        l.rooms = structuredClone(rooms);
+      });
+    };
+    const roomLook = (id: string) => layer().rooms?.find((r) => r.id === id)?.look;
+
+    for (const [fieldId, value, key] of [
+      ['card.floor.walls', 'GG_Fieldstone', 'wallTextureSetId'],
+      ['card.floor.edgeBand', 'GG_Cave_Moss', 'wallTextureSetId'],
+      ['card.floor.edgeBand', '__paint__', 'wallTextureSetId'],
+      ['card.floor.wallWidth', 0.75, 'wallWidth'],
+    ] as const) {
+      it(`${fieldId} = ${value} clears the passage room's own pin in the same undo step, and one undo puts both back`, () => {
+        setUp();
+        if (key === 'wallWidth') useStore.setState((s) => void ((s.layers[0] as DungeonLayer).rooms![1].look!.wallWidth = 0.9));
+        const floorBefore = structuredClone(child<ShapeChild>('passage'));
+        write('shape', fieldId, ['passage'], value);
+        expect(roomLook('pass')?.[key]).toBeUndefined();
+        // Only that key, only that room: its tint and the hall's own set stay.
+        expect(roomLook('pass')?.floorTint).toBe('#ff0000');
+        expect(roomLook('hall')?.wallTextureSetId).toBe('GG_Hall');
+        if (fieldId === 'card.floor.walls') expect(read('shape', fieldId, child<ShapeChild>('passage'))).toBe(value);
+        if (fieldId === 'card.floor.wallWidth') expect(read('shape', fieldId, child<ShapeChild>('passage'))).toBe(0.75);
+        expect(undoManager.size()).toBe(1);
+        undoManager.undo();
+        expect(roomLook('pass')?.[key]).toBe(key === 'wallWidth' ? 0.9 : 'GG_Cave_Moss');
+        expect(child<ShapeChild>('passage')).toEqual(floorBefore);
+      });
+    }
+
+    it('leaves a room alone whose wall set comes from its area, and one on the other floor', () => {
+      setUp();
+      useStore.setState((s) => {
+        const l = s.layers[0] as DungeonLayer;
+        l.areas = [{ id: 'wing', name: 'Wing', look: { wallTextureSetId: 'GG_Wing' } }];
+        l.rooms![1].areaId = 'wing';
+        delete l.rooms![1].look!.wallTextureSetId;
+      });
+      write('shape', 'card.floor.walls', ['passage'], 'GG_Fieldstone');
+      expect(layer().areas?.[0].look?.wallTextureSetId).toBe('GG_Wing');
+      expect(roomLook('hall')?.wallTextureSetId).toBe('GG_Hall');
+    });
+  });
+
   it('picks Painted border as paint only: the band goes for it, stone walls stay, its texture and width set undoably', () => {
     seed([shape('a'), shape('b')], ['a', 'b']);
     useStore.setState((s) => {

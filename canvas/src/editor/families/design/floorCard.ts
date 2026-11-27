@@ -18,7 +18,7 @@ import { floorColorOf, degToRad, TEXTURE_SCALE_RANGE } from '@/editor/models/sel
 import { editChildren, editKey } from './cardWrites';
 import { FLOOR_EDGE_OPTIONS, blendsFloorEdges, setFloorEdges } from './layerStyle';
 import { FLOOR_VERBS, openOutlineNodes } from './verbs';
-import { drawnWallSetOf, edgeBandOf, fillOf, pickedFloors, state, unpinnedBandOf, type FillValue } from './floorModel';
+import { drawnWallSetOf, edgeBandOf, fillOf, pickedFloors, roomPinsOver, state, unpinnedBandOf, type FillValue } from './floorModel';
 import { ColourField, EdgePaintField, FillField, FloorEdgeField, LayerField, PAINTED_EDGE, PLAIN_WALLS as LAYER_WALLS, RockField, TextureField, WallsField } from './FloorFields';
 import { ShoreField } from '@/editor/families/terrain/MaterialsColumn';
 import { defaultShoreId, isWaterMaterial } from '@dnd/core/src/assets/materialKit';
@@ -99,13 +99,20 @@ const walls = defineCardField<'shape', string | null>({
   // What its outline is drawn with: its edge band, its own pin, else its layer's set.
   read: (o) => (o.ground ? null : drawnWallSetOf(o) || o.edgeMaterial || LAYER_WALLS),
   write: (_store, ids, v) =>
-    editChildren('Floor walls', ids, (c) => {
-      if (c.childType !== 'shape') return null;
-      if (v === null) return c.ground ? null : { ground: true };
-      if (v === LAYER_WALLS) return c.ground ? { ground: undefined } : null;
-      // The set picked is what draws: an edge band of the floor's own would stand over it, so it goes.
-      return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v }, ...(c.edgeBand !== undefined ? { edgeBand: undefined } : {}) };
-    }),
+    editChildren(
+      'Floor walls',
+      ids,
+      (c) => {
+        if (c.childType !== 'shape') return null;
+        if (v === null) return c.ground ? null : { ground: true };
+        if (v === LAYER_WALLS) return c.ground ? { ground: undefined } : null;
+        // The set picked is what draws: an edge band of the floor's own would stand over it, so it goes.
+        return { ground: undefined, styleOverrides: { ...(c.styleOverrides ?? {}), wallTextureSetId: v }, ...(c.edgeBand !== undefined ? { edgeBand: undefined } : {}) };
+      },
+      undefined,
+      // …and so would a room's own wall set on the floor's edges: the latest pick wins.
+      v === null || v === LAYER_WALLS ? [] : roomPinsOver(ids, 'wallTextureSetId'),
+    ),
 });
 
 /** The rock a brush cave or a brush ground piece's rim is laid with: any cave or cliff kit. */
@@ -158,6 +165,8 @@ const wallWidth = defineCardField<'shape', number>({
       ids,
       (c) => (c.childType === 'shape' ? { styleOverrides: { ...(c.styleOverrides ?? {}), wallWidth: cardWallWidth(w, wallSetOf(c)) } } : null),
       editKey('floor.wallWidth', ids),
+      // A room's own wall width on the floor's edges goes with it: the latest pick wins.
+      roomPinsOver(ids, 'wallWidth'),
     ),
 });
 
@@ -363,16 +372,23 @@ const edgeBand = defineCardField<'shape', string | null>({
   visibleWhen: (o) => !hasOwnRock(o),
   read: (o) => (o.edgePaint ? PAINTED_EDGE : edgeBandOf(o)),
   write: (_store, ids, v) =>
-    editChildren('Edge band', ids, (c) => {
-      if (c.childType !== 'shape') return null;
-      if (v === PAINTED_EDGE) {
-        const paint = c.edgePaint ?? defaultBorderTexture();
-        if (!paint) return null;
-        return { edgePaint: paint, edgeBand: edgeBandOf(c) !== null ? null : c.edgeBand };
-      }
-      // The band it would draw anyway (its pinned set's, or its layer's) unpins it.
-      return { edgePaint: undefined, edgeBand: v === unpinnedBandOf(c) ? undefined : v };
-    }),
+    editChildren(
+      'Edge band',
+      ids,
+      (c) => {
+        if (c.childType !== 'shape') return null;
+        if (v === PAINTED_EDGE) {
+          const paint = c.edgePaint ?? defaultBorderTexture();
+          if (!paint) return null;
+          return { edgePaint: paint, edgeBand: edgeBandOf(c) !== null ? null : c.edgeBand };
+        }
+        // The band it would draw anyway (its pinned set's, or its layer's) unpins it.
+        return { edgePaint: undefined, edgeBand: v === unpinnedBandOf(c) ? undefined : v };
+      },
+      undefined,
+      // A room's own wall set on the floor's edges would stand over the pick: the latest pick wins.
+      roomPinsOver(ids, 'wallTextureSetId'),
+    ),
 });
 
 /** Floor edges on the floor's layer, Sharp or Blend: the layer's one choice, written for every layer the picked floors lie on. */

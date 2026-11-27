@@ -6,7 +6,10 @@ import { selectLayerForChild } from '@/store/selectors';
 import { isBandSet } from '@dnd/core/src/assets/packCatalog';
 import type { DungeonLayer, MapBuilderStore, ShapeChild } from '@/store/types';
 import { radToDeg } from '@/editor/models/selectionModel';
-import { floorWallSet } from '@dnd/core/src/shared/wallLook';
+import { floorWallSet, roomsOverridingFloor, type FloorWallKey } from '@dnd/core/src/shared/wallLook';
+import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
+import { SetRoomLookCommand } from '@/store/commands';
+import type { Command } from '@/store/types';
 import { layerDrawStyle } from '@dnd/core/src/engine/levelLook';
 
 export const state = () => useStore.getState() as MapBuilderStore;
@@ -47,6 +50,27 @@ export function edgeBandOf(o: ShapeChild): string | null {
   if (o.edgeBand !== undefined) return o.edgeBand;
   const set = drawnWallSetOf(o);
   return set && isBandSet(set) ? set : null;
+}
+
+/**
+ * For a wall pick on the picked floors to show: clearing the own pin of `key` on each room
+ * whose pin draws over one of those floors' own edges (`roomsOverridingFloor`). A pin that
+ * comes from the room's area stays. Rooms on a locked layer are left alone, as the floor is.
+ */
+export function roomPinsOver(ids: readonly string[], key: FloorWallKey): Command[] {
+  const st = state();
+  const seen = new Set<string>();
+  const out: Command[] = [];
+  for (const id of ids) {
+    const layer = selectLayerForChild(st, id);
+    if (layer?.type !== 'dungeon' || blockedLayerReason(layer)) continue;
+    for (const roomId of roomsOverridingFloor(layer as DungeonLayer, id, key)) {
+      if (seen.has(`${layer.id}:${roomId}`)) continue;
+      seen.add(`${layer.id}:${roomId}`);
+      out.push(new SetRoomLookCommand(layer.id, roomId, { [key]: undefined }));
+    }
+  }
+  return out;
 }
 
 /** The band a floor would draw with no edge band of its own: its pinned set's or its layer's, when a band. */
